@@ -2,7 +2,15 @@
 
 Understand what GPU snapshotting saves, how it works, and where it can help. Use a bounded POC to make the mechanism and trade-offs observable; no production platform is currently being built.
 
+## Optional local context
+
+If `.local-notes/context.md` exists, read it before planning work. It contains machine-local context and is intentionally untracked; its absence on another checkout is normal. Keep personal context out of tracked documentation.
+
 ## Knowledge Updates
+
+### 2026-09-14 - Native DMTCP can reacquire the GPU after writing a checkpoint
+**Finding**: At the pinned DMTCP revision, `src/dmtcpworker.cpp:502` finalizes the image before the normal resume path, and `plugin/cuda/cuda-ckpt.cpp:333` calls GPU restore after both checkpoint resume and image restart. The release metric in `docs/implementation-plan.md:166` therefore needs to distinguish temporary staging-time release from availability after verified original-process exit; see the [pinned plugin](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp#L333-L378).
+**Impact**: Do not treat the first disappearance from GPU monitoring as the completed handoff. Record original-process exit and subsequent GPU availability, with job B as functional evidence, before reporting the GPU as available to another job.
 
 ### 2026-09-14 - DMTCP final image names have a version-specific completion meaning
 **Finding**: The preserved single-process controller uses a fresh run directory and `--no-gzip`, then waits for a final `*.dmtcp` image in `experiments/dmtcp/probe-dmtcp.py:96`. In the pinned DMTCP build, [processinfo.h:114](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/processinfo.h#L114) appends `.temp` while writing and [dmtcpworker.cpp:490–504](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/dmtcpworker.cpp#L490-L504) renames after the write barrier in the default non-forked path.

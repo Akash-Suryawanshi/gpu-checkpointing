@@ -130,6 +130,6 @@ Single-run transition observations, including launch and timestamp overhead, wer
 
 ## Environment history
 
-The initial September 12 Jarvis observation reported driver 580.126.20 with CUDA 13.0 and neither `criu` nor `cuda-checkpoint` on `PATH`. After the instance resumed on September 14, it reported driver 595.58.03. Workspace persistence therefore did not imply an unchanged driver environment. Each experiment must record its live GPU, driver, runtime, tools, permissions, and cgroup limits.
+The initial September 12 host observation reported driver 580.126.20 with CUDA 13.0 and neither `criu` nor `cuda-checkpoint` on `PATH`. After the instance resumed on September 14, it reported driver 595.58.03. Workspace persistence therefore did not imply an unchanged driver environment. Each experiment must record its live GPU, driver, runtime, tools, permissions, and cgroup limits.
 
 The local development machine was macOS ARM64 with no NVIDIA GPU tools. It is suitable for authoring and CPU-side checks, but NVIDIA CUDA checkpointing is a Linux feature and was validated only on the Linux L4 host.

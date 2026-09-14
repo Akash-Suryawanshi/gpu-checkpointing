@@ -197,7 +197,7 @@ Historical large-training examples show why this distinction matters:
 
 These averages and ratios are calculated scenarios, not measured average recovery losses. BLOOM separately reported around **40 seconds to write a checkpoint** in its [March 18 timing record](https://github.com/bigscience-workshop/bigscience/blob/master/train/tr11-176B-ml/chronicles.md#2022-03-18). The potential repeated training comes from hours between saves, not half of that 40-second write.
 
-The two-minute comparison comes from [AWS's best-effort Spot stop/terminate warning](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html). The workloads above were not presented as AWS Spot experiments, and this does not establish Jarvis's warning duration. When the whole instance will disappear, a successful warning-triggered save needs:
+The two-minute comparison comes from [AWS's best-effort Spot stop/terminate warning](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html). The workloads above were not presented as AWS Spot experiments, and warning behavior must be verified for the selected service. When the whole instance will disappear, a successful warning-triggered save needs:
 
 ```text
 detection time + time to reach the chosen boundary + C + safety margin ≤ W
@@ -205,30 +205,28 @@ detection time + time to reach the chosen boundary + C + safety margin ≤ W
 
 A complete **application checkpoint can also be triggered by the warning**. If it finishes in time, it can preserve the latest completed update too. Avoiding `T/2` rollback is then not unique to a process snapshot; the comparison turns on application support and measured total save/restart cost.
 
-### Historical price example, checked September 14, 2026
+### Illustrative compute-cost example
 
-The archived discussion recorded Jarvis H200 spot at **$1.99 per GPU-hour**, versus **$3.99 on-demand**, with storage extra and availability varying by region. Use the spot price when valuing repeated spot compute. These are historical observations, not a current quote. Sources: [Jarvis H200 page](https://jarvislabs.ai/gpu/nvidia-h200) and [India pricing page](https://jarvislabs.ai/in).
+Assume a spot compute price of **$2.00 per GPU-hour**. This is an illustrative input, not a provider quote; substitute the actual rate for a real workload. Use the spot price when valuing repeated spot compute.
 
 Assume `T = 30 minutes`, a successful warning save, and an additional **billed** save duration of 0.5 minutes. Compared with falling back to the prior periodic checkpoint, the simplified net avoided compute cost is `(15 − 0.5) × p`:
 
 | Job | Spot compute per hour | Whole-job `p` per minute | Simplified net saving per interruption |
 | --- | --- | --- | --- |
-| 1 × H200 | $1.99 | About $0.0332 | About $0.48 |
-| 8 × H200 | $15.92 | About $0.2653 | About $3.85 |
+| 1 GPU | $2.00 | About $0.0333 | About $0.48 |
+| 8 GPUs | $16.00 | About $0.2667 | About $3.87 |
 
-For eight GPUs, avoiding 15 minutes of repeated work saves $3.98, and the assumed 30-second save costs about $0.13. A hypothetical 20% share of the $3.85 net is about **$0.77 per successful interruption**. At `T = 3 hours`, the same assumptions yield about **$23.75** net and **$4.75** for a 20% share. These are arithmetic at the per-GPU rate, not a quoted cluster offer or an established business model.
-
-The historical India listing was **₹188.73 per H200 GPU-hour**, approximately **₹3.15/minute** for one or **₹25.16/minute** for eight. These are listed INR prices, not a conversion of the USD example. The earlier discussion's hypothetical $0.02/minute equals $1.20/hour, below the recorded H200 spot price.
+For eight GPUs, avoiding 15 minutes of repeated work saves $4.00, and the assumed 30-second save costs about $0.13. A hypothetical 20% share of the $3.87 net is about **$0.77 per successful interruption**. At `T = 3 hours`, the same assumptions yield about **$23.87** net and **$4.77** for a 20% share. These are arithmetic at the assumed per-GPU rate, not a quoted cluster offer or an established business model.
 
 The calculations assume all GPUs would otherwise repeat the same lost work, equal restart times, unchanged speed and price after resume, and a save that succeeds. A 30-second eight-GPU save is an assumption. Missed warnings, failed saves, restore differences, storage, and transfer charges must enter a real comparison. Turning a fee per interruption into an hourly premium additionally needs interruption frequency. The learning POC remains one GPU.
 
 ### Who waits while a GPU is reclaimed?
 
-A provider's **scheduler** assigns compute resources to jobs. If it reclaims job A's GPU to run job B, A still occupies that GPU while capture requires it. B can use it only after release and necessary cleanup/setup. Charging A during capture, waiving that time, charging a snapshot fee, or charging B while it waits are provider policy questions; no Jarvis billing rule is established here.
+A provider's **scheduler** assigns compute resources to jobs. If it reclaims job A's GPU to run job B, A still occupies that GPU while capture requires it. B can use it only after release and necessary cleanup/setup. Charging A during capture, waiving that time, charging a snapshot fee, or charging B while it waits are provider policy questions that must be checked for the selected service.
 
 Keeping A's CPU process and staged state in RAM while B uses the GPU can support a planned handoff, if the environment permits it. It does not protect A against host loss. Counting both as simultaneously using the same exclusive GPU would overstate utilization; RAM/storage costs and B's delay also matter.
 
-Jarvis describes reclaimable spot capacity. The September 2026 source review distinguished storage surviving ordinary pause/restart from a shared filesystem documented to survive instance deletion. Neither statement establishes a universal preemption warning or recovery guarantee. See the historical sources: [Jarvis spot/storage description](https://jarvislabs.ai/in) and [shared-filesystem lifecycle](https://jarvislabs.ai/products/filesystems). Recovery depends on the lifecycle of the actual chosen storage, not merely the word “disk.”
+Storage surviving an ordinary pause or restart does not establish that it survives instance deletion. Verify whether the chosen volume or shared filesystem remains available after the failure being tested. Recovery depends on the lifecycle of the actual storage, not merely the word “disk.”
 
 ## Compatibility limits and useful applications
 
