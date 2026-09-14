@@ -4,6 +4,10 @@ Understand what GPU snapshotting saves, how it works, and where it can help. Use
 
 ## Knowledge Updates
 
+### 2026-09-14 - Distinguish CRIU startup probes from workload requirements
+**Finding**: Both the packaged CRIU gate and direct CPU dump fail in `kerndat_has_nftables_concat` before process capture; see `docs/gate-results.md:11`. The L4 GPU-only probe nevertheless passes in the same container, preserving a 64 MiB tensor while the original CPU process stays alive.
+**Impact**: Do not say the CPU counter needs networking or equate GPU suspension with a saved process image. Keep the container-permission failure and successful NVIDIA-only probe as separate outcomes.
+
 ### 2026-09-14 - Recheck the driver after instance resume
 **Finding**: The resumed instance reports driver 595.58.03, whereas the original observation reported 580.126.20; see `docs/gate-results.md:3`. The saved workspace remaining available does not establish that the surrounding driver environment stayed identical.
 **Impact**: Record the live GPU, driver and tool versions for each experiment after a resume. Do not reuse historical compatibility results without checking the current execution environment.

@@ -45,4 +45,4 @@ Measure request-to-GPU-release, request-to-completed-image, restore-to-next-comp
 
 Compare at the same completed update using the same storage. Local filesystem sync alone does not prove survival after host removal. Report actual GPU/driver/tools, correctness result, timings and limits; do not label local tests or a warning simulation as real spot recovery.
 
-Current evidence: local workload/checker tests pass; Linux and GPU execution are pending an accessible host. Earlier Jarvis observations in `gate-results.md` are historical, not a fresh capability check.
+Current evidence: local and remote workload/checker tests pass. On the resumed Linux host, CRIU 3.16.1 fails during its startup network feature probe before capturing the CPU process. A separate GPU-only experiment passed: a 64 MiB tensor survived CUDA suspension and restoration, another job used the GPU in between, and computation resumed correctly. The original CPU process remained alive; full process restore and instance-loss recovery remain unverified. See `gate-results.md` for measurements and environment restrictions.

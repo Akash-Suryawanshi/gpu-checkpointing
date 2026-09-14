@@ -4,7 +4,9 @@ A small, observable experiment to learn what GPU snapshotting is, how it works, 
 
 ## Current status
 
-The CPU workload, CRIU command script and evidence checker are implemented. Three local tests pass on macOS, including a real counter process that pauses and continues. **No Linux CRIU restore or GPU restore has been demonstrated yet.** Local tests exercise the workload and checker, not CRIU.
+**GPU-only checkpoint/restore passed on the L4.** A 64 MiB tensor matched byte-for-byte after NVIDIA released and restored its GPU state; a second GPU job ran while it was suspended, and the original process completed its next GPU operation correctly.
+
+**Full CPU/GPU process restore is still blocked.** Both the CRIU 3.16.1 capability check and a direct CPU dump fail during kernel feature detection because the container denies network-namespace creation. The three workload/evidence tests pass on both macOS and the Linux instance. See [measured results](docs/gate-results.md).
 
 The [study guide](docs/r-2026-09-14T10-56-45.html) is unchanged. The [implementation plan](docs/implementation-plan.md) now follows the agreed CPU-first scope.
 
@@ -71,9 +73,21 @@ python3 -m unittest discover -s tests -v
 bash -n checkpoint.sh scripts/check-host.sh
 ```
 
-## Next: GPU training
+## GPU-only probe
 
-After the CPU round trip passes, run `bash scripts/check-host.sh gpu`. This checks actual PyTorch CUDA execution as well as tool availability. Then implement the small deterministic training comparison described in the plan.
+This separate experiment uses manual NVIDIA transitions and keeps the original CPU process alive. It does not use CRIU, create a durable process image, or prove training restart after process/host loss.
+
+```bash
+bash scripts/probe-gpu.sh /home/gpu-checkpointing-tools/cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint "$PWD/runs/gpu-only-02"
+```
+
+Use a fresh run directory. `gpu_memory_probe.py` creates and hashes a 64 MiB tensor, waits for external release, then verifies its contents and another GPU operation. The shell records CUDA state, process GPU memory, host RSS and transition times; runs job B while A is checkpointed; and restores/unlocks A before release.
+
+The tested NVIDIA utility is version 595.58.03, source commit `00d5cce84c628088d6caa203fc4af40c1538b6f7`. Obtain it from [NVIDIA's official repository](https://github.com/NVIDIA/cuda-checkpoint). These utility files are in a separate tools directory on the instance.
+
+## Next: full process restore and training
+
+First obtain an execution environment with the permissions needed by CRIU, and verify the CPU round trip. For GPU integration, CRIU 4.0 or newer with its CUDA plugin is needed; the Ubuntu 3.16.1 package was used only for the initial CPU feasibility check. Then implement the small deterministic training comparison described in the plan. The current container has not demonstrated full process restore.
 
 The full GPU path will use the CRIU CUDA plugin as the single owner of GPU checkpoint/restore. Do not append manual CUDA restore/unlock commands after plugin-managed restoration. Verify the installed plugin and tool versions on the host before adding GPU orchestration.
 
