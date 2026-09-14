@@ -45,14 +45,13 @@ A **process checkpoint**, or transparent snapshot, instead aims to reconstruct t
 1. [CPU checkpointing](docs/01-cpu-checkpointing.md): memory, threads, files, CRIU's nine capture/restore stages, and how DMTCP differs.
 2. [GPU checkpointing](docs/02-gpu-checkpointing.md): asynchronous CUDA work, NVIDIA's state transitions, CPU/GPU coordination, costs, limitations, and useful comparisons.
 
-The Markdown chapters are the authoritative explanation. The CPU chapter also links to a standalone interactive walkthrough. After the concepts, read the [single-GPU fine-tuning research](research/single-gpu-finetuning.md) for workload choices and open compatibility questions, the [implementation plan](docs/implementation-plan.md) for the proposed experiment, and [experiment results](experiments/results.md) for commands, environment details, and evidence.
+The Markdown chapters are the authoritative explanation. The CPU chapter also links to a standalone interactive walkthrough. After the concepts, read the [single-GPU fine-tuning research](research/single-gpu-finetuning.md), the [implementation plan](docs/implementation-plan.md), and [experiment results](experiments/results.md). The [runnable LoRA experiment](experiments/finetuning/README.md) explains setup, correctness checks, and timing commands.
 
 ## What has been observed
 
-As recorded on September 14, 2026, the resumed L4 host reports NVIDIA driver **595.58.03**. The current evidence has three separate outcomes:
+September 14, 2026 evidence covers two different execution hosts:
 
-- **CRIU is blocked in this container:** its capability check and direct CPU dump fail during startup feature detection, before process capture.
-- **NVIDIA GPU-only pause/restore passed:** a 64 MiB tensor returned correctly and another job used the released GPU. The original CPU process remained alive; this was not a saved process image.
-- **DMTCP CPU restore passed, and a complete PyTorch GPU process restored after the original exited:** tensor data and the next GPU operation matched. Anonymous shared-memory warnings remain unresolved, so this is a qualified result. Complete LoRA fine-tuning has not been validated.
+- **EC2 A10G, driver 570.172.08: isolated four-update LoRA continuation passed.** Application restart and CRIU restore match uninterrupted training with dropout zero and 0.1. CRIU trials verify original-process exit, job B, restored state, and continuation; two successive captures also pass. The observed diagnostic CRIU trials take about one minute, or under two minutes for two captures. Interrupted-system-call warnings and sharing ownership remain qualified.
+- **Earlier L4 container, driver 595.58.03:** CRIU was blocked during startup feature detection. NVIDIA GPU-only suspension passed while the CPU process stayed alive. DMTCP restored a complete GPU process after original exit with matching tensor data and subsequent computation, but shared-memory warnings remain unresolved.
 
-The [measured results](experiments/results.md) contain the dated evidence and exact qualifications. Local development is on macOS; NVIDIA CUDA checkpoint validation runs on the compatible Linux host. This repository is not building a production scheduling platform. The fine-tuning plan is a review draft; its experiments have not yet run.
+The [measured results](experiments/results.md) contain dated evidence and exact qualifications. These are same-host experiments; replacement-host and spot recovery remain untested. This repository is not building a production scheduling platform.

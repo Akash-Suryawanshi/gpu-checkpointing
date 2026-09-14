@@ -1,0 +1,650 @@
+{
+  "initial_repeated_failure": {
+    "cause": "Controller reused --pidfile; pinned CRIU creates it with O_EXCL. Fixed with generation-specific PID filenames.",
+    "cleanup": "No remaining experiment GPU or trainer process was observed.",
+    "lifecycle_passed": false,
+    "numerical_passed": false,
+    "warnings": [
+      "(11.240543) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2882628 with interrupted system call",
+      "(11.440460) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2882628 with interrupted system call",
+      "(03.065377) Error (criu/log.c:416): pidfile: Can't open /home/ubuntu/git/akashezz/gpu-checkpointing/runs/finetuning/criu-repeated/restored.pid: File exists",
+      "(03.065382) Error (criu/cr-restore.c:1986): Can't write pidfile: File exists",
+      "(03.065411) Error (criu/cr-restore.c:2331): Restoring FAILED."
+    ]
+  },
+  "milestone": "active dropout and repeated restoration",
+  "runs": {
+    "application-dropout": {
+      "key": {
+        "config": {
+          "lora": {
+            "bias": "none",
+            "lora_alpha": 16,
+            "r": 8,
+            "target_modules": [
+              "q_proj",
+              "v_proj"
+            ]
+          },
+          "max_tokens": 128,
+          "model": "Qwen/Qwen2.5-0.5B",
+          "optimizer": {
+            "betas": [
+              0.9,
+              0.999
+            ],
+            "eps": 1e-08,
+            "foreach": false,
+            "fused": false,
+            "lr": 0.001,
+            "weight_decay": 0
+          },
+          "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+          "seed": 2026,
+          "updates": 4
+        },
+        "dropout": 0.1,
+        "environment": {
+          "allocator": "native",
+          "cuda": "12.8",
+          "gpu": "NVIDIA A10G, GPU-75bd90e1-ab34-9347-a945-c2f8ae6f477d, 570.172.08, 23028 MiB",
+          "kernel": "6.8.0-1036-aws",
+          "packages": {
+            "accelerate": "1.15.0",
+            "annotated-doc": "0.0.5",
+            "anyio": "4.15.1",
+            "certifi": "2026.7.22",
+            "exceptiongroup": "1.3.1",
+            "filelock": "3.32.6",
+            "fsspec": "2026.7.0",
+            "h11": "0.16.0",
+            "hf-xet": "1.6.0",
+            "httpcore": "1.0.9",
+            "httpx": "0.28.1",
+            "huggingface_hub": "1.3.5",
+            "idna": "3.19",
+            "jinja2": "3.1.6",
+            "markdown-it-py": "4.2.0",
+            "markupsafe": "3.0.3",
+            "mdurl": "0.1.2",
+            "mpmath": "1.3.0",
+            "networkx": "3.4.2",
+            "numpy": "2.2.6",
+            "nvidia-cublas-cu12": "12.8.4.1",
+            "nvidia-cuda-cupti-cu12": "12.8.90",
+            "nvidia-cuda-nvrtc-cu12": "12.8.93",
+            "nvidia-cuda-runtime-cu12": "12.8.90",
+            "nvidia-cudnn-cu12": "9.10.2.21",
+            "nvidia-cufft-cu12": "11.3.3.83",
+            "nvidia-cufile-cu12": "1.13.1.3",
+            "nvidia-curand-cu12": "10.3.9.90",
+            "nvidia-cusolver-cu12": "11.7.3.90",
+            "nvidia-cusparse-cu12": "12.5.8.93",
+            "nvidia-cusparselt-cu12": "0.7.1",
+            "nvidia-nccl-cu12": "2.27.3",
+            "nvidia-nvjitlink-cu12": "12.8.93",
+            "nvidia-nvtx-cu12": "12.8.90",
+            "packaging": "26.3",
+            "peft": "0.18.1",
+            "pip": "22.0.2",
+            "psutil": "7.2.2",
+            "pygments": "2.21.0",
+            "pyyaml": "6.0.3",
+            "regex": "2026.9.10",
+            "rich": "15.0.0",
+            "safetensors": "0.6.2",
+            "setuptools": "59.6.0",
+            "shellingham": "1.5.4",
+            "sympy": "1.14.0",
+            "tokenizers": "0.22.2",
+            "torch": "2.8.0",
+            "tqdm": "4.70.1",
+            "transformers": "5.0.0",
+            "triton": "3.4.0",
+            "typer": "0.27.2",
+            "typer-slim": "0.24.0",
+            "typing_extensions": "4.16.0"
+          },
+          "python": "3.10.12",
+          "torch": "2.8.0+cu128"
+        },
+        "identity": {
+          "examples_sha256": "c80d2380cb9a2740ce16cc56ffabb1b02f54dbf0f7ee1cad6c1711be5b49a25d",
+          "files": {
+            "config.json": "479dcf0c5286339e41ad3992cd08ae88a467c4187587936248e2b7c96283484b",
+            "generation_config.json": "8c970692323e3ea0e9b8b0a4dca79388d31226e41f83c9fd6014804280ebf6e8",
+            "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+            "model.safetensors": "88c142557820ccad55bb59756bfcfcf891de9cc6202816bd346445188a0ed342",
+            "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+            "tokenizer_config.json": "c91efca15ceff6e9ee9424db58a6f59cd41294e550a86cbd07e3c1fb500b34f9",
+            "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+          },
+          "model": "Qwen/Qwen2.5-0.5B",
+          "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+          "tokens_sha256": "db028e026dc86909d8a08647a0c22cd92c2e8ba39318f943a6c2ead3dde9d7f5"
+        },
+        "sources": {
+          "experiments/criu/session.py": "1f03b6290bbefb08cd65ee09ac8849608f4a3d14523412beff377e4b6a76f337",
+          "experiments/finetuning/prepare.py": "661da55620b1412ddbe6a32a66b42285be69386cfc2e4fe590e1ba5919798eb9",
+          "experiments/finetuning/run.py": "05a402dcc2824f4574226db9cf1692666d3bb17da6c4f90470286d43fcba0531",
+          "experiments/finetuning/state.py": "0f72d6d1fd8b386a0c17d1cc08a240bc037489a8c4bd5488aba52fb30ba658e1",
+          "experiments/finetuning/train.py": "ceeae11bfe5b03b387788600d0e787ab39546b8a3d3cf6b69dcaec44f20bd143"
+        },
+        "until": 4
+      },
+      "result": {
+        "application_bytes": 6710199,
+        "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+        "events": [
+          {
+            "event": "launched",
+            "monotonic_ns": 529169608110342,
+            "pid": 2881056
+          },
+          {
+            "event": "capture_requested",
+            "generation": 2,
+            "monotonic_ns": 529184421563791
+          },
+          {
+            "event": "application_save_completed",
+            "generation": 2,
+            "monotonic_ns": 529184572694710
+          },
+          {
+            "event": "original_exit_verified",
+            "generation": 2,
+            "monotonic_ns": 529185757397597,
+            "pid": 2881056
+          },
+          {
+            "event": "filesystem_synced",
+            "generation": 2,
+            "monotonic_ns": 529185791490587
+          },
+          {
+            "event": "gpu_observed_after_exit",
+            "generation": 2,
+            "monotonic_ns": 529185855978121
+          },
+          {
+            "event": "job_b_completed",
+            "generation": 2,
+            "monotonic_ns": 529188938730919
+          },
+          {
+            "event": "restore_requested",
+            "generation": 2,
+            "monotonic_ns": 529188938815891
+          },
+          {
+            "event": "restore_returned",
+            "generation": 2,
+            "monotonic_ns": 529188943119070,
+            "pid": 2881346
+          },
+          {
+            "event": "continuation_permitted",
+            "generation": 2,
+            "monotonic_ns": 529198893346513
+          },
+          {
+            "event": "final_exit_verified",
+            "monotonic_ns": 529205161538644,
+            "pid": 2881346
+          },
+          {
+            "event": "verification_passed",
+            "monotonic_ns": 529205204640361
+          }
+        ],
+        "image_bytes": 0,
+        "lifecycle_passed": true,
+        "mode": "application",
+        "numerical_passed": true,
+        "trial_seconds": 35.597291775,
+        "unqualified_compatibility": false,
+        "warnings": []
+      }
+    },
+    "criu-dropout": {
+      "key": {
+        "config": {
+          "lora": {
+            "bias": "none",
+            "lora_alpha": 16,
+            "r": 8,
+            "target_modules": [
+              "q_proj",
+              "v_proj"
+            ]
+          },
+          "max_tokens": 128,
+          "model": "Qwen/Qwen2.5-0.5B",
+          "optimizer": {
+            "betas": [
+              0.9,
+              0.999
+            ],
+            "eps": 1e-08,
+            "foreach": false,
+            "fused": false,
+            "lr": 0.001,
+            "weight_decay": 0
+          },
+          "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+          "seed": 2026,
+          "updates": 4
+        },
+        "dropout": 0.1,
+        "environment": {
+          "allocator": "native",
+          "cuda": "12.8",
+          "gpu": "NVIDIA A10G, GPU-75bd90e1-ab34-9347-a945-c2f8ae6f477d, 570.172.08, 23028 MiB",
+          "kernel": "6.8.0-1036-aws",
+          "packages": {
+            "accelerate": "1.15.0",
+            "annotated-doc": "0.0.5",
+            "anyio": "4.15.1",
+            "certifi": "2026.7.22",
+            "exceptiongroup": "1.3.1",
+            "filelock": "3.32.6",
+            "fsspec": "2026.7.0",
+            "h11": "0.16.0",
+            "hf-xet": "1.6.0",
+            "httpcore": "1.0.9",
+            "httpx": "0.28.1",
+            "huggingface_hub": "1.3.5",
+            "idna": "3.19",
+            "jinja2": "3.1.6",
+            "markdown-it-py": "4.2.0",
+            "markupsafe": "3.0.3",
+            "mdurl": "0.1.2",
+            "mpmath": "1.3.0",
+            "networkx": "3.4.2",
+            "numpy": "2.2.6",
+            "nvidia-cublas-cu12": "12.8.4.1",
+            "nvidia-cuda-cupti-cu12": "12.8.90",
+            "nvidia-cuda-nvrtc-cu12": "12.8.93",
+            "nvidia-cuda-runtime-cu12": "12.8.90",
+            "nvidia-cudnn-cu12": "9.10.2.21",
+            "nvidia-cufft-cu12": "11.3.3.83",
+            "nvidia-cufile-cu12": "1.13.1.3",
+            "nvidia-curand-cu12": "10.3.9.90",
+            "nvidia-cusolver-cu12": "11.7.3.90",
+            "nvidia-cusparse-cu12": "12.5.8.93",
+            "nvidia-cusparselt-cu12": "0.7.1",
+            "nvidia-nccl-cu12": "2.27.3",
+            "nvidia-nvjitlink-cu12": "12.8.93",
+            "nvidia-nvtx-cu12": "12.8.90",
+            "packaging": "26.3",
+            "peft": "0.18.1",
+            "pip": "22.0.2",
+            "psutil": "7.2.2",
+            "pygments": "2.21.0",
+            "pyyaml": "6.0.3",
+            "regex": "2026.9.10",
+            "rich": "15.0.0",
+            "safetensors": "0.6.2",
+            "setuptools": "59.6.0",
+            "shellingham": "1.5.4",
+            "sympy": "1.14.0",
+            "tokenizers": "0.22.2",
+            "torch": "2.8.0",
+            "tqdm": "4.70.1",
+            "transformers": "5.0.0",
+            "triton": "3.4.0",
+            "typer": "0.27.2",
+            "typer-slim": "0.24.0",
+            "typing_extensions": "4.16.0"
+          },
+          "python": "3.10.12",
+          "torch": "2.8.0+cu128"
+        },
+        "identity": {
+          "examples_sha256": "c80d2380cb9a2740ce16cc56ffabb1b02f54dbf0f7ee1cad6c1711be5b49a25d",
+          "files": {
+            "config.json": "479dcf0c5286339e41ad3992cd08ae88a467c4187587936248e2b7c96283484b",
+            "generation_config.json": "8c970692323e3ea0e9b8b0a4dca79388d31226e41f83c9fd6014804280ebf6e8",
+            "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+            "model.safetensors": "88c142557820ccad55bb59756bfcfcf891de9cc6202816bd346445188a0ed342",
+            "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+            "tokenizer_config.json": "c91efca15ceff6e9ee9424db58a6f59cd41294e550a86cbd07e3c1fb500b34f9",
+            "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+          },
+          "model": "Qwen/Qwen2.5-0.5B",
+          "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+          "tokens_sha256": "db028e026dc86909d8a08647a0c22cd92c2e8ba39318f943a6c2ead3dde9d7f5"
+        },
+        "sources": {
+          "experiments/criu/session.py": "1f03b6290bbefb08cd65ee09ac8849608f4a3d14523412beff377e4b6a76f337",
+          "experiments/finetuning/prepare.py": "661da55620b1412ddbe6a32a66b42285be69386cfc2e4fe590e1ba5919798eb9",
+          "experiments/finetuning/run.py": "05a402dcc2824f4574226db9cf1692666d3bb17da6c4f90470286d43fcba0531",
+          "experiments/finetuning/state.py": "0f72d6d1fd8b386a0c17d1cc08a240bc037489a8c4bd5488aba52fb30ba658e1",
+          "experiments/finetuning/train.py": "ceeae11bfe5b03b387788600d0e787ab39546b8a3d3cf6b69dcaec44f20bd143"
+        },
+        "until": 4
+      },
+      "result": {
+        "application_bytes": 0,
+        "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+        "events": [
+          {
+            "event": "launched",
+            "monotonic_ns": 529208316114021,
+            "pid": 2881646
+          },
+          {
+            "event": "capture_requested",
+            "generation": 2,
+            "monotonic_ns": 529223220035049
+          },
+          {
+            "event": "dump_completed",
+            "generation": 2,
+            "monotonic_ns": 529234750236031
+          },
+          {
+            "event": "original_exit_verified",
+            "generation": 2,
+            "monotonic_ns": 529234751574569,
+            "pid": 2881646
+          },
+          {
+            "event": "filesystem_synced",
+            "generation": 2,
+            "monotonic_ns": 529255718489449
+          },
+          {
+            "event": "gpu_observed_after_exit",
+            "generation": 2,
+            "monotonic_ns": 529255784858581
+          },
+          {
+            "event": "job_b_completed",
+            "generation": 2,
+            "monotonic_ns": 529258914476114
+          },
+          {
+            "event": "restore_requested",
+            "generation": 2,
+            "monotonic_ns": 529258914562216
+          },
+          {
+            "event": "restore_returned",
+            "generation": 2,
+            "monotonic_ns": 529263101314903,
+            "pid": 2881646
+          },
+          {
+            "event": "continuation_permitted",
+            "generation": 2,
+            "monotonic_ns": 529265186618449
+          },
+          {
+            "event": "final_exit_verified",
+            "monotonic_ns": 529271000857553,
+            "pid": 2881646
+          },
+          {
+            "event": "verification_passed",
+            "monotonic_ns": 529271044586874
+          }
+        ],
+        "image_bytes": 3720072901,
+        "lifecycle_passed": true,
+        "mode": "criu",
+        "numerical_passed": true,
+        "trial_seconds": 62.75613805,
+        "unqualified_compatibility": false,
+        "warnings": [
+          "(10.939474) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2881653 with interrupted system call"
+        ]
+      }
+    },
+    "criu-repeated-fixed": {
+      "key": {
+        "config": {
+          "lora": {
+            "bias": "none",
+            "lora_alpha": 16,
+            "r": 8,
+            "target_modules": [
+              "q_proj",
+              "v_proj"
+            ]
+          },
+          "max_tokens": 128,
+          "model": "Qwen/Qwen2.5-0.5B",
+          "optimizer": {
+            "betas": [
+              0.9,
+              0.999
+            ],
+            "eps": 1e-08,
+            "foreach": false,
+            "fused": false,
+            "lr": 0.001,
+            "weight_decay": 0
+          },
+          "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+          "seed": 2026,
+          "updates": 4
+        },
+        "dropout": 0.1,
+        "environment": {
+          "allocator": "native",
+          "cuda": "12.8",
+          "gpu": "NVIDIA A10G, GPU-75bd90e1-ab34-9347-a945-c2f8ae6f477d, 570.172.08, 23028 MiB",
+          "kernel": "6.8.0-1036-aws",
+          "packages": {
+            "accelerate": "1.15.0",
+            "annotated-doc": "0.0.5",
+            "anyio": "4.15.1",
+            "certifi": "2026.7.22",
+            "exceptiongroup": "1.3.1",
+            "filelock": "3.32.6",
+            "fsspec": "2026.7.0",
+            "h11": "0.16.0",
+            "hf-xet": "1.6.0",
+            "httpcore": "1.0.9",
+            "httpx": "0.28.1",
+            "huggingface_hub": "1.3.5",
+            "idna": "3.19",
+            "jinja2": "3.1.6",
+            "markdown-it-py": "4.2.0",
+            "markupsafe": "3.0.3",
+            "mdurl": "0.1.2",
+            "mpmath": "1.3.0",
+            "networkx": "3.4.2",
+            "numpy": "2.2.6",
+            "nvidia-cublas-cu12": "12.8.4.1",
+            "nvidia-cuda-cupti-cu12": "12.8.90",
+            "nvidia-cuda-nvrtc-cu12": "12.8.93",
+            "nvidia-cuda-runtime-cu12": "12.8.90",
+            "nvidia-cudnn-cu12": "9.10.2.21",
+            "nvidia-cufft-cu12": "11.3.3.83",
+            "nvidia-cufile-cu12": "1.13.1.3",
+            "nvidia-curand-cu12": "10.3.9.90",
+            "nvidia-cusolver-cu12": "11.7.3.90",
+            "nvidia-cusparse-cu12": "12.5.8.93",
+            "nvidia-cusparselt-cu12": "0.7.1",
+            "nvidia-nccl-cu12": "2.27.3",
+            "nvidia-nvjitlink-cu12": "12.8.93",
+            "nvidia-nvtx-cu12": "12.8.90",
+            "packaging": "26.3",
+            "peft": "0.18.1",
+            "pip": "22.0.2",
+            "psutil": "7.2.2",
+            "pygments": "2.21.0",
+            "pyyaml": "6.0.3",
+            "regex": "2026.9.10",
+            "rich": "15.0.0",
+            "safetensors": "0.6.2",
+            "setuptools": "59.6.0",
+            "shellingham": "1.5.4",
+            "sympy": "1.14.0",
+            "tokenizers": "0.22.2",
+            "torch": "2.8.0",
+            "tqdm": "4.70.1",
+            "transformers": "5.0.0",
+            "triton": "3.4.0",
+            "typer": "0.27.2",
+            "typer-slim": "0.24.0",
+            "typing_extensions": "4.16.0"
+          },
+          "python": "3.10.12",
+          "torch": "2.8.0+cu128"
+        },
+        "identity": {
+          "examples_sha256": "c80d2380cb9a2740ce16cc56ffabb1b02f54dbf0f7ee1cad6c1711be5b49a25d",
+          "files": {
+            "config.json": "479dcf0c5286339e41ad3992cd08ae88a467c4187587936248e2b7c96283484b",
+            "generation_config.json": "8c970692323e3ea0e9b8b0a4dca79388d31226e41f83c9fd6014804280ebf6e8",
+            "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+            "model.safetensors": "88c142557820ccad55bb59756bfcfcf891de9cc6202816bd346445188a0ed342",
+            "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+            "tokenizer_config.json": "c91efca15ceff6e9ee9424db58a6f59cd41294e550a86cbd07e3c1fb500b34f9",
+            "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+          },
+          "model": "Qwen/Qwen2.5-0.5B",
+          "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+          "tokens_sha256": "db028e026dc86909d8a08647a0c22cd92c2e8ba39318f943a6c2ead3dde9d7f5"
+        },
+        "sources": {
+          "experiments/criu/session.py": "06480e5cb92da148facc41cb4dc87746bf2a3fc3435738d16a908e6f832d865a",
+          "experiments/finetuning/prepare.py": "661da55620b1412ddbe6a32a66b42285be69386cfc2e4fe590e1ba5919798eb9",
+          "experiments/finetuning/run.py": "05a402dcc2824f4574226db9cf1692666d3bb17da6c4f90470286d43fcba0531",
+          "experiments/finetuning/state.py": "0f72d6d1fd8b386a0c17d1cc08a240bc037489a8c4bd5488aba52fb30ba658e1",
+          "experiments/finetuning/train.py": "ceeae11bfe5b03b387788600d0e787ab39546b8a3d3cf6b69dcaec44f20bd143"
+        },
+        "until": 4
+      },
+      "result": {
+        "application_bytes": 0,
+        "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+        "events": [
+          {
+            "event": "launched",
+            "monotonic_ns": 529461390111684,
+            "pid": 2885404
+          },
+          {
+            "event": "capture_requested",
+            "generation": 2,
+            "monotonic_ns": 529476336881556
+          },
+          {
+            "event": "dump_completed",
+            "generation": 2,
+            "monotonic_ns": 529487882554279
+          },
+          {
+            "event": "original_exit_verified",
+            "generation": 2,
+            "monotonic_ns": 529487883878867,
+            "pid": 2885404
+          },
+          {
+            "event": "filesystem_synced",
+            "generation": 2,
+            "monotonic_ns": 529508728040062
+          },
+          {
+            "event": "gpu_observed_after_exit",
+            "generation": 2,
+            "monotonic_ns": 529508792699703
+          },
+          {
+            "event": "job_b_completed",
+            "generation": 2,
+            "monotonic_ns": 529511866965893
+          },
+          {
+            "event": "restore_requested",
+            "generation": 2,
+            "monotonic_ns": 529511867068865
+          },
+          {
+            "event": "restore_returned",
+            "generation": 2,
+            "monotonic_ns": 529516094288035,
+            "pid": 2885404
+          },
+          {
+            "event": "continuation_permitted",
+            "generation": 2,
+            "monotonic_ns": 529518176743273
+          },
+          {
+            "event": "capture_requested",
+            "generation": 3,
+            "monotonic_ns": 529520609842258
+          },
+          {
+            "event": "dump_completed",
+            "generation": 3,
+            "monotonic_ns": 529532562611531
+          },
+          {
+            "event": "original_exit_verified",
+            "generation": 3,
+            "monotonic_ns": 529532573038531,
+            "pid": 2885404
+          },
+          {
+            "event": "filesystem_synced",
+            "generation": 3,
+            "monotonic_ns": 529553081194415
+          },
+          {
+            "event": "gpu_observed_after_exit",
+            "generation": 3,
+            "monotonic_ns": 529553115515332
+          },
+          {
+            "event": "job_b_completed",
+            "generation": 3,
+            "monotonic_ns": 529556253579642
+          },
+          {
+            "event": "restore_requested",
+            "generation": 3,
+            "monotonic_ns": 529556253758186
+          },
+          {
+            "event": "restore_returned",
+            "generation": 3,
+            "monotonic_ns": 529560616974534,
+            "pid": 2885404
+          },
+          {
+            "event": "continuation_permitted",
+            "generation": 3,
+            "monotonic_ns": 529562711515889
+          },
+          {
+            "event": "final_exit_verified",
+            "monotonic_ns": 529566140092737,
+            "pid": 2885404
+          },
+          {
+            "event": "verification_passed",
+            "monotonic_ns": 529566198759932
+          }
+        ],
+        "image_bytes": 7441283687,
+        "lifecycle_passed": true,
+        "mode": "criu",
+        "numerical_passed": true,
+        "trial_seconds": 104.869507929,
+        "unqualified_compatibility": false,
+        "warnings": [
+          "(10.946860) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2885414 with interrupted system call",
+          "(11.340932) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2885414 with interrupted system call"
+        ]
+      }
+    }
+  },
+  "tests_passed": 10
+}

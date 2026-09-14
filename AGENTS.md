@@ -6,7 +6,24 @@ Understand what GPU snapshotting saves, how it works, and where it can help. Use
 
 If `.local-notes/context.md` exists, read it before planning work. It contains machine-local context and is intentionally untracked; its absence on another checkout is normal. Keep personal context out of tracked documentation.
 
+## Git workflow
+
+Commit each implementation milestone on a feature branch. Never commit directly to
+`main`; the user reviews and merges the branch. Do not merge on the user's behalf.
+
 ## Knowledge Updates
+
+### 2026-09-14 - CRIU restores a different monotonic clock domain
+**Finding**: At the pinned CRIU revision, `criu/timens.c` creates a time namespace and sets its monotonic offset from the captured clock. A timing trial's restore log recorded `timens: monotonic -25 705761319`; comparing its trainer timestamp directly with the controller produced a negative latency despite successful continuation. The controller's measured namespace offset was zero.
+**Impact**: Convert trainer completion timestamps using the exact restored offset and the controller's offset before comparing clocks. Preserve raw timestamps and offset evidence; reject negative latencies. Within-process update durations remain valid because their clock offset cancels.
+
+### 2026-09-14 - Repeated CRIU restores need fresh PID filenames
+**Finding**: CRIU 4.2.1 creates `--pidfile` with `O_EXCL` (`criu/log.c:414`). A second restore using the first cycle's filename failed with `File exists`, after reconstructing the process and before completing restore. The controller cleaned up the failed trial.
+**Impact**: Use a separate PID file for each capture generation, alongside separate image directories and readiness/inspection/release markers. Reap each original before restoring its numeric PID again.
+
+### 2026-09-14 - CRIU and preliminary LoRA restoration pass on the EC2 host
+**Finding**: On EC2 A10G/driver 570.172.08, host sudo and namespace creation pass, and CRIU 4.2.1 at `9539417f3e3cfa4eb84c319cd71f4d52f1f08645` restored CPU, GPU tensor, and one-update Qwen LoRA processes after verified original exit. LoRA boundary state and update 2 matched two references with active dropout; the diagnostic trial took 63.69 seconds. The restricted tool sandbox could not access the GPU, while the approved host execution context could. See [EC2 results](experiments/results.md#ec2-criu-validation--2026-09-14).
+**Impact**: Use CRIU for this EC2 POC and distinguish tool-sandbox restrictions from actual host permissions. The earlier container's CRIU blocker is historical. Keep interrupted-system-call warnings visible; observed shared mapping flags do not prove all driver-side sharing semantics. The preliminary probe used existing host packages, so repeat the gate in the isolated implementation before full acceptance. Do not infer a DMTCP performance ranking or spot-recovery success.
 
 ### 2026-09-14 - Native DMTCP can reacquire the GPU after writing a checkpoint
 **Finding**: At the pinned DMTCP revision, `src/dmtcpworker.cpp:502` finalizes the image before the normal resume path, and `plugin/cuda/cuda-ckpt.cpp:333` calls GPU restore after both checkpoint resume and image restart. The release metric in `docs/implementation-plan.md:166` therefore needs to distinguish temporary staging-time release from availability after verified original-process exit; see the [pinned plugin](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp#L333-L378).

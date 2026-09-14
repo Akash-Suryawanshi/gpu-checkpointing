@@ -128,6 +128,117 @@ The 64 MiB tensor hash matched before and after. Job B allocated a CUDA tensor a
 
 Single-run transition observations, including launch and timestamp overhead, were 0.0283 s to lock, 0.2218 s to checkpoint, 0.2069 s to restore, and 0.0296 s to unlock. These are mechanism observations, not training benchmarks. Suspended host RSS rose by about 202 MiB, showing that driver and allocator state exceeded the visible tensor payload.
 
+## EC2 CRIU validation — 2026-09-14
+
+**Decision: use CRIU with its native CUDA plugin for the EC2 POC.** CPU restoration, a complete PyTorch GPU process restore, and a preliminary one-update Qwen LoRA capture/restore all passed. These are new measurements on EC2, separate from the earlier container results. [Curated evidence](evidence/2026-09-14/ec2-criu-summary.json).
+
+### Host and tools
+
+The host runs Ubuntu 22.04.5, kernel `6.8.0-1036-aws`, an NVIDIA A10G with 23,028 MiB, and driver `570.172.08`. Host sudo, user-namespace creation, and root network-namespace creation succeeded. The host execution context reported `Seccomp: 0`. The restricted tool sandbox, in contrast, could not access the GPU and had no effective or bounding capabilities; those sandbox observations do not describe the host's available permissions. Host RAM was about 30 GiB, and the session and ancestor cgroup memory limits were `max`.
+
+CRIU 4.2.1 was built without source patches at `9539417f3e3cfa4eb84c319cd71f4d52f1f08645`, including `cuda_plugin.so`. Build dependencies were downloaded as Ubuntu packages and extracted under ignored `runs/tools/`; no system packages, driver, or security settings were changed. NVIDIA cuda-checkpoint was pinned to `00d5cce84c628088d6caa203fc4af40c1538b6f7` and reported version `570.172.08`. `criu check` passed, with a build warning that libnftables support was absent. All GPU transitions in the restore probes were plugin-managed; no additional manual restore/unlock was issued.
+
+The preliminary probes used the existing host Python 3.10.12, PyTorch 2.8.0+cu128, Transformers 5.0.0, and PEFT 0.18.1 without modifying those packages. This is not yet the plan's isolated, locked training environment. Exact dependency versions, model asset hashes, and local probe source hashes are in the curated evidence. Disposable probe sources and raw artifacts remain under ignored `runs/ec2-check/`.
+
+### Measured restoration
+
+| Probe | Evidence | Observed trial time | Image files |
+| --- | --- | --- | --- |
+| CPU (`cpu-03`) | Original exit verified; restored token, file offset, and continuation through step 25 matched | 0.59 s | 6,623,420 bytes |
+| GPU tensor (`gpu-01`) | Original exit; job B; all 64 MiB of tensor data matched; next addition succeeded | 13.82 s | 645,792,735 bytes |
+| Qwen LoRA (`lora-01`) | Original exit; job B; complete recorded boundary state matched; next update matched two uninterrupted references | 63.69 s | 3,899,903,119 bytes |
+
+Times run from workload launch to verification and include diagnostics, filesystem sync, and job B where applicable. Reference creation and initial asset download are excluded. Image sizes sum `.img` files, excluding logs and other run artifacts. These single diagnostic trials are not paired backend benchmarks or the full four-update timing experiment. The LoRA dump command took 10.42 s, post-exit sync took 23.47 s, and the restore phase returned after 7.47 s; storage and state handling already outweigh the tiny amount of training.
+
+The first two CPU controller attempts exposed probe bugs around root-owned PID-file access and CRIU restoring the original numeric PID. After those controller fixes, `cpu-03` passed. They were not CRIU capture/restore incompatibility findings. The controller reaped the original before restoration, adopted/reaped the restored process, and verified every probe PID was absent at the end. The final GPU compute-process listing was empty.
+
+### Preliminary LoRA gate
+
+The model was `Qwen/Qwen2.5-0.5B` at immutable revision `060db6499f32faf8b98477b0a26969ef7d8b9987`, with FP32, eager attention, ordinary LoRA on `q_proj`/`v_proj`, `r=8`, alpha 16, and 540,672 trainable parameters. AdamW and the four-update linear schedule matched the plan. The probe used two small authored examples, batch size 1, answer-only labels, and a 128-token maximum, stopping after update 2.
+
+LoRA dropout was **0.1**. The model entered training mode after adapter construction. Forward hooks verified execution of CUDA dropout in training mode, and CUDA RNG state advanced during each real update. Two uninterrupted references matched exactly. After update 1, initialized Adam state and changed adapter weights were verified before capture. The restored trainer inspected its state before any repair or update 2. Named hashes covered all resident model parameters and buffers, optimizer moments/counters/groups, schedule, cursor, Python/CPU/CUDA RNG, module modes, active adapters, trainable flags, and dropout settings/call counts.
+
+The pre-capture, post-restore, and reference boundary records had SHA-256 `48f33ddc50659302d987fac0e52ee7c2a35d51c17e2c43e432913d72de59cc7e`. The next-update record matched both references with SHA-256 `e5fad952c20e839dfb6d1b387163108ff327d202a12a404e26c1b1cb7ed65e1f`. Losses matched exactly at `2.6493842601776123` and `1.7310601472854614`. The process route did not read an application checkpoint or reference state to restore itself.
+
+### Warnings and limits
+
+CRIU emitted one interrupted-system-call warning in the tensor dump and two in the LoRA dump. In the inspected source, `-ERESTART_RESTARTBLOCK` is restored as `-EINTR`; retain this evidence rather than describing these runs as warning-free. The observed continuation passed. [Pinned register handling](https://github.com/checkpoint-restore/criu/blob/9539417f3e3cfa4eb84c319cd71f4d52f1f08645/compel/arch/x86/src/lib/infect.c#L401-L424).
+
+All seven observed LoRA `/dev/zero (deleted)` ranges remained `rw-s` at the same addresses after restore, backed by new `/memfd:/dev/zero (deleted)` objects. This is stronger mapping evidence than the earlier DMTCP private-memory treatment, but does not independently establish driver-side or external sharing dependencies. No DMTCP-style shared-memory warning appeared in these CRIU logs; that does not resolve the separate historical DMTCP finding.
+
+The early LoRA continuation gate passes for this recorded environment. The complete application-checkpoint comparison, isolated environment, four-update acceptance, repeated restoration, replacement-host recovery, and spot interruption remain untested. DMTCP was not run on EC2, so these measurements do not establish a performance ranking between backends.
+
+## Isolated LoRA implementation — 2026-09-14
+
+The shared trainer and CRIU controller now repeat the early gate in the locked virtualenv: capture after update 1 with dropout 0.1, original exit, job B, restore inspection, and matching update 2. This passed in **59.21 s**. A four-update zero-dropout trial captured after update 2 and matched updates 3–4 in **62.75 s**. Both have separate pairs of exactly matching uninterrupted references. Eight CPU state/lifecycle tests pass. [Curated milestone evidence](evidence/2026-09-14/isolated-criu-summary.json).
+
+The mapping progression contained zero `/dev/zero (deleted)` ranges after Python, PyTorch import, and CUDA initialization; five after model construction; and seven after Adam initialization. This locates their appearance without proving ownership. Each isolated CRIU dump emitted one interrupted-system-call warning. Numerical and lifecycle checks pass; unqualified compatibility remains false. Full hashes and job B are included in these diagnostic trial times; they are not headline snapshot latencies.
+
+The complete application-checkpoint route also passed at dropout zero: after update 2 it saved 6,705,655 bytes, ended the original, ran job B, rebuilt a fresh trainer, and matched the saved boundary and updates 3–4. The diagnostic trial took 35.44 seconds; nine CPU contract tests pass. [Application evidence](evidence/2026-09-14/application-summary.json).
+
+The full dropout-0.1 application and CRIU comparisons passed, including CUDA dropout execution and RNG advancement on every update. A repeated CRIU run exposed a controller bug: the second restore refused the existing PID filename (`O_EXCL`). Generation-specific PID files fixed it; fresh matching references and the corrected two-capture run passed through update 4 in **104.83 s**. Each capture verified original exit and job B. Ten CPU tests pass, including the PID-file regression. The failed run was cleaned up and its diagnostic evidence retained. [Stochastic and repeated-lifecycle evidence](evidence/2026-09-14/stochastic-summary.json).
+
+## Four-update LoRA acceptance and timing — 2026-09-14
+
+**The bounded experiment passes with qualified compatibility.** Two uninterrupted references match for each dropout setting. Application restart and CRIU restore preserve the full recorded state and continuation; a separate CRIU trial captures after both updates 2 and 3. Thirteen CPU contract tests pass. [Run instructions](finetuning/README.md), [curated evidence](evidence/2026-09-14/finetuning-summary.json).
+
+| Route | Restored boundary | Continuation evidence |
+| --- | --- | --- |
+| Application, dropout 0 and 0.1 | Update 2 state matches before save and reference | Updates 3–4 losses and full state match |
+| CRIU, dropout 0 and 0.1 | Update 2 state matches before capture and reference, before any repair | Updates 3–4 losses and full state match |
+| Repeated CRIU, dropout 0.1 | Updates 2 and 3 each match after separate restores | Update 4 matches the reference |
+
+All 48 LoRA dropout modules executed on CUDA in training mode on each stochastic update; the used CUDA generator advanced. Adam state, scheduler, cursor, Python/CPU/CUDA RNG, adapter flags, trainable flags, modes, dropout settings, resident base tensors, adapters, and buffers were compared. Each capture ended the original, verified its exit, observed the GPU, and completed job B before restore. Job B allocated 4 MiB and verified a GPU reduction. The process route read no application checkpoint to restore state.
+
+The final diagnostic trials took **35.66–35.73 s** for application restart, **62.33–62.49 s** for one CRIU capture, and **104.11 s** for two CRIU captures. These include full state hashing, inspection, sync, job B, continuation, and cleanup; reference preparation is excluded. The 2–3-minute warm development-trial target is met. The ordinary zero-dropout reference updates took 0.846, 0.304, 0.289, and 0.292 seconds. More training is unnecessary for this continuation check.
+
+### Paired timing
+
+Three pairs used dropout zero, four updates, capture after two, the same isolated assets, retained warm page cache, and sequential application-then-CRIU execution. Full hashes and inspection waits are excluded from the measured restore path. Asset hashing occurs before launch, and all losses plus the full final state are checked after the next-update endpoint. Each timing run requires matching full correctness evidence. Values below are median (minimum–maximum); file sizes use decimal units.
+
+| Method | Capture request → filesystem sync | Restore request → next completed update | Capture request → GPU observed after exit | Saved bytes |
+| --- | --- | --- | --- | --- |
+| Application | 1.30 s (1.27–1.33) | 7.95 s (7.82–7.97) | 1.27 s (1.26–1.31) | 6.71 MB |
+| Criu | 32.20 s (31.70–32.25) | 4.47 s (4.45–4.57) | 11.49 s (11.10–11.56) | 3.69–3.70 GB |
+
+| Pair | Application capture/sync (s) | Application restore/update (s) | CRIU capture/sync (s) | CRIU restore/update (s) |
+| --- | --- | --- | --- | --- |
+| 1 | 1.304 | 7.951 | 31.703 | 4.453 |
+| 2 | 1.331 | 7.823 | 32.196 | 4.569 |
+| 3 | 1.274 | 7.967 | 32.247 | 4.465 |
+
+The GPU observation occurred 32.7–74.3 ms after verified original exit in the timing runs. This is an observation window, not an exact hardware release timestamp. Job B took 2.99–3.09 seconds and is excluded from both headline latency intervals. Application save includes flush/atomic publication, original exit, and the explicit filesystem sync; the save operation alone completed in about 0.15–0.20 seconds. CRIU resumes faster here, but capture and storage costs are much larger than the application checkpoint.
+
+One CRIU timing trial, relative to capture request:
+
+| Event | Controller-clock time |
+| --- | --- |
+| capture requested | 0.000 s |
+| dump completed | 11.061 s |
+| original exit verified | 11.062 s |
+| gpu observed after exit | 11.098 s |
+| filesystem synced | 31.703 s |
+| job b completed | 34.735 s |
+| restore requested | 34.736 s |
+| restore returned | 38.856 s |
+| next update completed converted | 39.188 s |
+
+### Clock correction and provenance
+
+The first timing calculation was invalid: the restored trainer's raw monotonic timestamp was compared directly with the controller's clock and produced a negative latency. CRIU's pinned `timens.c` creates a time namespace with an offset based on the captured clock. In the first timing trial the recorded trainer offset was −24.294238681 s; the matrix controller's measured offset was zero. Conversion is `controller timestamp = trainer timestamp − trainer offset + controller offset`. The corrected restore-to-update interval is 4.452699984 s. [Pinned clock restoration](https://github.com/checkpoint-restore/criu/blob/9539417f3e3cfa4eb84c319cd71f4d52f1f08645/criu/timens.c#L52-L120).
+
+The calculation now uses the exact logged offsets and rejects negative latency. A regression test exercises both the invalid mixed-clock calculation and the conversion, including a negative fractional offset. The GPU matrix and raw run files were retained; only postprocessing changed after those runs. The curated report preserves superseded calculations, recorded offsets, original workload source fingerprints, and separate analysis-source fingerprints. The correction was checked against all recorded GPU trials; no new training behavior was introduced.
+
+### Footprint, environment, and limits
+
+During the timing trials, observed trainer RAM high-water marks were **3.395 GiB** for application restart and **3.846–3.858 GiB** for CRIU. Sampling used a 100 ms interval and also recorded the kernel's process high-water counter. Session cgroup peaks were **14.38–14.48 GiB** and **15.84–15.85 GiB**, respectively; those include other processes and file cache and are not attributable solely to the trainer. Minimum host available RAM stayed above **16.95 GiB**. Session/ancestor cgroup limits remained `max`.
+
+Both timing variants peaked at **1.971 GiB allocated VRAM** and **2.088 GiB reserved VRAM**. Diagnostic variants' allocator counters are also retained in the evidence. Tool/trainer process launch is included in request latencies: application launch returned in 0.69–4.44 ms; the full CRIU restore command, including useful restoration work, returned in 4.12–4.22 seconds. These are different phases, not an isolated tool-startup benchmark. Overall trial time excludes controller preflight; timing trials took 23.63–23.84 seconds for application restart and 50.86–51.42 seconds for CRIU.
+
+The isolated environment used Python 3.10.12, PyTorch 2.8.0+cu128, Transformers 5.0.0, PEFT 0.18.1, and safetensors 0.6.2 on the recorded EC2 A10G/driver 570.172.08. Exact packages, immutable Qwen revision, asset hashes, tool commits, and binary hashes are in the evidence. The isolated CRIU build script was also rebuilt successfully. Images were written to ext4 on the root EBS volume; `sync -f` includes work on that filesystem. These measurements do not establish survival of host loss, replacement-host recovery, or spot recovery.
+
+Each CRIU dump retained an interrupted-system-call warning. Seven observed shared `/dev/zero (deleted)` ranges retained their addresses and `rw-s` permissions after restore, and no `anon_inode` mapping was observed in those snapshots. This does not prove external or driver-side sharing ownership; unqualified compatibility remains false. The final GPU compute-process listing was empty, and no experiment trainer, controller, or helper remained.
+
 ## Environment history
 
 The initial September 12 host observation reported driver 580.126.20 with CUDA 13.0 and neither `criu` nor `cuda-checkpoint` on `PATH`. After the instance resumed on September 14, it reported driver 595.58.03. Workspace persistence therefore did not imply an unchanged driver environment. Each experiment must record its live GPU, driver, runtime, tools, permissions, and cgroup limits.
