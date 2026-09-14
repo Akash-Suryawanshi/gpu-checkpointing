@@ -12,6 +12,10 @@
 
 **References:** [Fine-tuning research](../research/single-gpu-finetuning.md), [measured mechanism results](../experiments/results.md), and the review decisions in this document. Repository baseline: `aecdf2cbd72bb60e7216e31639aaac3dd904d1c6`.
 
+## Implementation milestones
+
+- Environment/assets: isolated virtualenv installed from exact package pins; all 32 authored examples tokenized; a real two-update LoRA check passed. Safetensors 0.6.2 is pinned instead of the host's release candidate. Progressive mapping inspection and the shared-controller restore gate follow in the next milestone.
+
 ## Global constraints
 
 - This phase is same-host, same-GPU restoration. Real spot interruption and replacement-host recovery require a later experiment.
@@ -213,7 +217,7 @@ Trainer: perform update 3, then continue through 4
 
 ## 5. Tests worth keeping
 
-Invoke the writing-tests skill before implementation. Extend coverage only for the new state/lifecycle contracts:
+Use the repository's existing `unittest` approach for the new state/lifecycle contracts:
 
 1. **Acceptance:** a local small tensor model with actual Adam state round-trips the application record, then performs the same next update; compare RNG, cursor, schedule, and moments as well as weights.
 2. **Non-obvious correctness:** a corruption matrix changes an optimizer moment, cursor, RNG, or schedule while leaving weights intact; each discrepancy is identified by field name.

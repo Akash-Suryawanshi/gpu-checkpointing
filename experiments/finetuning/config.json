@@ -1,0 +1,9 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B",
+  "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+  "seed": 2026,
+  "updates": 4,
+  "max_tokens": 128,
+  "lora": {"r": 8, "lora_alpha": 16, "target_modules": ["q_proj", "v_proj"], "bias": "none"},
+  "optimizer": {"lr": 0.001, "betas": [0.9, 0.999], "eps": 1e-8, "weight_decay": 0, "foreach": false, "fused": false}
+}
