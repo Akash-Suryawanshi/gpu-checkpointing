@@ -8,6 +8,10 @@ If `.local-notes/context.md` exists, read it before planning work. It contains m
 
 ## Knowledge Updates
 
+### 2026-09-14 - CRIU and preliminary LoRA restoration pass on the EC2 host
+**Finding**: On EC2 A10G/driver 570.172.08, host sudo and namespace creation pass, and CRIU 4.2.1 at `9539417f3e3cfa4eb84c319cd71f4d52f1f08645` restored CPU, GPU tensor, and one-update Qwen LoRA processes after verified original exit. LoRA boundary state and update 2 matched two references with active dropout; the diagnostic trial took 63.69 seconds. The restricted tool sandbox could not access the GPU, while the approved host execution context could. See [EC2 results](experiments/results.md#ec2-criu-validation--2026-09-14).
+**Impact**: Use CRIU for this EC2 POC and distinguish tool-sandbox restrictions from actual host permissions. The earlier container's CRIU blocker is historical. Keep interrupted-system-call warnings visible; observed shared mapping flags do not prove all driver-side sharing semantics. The preliminary probe used existing host packages, so repeat the gate in the isolated implementation before full acceptance. Do not infer a DMTCP performance ranking or spot-recovery success.
+
 ### 2026-09-14 - Native DMTCP can reacquire the GPU after writing a checkpoint
 **Finding**: At the pinned DMTCP revision, `src/dmtcpworker.cpp:502` finalizes the image before the normal resume path, and `plugin/cuda/cuda-ckpt.cpp:333` calls GPU restore after both checkpoint resume and image restart. The release metric in `docs/implementation-plan.md:166` therefore needs to distinguish temporary staging-time release from availability after verified original-process exit; see the [pinned plugin](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp#L333-L378).
 **Impact**: Do not treat the first disappearance from GPU monitoring as the completed handoff. Record original-process exit and subsequent GPU availability, with job B as functional evidence, before reporting the GPU as available to another job.
