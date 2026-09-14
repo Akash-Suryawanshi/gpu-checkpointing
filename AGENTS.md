@@ -1,6 +1,6 @@
-# GPU checkpointing interview preparation
+# Learning GPU snapshotting
 
-Understand the basics first, then choose a bounded POC by weighing engineering effort against what it demonstrates. The target is Jarvis Labs second-round interview preparation; no production platform is currently being built.
+Understand what GPU snapshotting saves, how it works, and where it can help. Use a bounded POC to make the mechanism and trade-offs observable; no production platform is currently being built.
 
 ## Knowledge Updates
 

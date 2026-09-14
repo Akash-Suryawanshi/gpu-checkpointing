@@ -1,6 +1,6 @@
 # CPU/GPU checkpointing POC
 
-A small, observable experiment for Jarvis Labs interview preparation. One Linux host, one process, then one NVIDIA GPU. Start by proving CPU process restoration before adding GPU training.
+A small, observable experiment to learn what GPU snapshotting is, how it works, and where it can help. One Linux host, one process, then one NVIDIA GPU. Start by proving CPU process restoration before adding GPU training.
 
 ## Current status
 

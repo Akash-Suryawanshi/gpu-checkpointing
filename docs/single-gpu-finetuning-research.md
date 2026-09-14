@@ -145,7 +145,7 @@ This is relevant once stopping to copy memory becomes the measured problem. It w
 
 Shukla et al., Microsoft, February 2022, present a scheduling service that makes deep-learning jobs preemptible, migratable, and resizable through a device-proxy architecture. It connects checkpoint mechanisms to better fleet utilization and reliability.
 
-It is valuable background for the Jarvis interview, but the publication is not a downloadable, supported single-GPU fine-tuning package. Its 2022 description also does not establish the exact current scope of an Azure product. [Microsoft Research publication](https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/), [Singularity paper](https://arxiv.org/abs/2202.07848).
+It helps explain how snapshotting can support GPU scheduling. The publication is not a downloadable, supported single-GPU fine-tuning package. Its 2022 description also does not establish the exact current scope of an Azure product. [Microsoft Research publication](https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/), [Singularity paper](https://arxiv.org/abs/2202.07848).
 
 ### CRAC — evidence that driver limitations are not universal laws
 
@@ -273,7 +273,7 @@ The terms must use the same completion and storage criteria. Periodic save overh
 
 **Choose an application checkpoint when** training state is explicit, adapter saves are small, startup is tolerable, and portability matters. **Choose a process snapshot when** preserving a complex live environment or avoiding expensive reconstruction is worth its state-transfer cost and tighter compatibility requirements. Often the practical design uses process snapshots for planned pause/resume and keeps application checkpoints as a separate recovery/export path.
 
-The interview claim to aim for is precise: **“We restored one supported single-GPU LoRA process and verified its next updates. We measured its cost against a full training-state checkpoint and identified where the approach stops being attractive.”** That demonstrates more judgment than claiming universal or instantaneous GPU migration.
+The experiment should establish a precise result: **“We restored one supported single-GPU LoRA process and verified its next updates. We measured its cost against a full training-state checkpoint and identified where the approach stops being attractive.”** This would show what snapshotting preserves, what it costs, and where it helps.
 
 ## 9. Remaining uncertainties
 

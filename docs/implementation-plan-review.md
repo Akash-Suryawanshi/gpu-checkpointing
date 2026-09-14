@@ -58,7 +58,7 @@ Do not promise recovery after every driver error: NVIDIA explicitly leaves some 
 
 The current criteria call the POC complete even if nothing can be restored. That would let the existing missing-tool report satisfy a goal stated as proving GPU training continuation.
 
-**Minimal fix:** report distinct outcomes: **full restore demonstrated**, **GPU pause/resume only**, or **environment blocked**. The last two are useful interview evidence, but only the first meets the full-process POC goal. Keep any `torch.save` comparison explicitly separate.
+**Minimal fix:** report distinct outcomes: **full restore demonstrated**, **GPU pause/resume only**, or **environment blocked**. The last two are useful findings about the mechanism and its limits, but only the first meets the full-process POC goal. Keep any `torch.save` comparison explicitly separate.
 
 ## Recommended order after these corrections
 
