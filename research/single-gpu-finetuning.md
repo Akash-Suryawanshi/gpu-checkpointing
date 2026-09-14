@@ -2,15 +2,15 @@
 
 **Single-GPU fine-tuning is a sensible next experiment. The checkpoint mechanism stays broadly the same; the training state, compatibility checks, and economic comparison become more demanding.** Start with a small pretrained model, ordinary LoRA, and a non-paged optimizer. Compare restoring the whole process with restarting from a complete training checkpoint.
 
-**September 14 feasibility update:** [The detailed audit](r-2026-09-14-finetuning-feasibility.html) identifies DMTCP's newer native CUDA plugin as a viable alternative to CRIU's blocked permission path. A live experiment restored a complete PyTorch GPU process from disk after original exit, with matching tensor data and working subsequent GPU computation. Anonymous shared-memory warnings remain unresolved, and the LoRA training-state acceptance experiment below has not yet run. The older CRAC prototype is not the only DMTCP CUDA option.
+**September 14 feasibility update:** DMTCP's newer native CUDA plugin provides a route around this container's blocked CRIU permission path. A live experiment restored a complete PyTorch GPU process from disk after original exit, with matching tensor data and working subsequent GPU computation. Anonymous shared-memory warnings remain unresolved, and the LoRA training-state acceptance experiment below has not yet run. The older CRAC prototype is not the only DMTCP CUDA option. See the [measured results](../experiments/results.md).
 
 Companies already implement GPU snapshots. NVIDIA supplies the driver mechanism; MemVerge and Cedana document workload checkpoint/restore; Modal, Beam, Google Cloud, and NVIDIA Dynamo expose related startup features. Their documented scope varies, especially between resuming training and starting an initialized inference worker. The company comparison below makes that distinction explicit.
 
-This report covers language-model supervised fine-tuning: learning from examples with desired outputs, on one NVIDIA GPU. It compares full fine-tuning, LoRA, and quantized LoRA. Recommendations are proposed experiments, not measurements from the Jarvis instance. Product documentation was checked on September 13, 2026; individual papers and version constraints are identified below.
+This report covers language-model supervised fine-tuning: learning from examples with desired outputs, on one NVIDIA GPU. It compares full fine-tuning, LoRA, and quantized LoRA. Proposed acceptance checks remain future work; host and mechanism measurements are identified as such. Product documentation was checked on September 13, 2026; the DMTCP feasibility evidence was checked on September 14, 2026. Individual papers and version constraints are identified below.
 
-## 1. What changes from the tiny training POC
+## 1. What changes from the mechanism probes
 
-The current design has one Python process, a small neural network, deterministic inputs, and a checkpoint after a completed update. Fine-tuning replaces the little network with a pretrained language model and replaces synthetic numbers with tokenized text. CUDA still sees allocations, kernels, and streams; it does not need a special “fine-tuning snapshot” operation. The driver prepares supported GPU state for capture; a CPU checkpoint system preserves the process around it. [NVIDIA cuda-checkpoint](https://github.com/NVIDIA/cuda-checkpoint), [CRIU GPU integration](https://www.criu.org/GPU_Checkpointing).
+The implemented probes cover a deterministic CPU counter, NVIDIA-only suspension of a tensor process, and DMTCP restoration of that complete GPU process. No training model exists in the repository yet. Fine-tuning would add a pretrained language model, tokenized text, optimizer history, and data position. CUDA still sees allocations, kernels, and streams; it does not need a special “fine-tuning snapshot” operation. The driver prepares supported GPU state for capture; CRIU or DMTCP preserves the CPU process around it. [NVIDIA cuda-checkpoint](https://github.com/NVIDIA/cuda-checkpoint), [CRIU GPU integration](https://www.criu.org/GPU_Checkpointing), [DMTCP CUDA plugin](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda).
 
 ```mermaid
 flowchart TB
@@ -18,7 +18,7 @@ flowchart TB
     B --> C["GPU: weights, gradients, optimizer tensors"]
     B --> D["CPU: next example, counters, random state"]
     C --> E["NVIDIA prepares GPU state in host memory"]
-    D --> F["CRIU saves the Linux process"]
+    D --> F["CRIU or DMTCP saves the Linux process"]
     E --> F
     F --> G["Restore the process and GPU state"]
     G --> H["Perform the next training update"]
@@ -53,7 +53,7 @@ flowchart LR
     D --> E["Record state and wait"]
 ```
 
-At the boundary, use an explicit readiness/release handshake, rather than a short sleep. The shell must see readiness; the training process must wait until restore is finished before proceeding. Drop references to temporary outputs where appropriate. A completed backward pass does not mean every allocated byte has been returned to the driver: PyTorch retains reusable memory in its caching allocator. Measure both allocated and reserved memory. [PyTorch memory management](https://docs.pytorch.org/docs/stable/notes/cuda.html#memory-management).
+At the boundary, use an explicit readiness/release handshake, rather than a short sleep. The shell must see readiness; the training process must wait until restore is finished before proceeding. Drop references to temporary outputs where appropriate. A completed backward pass does not mean every allocated byte has been returned to the driver: PyTorch retains reusable memory in its caching allocator. Measure both allocated and reserved memory. [PyTorch 2.11 memory management](https://docs.pytorch.org/docs/2.11/notes/cuda.html#memory-management).
 
 This is **a cooperative pause point with transparent state capture**. It deliberately makes correctness easy to inspect. It does not establish that every arbitrary interruption point works.
 
@@ -92,11 +92,23 @@ For full fine-tuning, application checkpoints also become large because all mode
 
 ## 3. Compatibility issues that matter first
 
+### Current-host route and its qualification
+
+DMTCP v4.2.0 introduced a native NVIDIA CUDA plugin in June 2026. The successful local lifecycle and numerical probe used maintenance commit `b175bb5ccadd2f02d11cf052f586d2d9ac62ad53` from September 7, 2026, which includes later CUDA helper-thread and PyTorch mapping fixes. The application must be launched through DMTCP; unlike CRIU, this is not external attachment to an arbitrary running process. [DMTCP release](https://github.com/dmtcp/dmtcp/releases/tag/v4.2.0), [pinned plugin](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp).
+
+The probe's process image restored after the original exited and passed tensor and subsequent GPU-operation checks. It also emitted four warnings for writable `/dev/zero (deleted)` shared mappings. DMTCP saves their bytes but restores them as private anonymous mappings, so an original sharing relationship can be lost. This matters only if the workload depends on that relationship, but its ownership has not yet been established. Treat the result as a successful lifecycle and data probe with unresolved compatibility, not an unqualified fine-tuning pass. [DMTCP shared-memory serialization](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/writeckpt.cpp#L479-L494).
+
+Kernel-backed anonymous mappings are a separate case. For example, an `io_uring` mapping depends on a kernel-managed asynchronous-I/O object; restoring its bytes does not recreate that object. The GPU probe did not contain such a mapping, but this warning should reject any later workload that does. [Pinned mapping diagnostics](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/plugin/ipc/file/fileconnlist.cpp#L451-L463).
+
+The maintenance branch contained the PyTorch `libgomp` mapping correction and the anonymous kernel-backed mapping diagnostic. Branch inclusion was checked separately from the status of the corresponding pull requests; a merged or closed badge is not the evidence that identifies the tested source. [DMTCP PR 1299](https://github.com/dmtcp/dmtcp/pull/1299), [DMTCP PR 1300](https://github.com/dmtcp/dmtcp/pull/1300).
+
+The tested runtime was PyTorch 2.11.0+cu130 on driver 595.58.03. System CUDA development files were 12.6, so the plugin build required isolated CUDA 13 runtime headers 13.0.96 and NVCC/CRT headers 13.0.88. This mismatch is a reproducibility constraint: `torch.version.cuda` and a Makefile version banner do not alone identify the headers used to compile a plugin.
+
 ### Paged optimizers are the most concrete QLoRA trap
 
-bitsandbytes documents paged optimizers as using CUDA unified memory, which lets memory be managed across the CPU and GPU. Its implementation calls `cudaMallocManaged` for paged buffers. NVIDIA's current checkpoint utility lists UVM as unsupported. This creates a specific incompatibility to avoid in our first experiment. [bitsandbytes optimizer explanation](https://huggingface.co/docs/bitsandbytes/explanations/optimizers), [NVIDIA limitations](https://github.com/NVIDIA/cuda-checkpoint#functionality).
+bitsandbytes documents paged optimizers as using CUDA unified memory, which lets memory be managed across the CPU and GPU. In audited version 0.49.2, its implementation calls `cudaMallocManaged` for sufficiently large paged buffers. The tested NVIDIA checkpoint revision lists UVM as unsupported. This creates a specific incompatibility to avoid in the first candidate experiment. [bitsandbytes optimizer explanation](https://huggingface.co/docs/bitsandbytes/explanations/optimizers), [version 0.49.2 optimizer path](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/bitsandbytes/optim/optimizer.py#L329-L337), [version 0.49.2 managed allocator](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/csrc/pythonInterface.cpp#L604-L610), [pinned NVIDIA limitations](https://github.com/NVIDIA/cuda-checkpoint/blob/00d5cce84c628088d6caa203fc4af40c1538b6f7/README.md).
 
-The code path is inspectable: `get_state_buffer()` chooses paged buffers when paging is enabled and a tensor meets its size threshold; the native allocator uses `cudaMallocManaged`. Smaller tensors can take the ordinary allocation path. Probe after optimizer state is initialized, not merely after loading the model. Managed allocation can exist before any visible paging under memory pressure. [optimizer.py, get_state_buffer](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/bitsandbytes/optim/optimizer.py#L339-L355), [pythonInterface.cpp, cget_managed_ptr](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/csrc/pythonInterface.cpp#L501-L504).
+The code path is inspectable: `get_state_buffer()` chooses paged buffers when paging is enabled and a tensor meets its size threshold; the native allocator uses `cudaMallocManaged`. Smaller tensors can take the ordinary allocation path. Probe after optimizer state is initialized, not merely after loading the model. Managed allocation can exist before any visible paging under memory pressure.
 
 **Recommendation:** start with plain `torch.optim.AdamW` over the trainable adapter parameters. Later, add four-bit base weights while retaining a non-paged optimizer. A successful ordinary LoRA run does not prove bitsandbytes compatibility; a paged-optimizer failure does not prove all QLoRA is impossible.
 
@@ -111,7 +123,7 @@ The code path is inspectable: `get_state_buffer()` chooses paged buffers when pa
 | Compilation and optimized kernels | Start with eager execution; introduce compilation or additional kernel libraries one at a time after the baseline. |
 | External state | Keep data and logs local and controlled. Restoring memory cannot roll back an external upload or reset another service's clock. |
 
-The driver behavior above is described by NVIDIA; the experiment restrictions are our scope choices, not claims that all excluded features are fundamentally unsupported. [NVIDIA execution model](https://github.com/NVIDIA/cuda-checkpoint#the-utility).
+The driver behavior above is described by NVIDIA; the experiment restrictions are our scope choices, not claims that all excluded features are fundamentally unsupported. The tested revision excludes specified IPC mechanisms, and legacy CUDA IPC support belongs to driver 610 rather than the installed 595 series. Changing the CPU capture tool does not add that driver capability. [Pinned NVIDIA feature and limitation list](https://github.com/NVIDIA/cuda-checkpoint/blob/00d5cce84c628088d6caa203fc4af40c1538b6f7/README.md).
 
 **“Gradient checkpointing” means something else.** It saves training memory by discarding selected intermediate results and recomputing them during the backward pass. It does not create a restartable process snapshot. We can add it later if memory pressure requires it. [PyTorch activation checkpointing](https://docs.pytorch.org/docs/stable/checkpoint.html).
 
@@ -197,11 +209,11 @@ An initialized inference image can serve as a template for many future workers. 
 
 Startup also gives a controlled capture point. Arbitrary training suspension has to handle the current data position, pending updates, attached services, and library behavior. Inference engines can sometimes discard empty caches before saving; optimizer history cannot simply be discarded while claiming exact training continuation. These are reasons to offer constrained products and explicit support matrices, rather than a universal promise.
 
-## 7. The bounded experiment to do next
+## 7. Candidate bounded fine-tuning experiment
 
-**Recommendation: ordinary LoRA on Qwen2.5-0.5B, one GPU, one training process, one save/restore.** Its published base model has approximately 0.49 billion parameters. Its small size keeps the question about restoration rather than GPU capacity. This is a mechanism demonstration, not an attempt to improve model quality in 25 steps. [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B).
+The preserved research candidate is ordinary LoRA on Qwen2.5-0.5B, one GPU, one training process, and one save/restore. It is not a finalized implementation plan. Its published base model has approximately 0.49 billion parameters, keeping the research question focused on restoration rather than GPU capacity. The intended outcome is a mechanism demonstration, not improved model quality in 25 steps. [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B).
 
-### Proposed configuration
+### Candidate configuration
 
 | Choice | Proposed baseline |
 | --- | --- |
@@ -218,6 +230,8 @@ Startup also gives a controlled capture point. Arbitrary training suspension has
 
 LoRA target selection is explicit to make the trainable state easy to inspect, not a recommendation for best model quality. PEFT documents the relevant configuration and parameter counting. [PEFT LoRA reference](https://huggingface.co/docs/peft/package_reference/lora).
 
+Capacity arithmetic supports testing this small case but is not a measured training peak. Approximately 0.49 billion FP32 parameters occupy about **1.96 GB** before activations, allocator cache, and runtime overhead. For rank 8 on the published 24-layer Qwen configuration's `q_proj` and `v_proj`, the dimensions imply about **540,672 trainable adapter parameters**: roughly 2.16 MB of FP32 adapter weights and 4.33 MB for Adam's two moment tensors. Confirm those counts on the instantiated model. The live host reported 23,034 MiB of GPU memory and a 124 GiB container RAM limit; PEFT was not installed at inspection. [Qwen configuration](https://huggingface.co/Qwen/Qwen2.5-0.5B/raw/main/config.json).
+
 ### Three runs answer three different questions
 
 1. **Uninterrupted reference:** train from the chosen initial state through update 25. Record state at updates 20 and 25.
@@ -226,7 +240,7 @@ LoRA target selection is explicit to make the trainable state easy to inspect, n
 
 Use exactly the same training loop for all three runs. Keep the base model cached on disk for both restore paths so a network download does not manufacture an apparent snapshot advantage. Any diagnostic tensor copies used for validation belong outside the measured checkpoint interval and should not inflate the captured process accidentally.
 
-The first correctness baseline may disable dropout. A small follow-up should enable it and verify random-state restoration; otherwise matching random-state hashes alone has not exercised stochastic continuation. Before interpreting final-step differences, establish that two uninterrupted runs match in this fixed environment. [PyTorch reproducibility](https://docs.pytorch.org/docs/stable/notes/randomness.html).
+The first correctness baseline may disable dropout. A small follow-up should enable it and verify random-state restoration; otherwise matching random-state hashes alone has not exercised stochastic continuation. Before interpreting final-step differences, establish that two uninterrupted runs match in this fixed environment. [PyTorch 2.11 reproducibility](https://docs.pytorch.org/docs/2.11/notes/randomness.html).
 
 ### What counts as success
 
@@ -236,19 +250,17 @@ For deterministic execution in the same environment, target exact continuation. 
 
 Also establish that the GPU was released during suspension and could be used by a separate tiny disposable workload. GPU-only suspend/resume is a useful intermediate check, but the final claim requires the original CPU process to exit and the saved process image to be restored.
 
-### Where this fits in the repository
+### What the repository has established
 
-The existing [implementation plan](implementation-plan.md) describes the staged implementation. `checkpoint.sh`, the CPU counter and the GPU memory probe now exist; the fine-tuning training loop is not yet implemented. Its [review](implementation-plan-review.md) identifies the explicit release gate, deterministic reference, detached restore, cleanup, and the need to choose one owner for CUDA restore. Retain that small division of responsibilities when extending to fine-tuning.
+The [experiment record](../experiments/results.md) reports driver **595.58.03**, a working NVIDIA-only GPU probe, CRIU startup permission failures, and subsequent DMTCP CPU/GPU restore experiments. DMTCP restored the GPU process after original exit with matching data; unresolved shared-memory warnings qualify that result. A later training experiment must verify optimizer state, random state, next batch, and subsequent updates.
 
-The current [host gate record](gate-results.md) reports driver **595.58.03**, a working NVIDIA-only GPU probe, CRIU startup permission failures, and subsequent DMTCP CPU/GPU restore experiments. DMTCP restored the GPU process after original exit with matching data; unresolved shared-memory warnings qualify that result. The next training gate must verify optimizer state, random state, next batch and subsequent updates, rather than repeat the obsolete assumption that neither tool is available.
-
-If CRIU's CUDA plugin restores and unlocks CUDA, the shell must not unconditionally repeat those transitions. This is already recorded in the project guidance. [Upstream restore hook](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505).
+Each integration must have one owner for CUDA restoration. CRIU's CUDA plugin restores and unlocks CUDA itself; unconditional manual restore/unlock afterward can encounter an already-running process. [Upstream restore hook](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505).
 
 ### Add one source of complexity at a time
 
 | Stage | What it teaches | Effort judgment |
 | --- | --- | --- |
-| Tiny existing model | Whether this host can restore any training process | Necessary first gate |
+| Existing tensor process | Whether this host can restore a complete PyTorch CUDA process | Completed with shared-memory qualification |
 | Small ordinary LoRA | Whether real pretrained-model training continues correctly | Highest-value next extension |
 | BF16, then four-bit base with non-paged optimizer | Precision and quantization compatibility, separately | Bounded follow-ups |
 | TRL SFTTrainer | Behavior in a common training framework | Useful once the explicit loop works |
@@ -280,13 +292,17 @@ The experiment should establish a precise result: **“We restored one supported
 
 ## 9. Remaining uncertainties
 
-Public evidence supports the feasibility of GPU-aware training checkpoint/restore and several commercial uses. It does not settle compatibility or cost for our exact Jarvis container, package versions, model, and allocator. The B200 fine-tuning paper does not provide a sufficiently explicit LoRA/QLoRA configuration; Cedana's cited driver table needs current confirmation; hosted startup features do not establish an arbitrary mid-training API.
+Public evidence supports the feasibility of GPU-aware training checkpoint/restore and several commercial uses. The local DMTCP probe strengthens that case for the current host, but it does not settle compatibility or cost for a complete fine-tuning process. The B200 fine-tuning paper does not provide a sufficiently explicit LoRA/QLoRA configuration; Cedana's cited driver table needs current confirmation; hosted startup features do not establish an arbitrary mid-training API.
+
+Migration is a separate gate from same-host restoration. NVIDIA's 595.91.07 release notes contain a restore-related device-information fix. That makes replacement-host compatibility something to validate explicitly; it is not evidence that the successful same-host experiment on 595.58.03 failed. [CUDA checkpoint API](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html), [595.91.07 fixed issues](https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-595-91-07/index.html#fixed-issues).
+
+The remaining checks are concrete: identify whether the warned shared mappings require sharing after restore; install and pin a compatible PEFT stack; measure the instantiated model's GPU and host-memory peaks against the 23,034 MiB L4 and 124 GiB container limit; verify deterministic uninterrupted runs; then compare application restart and whole-process restoration through subsequent optimizer updates. Replacement-host durability, repeated checkpoint cycles, and real interruption handling remain separate questions.
 
 The recommended decision is therefore to measure a narrow supported case first. The most promising later optimization for LoRA is avoiding repeated capture of an unchanged base model. Proving that safely requires more than ignoring tensors marked frozen, because the snapshot layer must still restore addresses and resource relationships correctly.
 
 ## Sources and reading order
 
-All web documentation and repositories below were consulted on September 13, 2026. “Living documentation” means no stable publication date was established; pin a release or commit before reproducing an implementation. Performance numbers above are author-reported and tied to the stated experiment.
+Research and product sources were consulted on September 13, 2026; DMTCP, NVIDIA, PyTorch, and bitsandbytes feasibility sources were checked on September 14, 2026. “Living documentation” means no stable publication date was established; pin a release or commit before reproducing an implementation. Performance numbers above are author-reported and tied to the stated experiment.
 
 ### Start with these papers
 
@@ -301,13 +317,14 @@ All web documentation and repositories below were consulted on September 13, 202
 
 ### Implementation references
 
-- NVIDIA. **cuda-checkpoint**, living README and source. [Repository](https://github.com/NVIDIA/cuda-checkpoint).
+- NVIDIA. **cuda-checkpoint**, [README at tested revision `00d5cce`](https://github.com/NVIDIA/cuda-checkpoint/blob/00d5cce84c628088d6caa203fc4af40c1538b6f7/README.md); [current API requirements](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html); [595.91.07 fixed issues](https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-595-91-07/index.html#fixed-issues), August 3, 2026.
+- DMTCP maintainers. [PR 1299](https://github.com/dmtcp/dmtcp/pull/1299) and [PR 1300](https://github.com/dmtcp/dmtcp/pull/1300), September 2026; branch inclusion was checked separately from pull-request status.
 - CRIU maintainers. **GPU Checkpointing**, CUDA plugin, and current command documentation. [Guide](https://www.criu.org/GPU_Checkpointing), [plugin](https://github.com/checkpoint-restore/criu/tree/criu-dev/plugins/cuda), [CLI and compression options](https://github.com/checkpoint-restore/criu/blob/criu-dev/Documentation/criu.txt).
-- Hugging Face / bitsandbytes maintainers. **Paged optimizers** and allocation implementation, living documentation/source. [Explanation](https://huggingface.co/docs/bitsandbytes/explanations/optimizers), [optimizer.py](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/bitsandbytes/optim/optimizer.py), [native allocation](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/csrc/pythonInterface.cpp).
+- Hugging Face / bitsandbytes maintainers. **Paged optimizers** and audited version 0.49.2 allocation implementation. [Explanation](https://huggingface.co/docs/bitsandbytes/explanations/optimizers), [optimizer path](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/bitsandbytes/optim/optimizer.py#L329-L337), [managed allocator](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/csrc/pythonInterface.cpp#L604-L610).
 - Hugging Face. **PEFT checkpoint format and LoRA reference**, living documentation. [Format](https://huggingface.co/docs/peft/developer_guides/checkpoint), [LoRA](https://huggingface.co/docs/peft/package_reference/lora).
 - Hugging Face. **Transformers Trainer, TRL SFTTrainer, and Accelerate checkpointing**, living documentation. [Trainer](https://huggingface.co/docs/transformers/main/en/main_classes/trainer), [SFTTrainer](https://huggingface.co/docs/trl/sft_trainer), [Accelerate](https://huggingface.co/docs/accelerate/usage_guides/checkpoint).
 - PyTorch / Meta. **Checkpointing in torchtune**, cited stable documentation version 0.6. [Guide](https://meta-pytorch.org/torchtune/stable/deep_dives/checkpointer.html).
-- PyTorch contributors. **CUDA memory management, data loading, reproducibility, and activation checkpointing**, living documentation. [CUDA](https://docs.pytorch.org/docs/stable/notes/cuda.html#memory-management), [data](https://docs.pytorch.org/docs/stable/data.html), [reproducibility](https://docs.pytorch.org/docs/stable/notes/randomness.html), [activation checkpointing](https://docs.pytorch.org/docs/stable/checkpoint.html).
+- PyTorch contributors. **CUDA memory management and reproducibility**, version 2.11. [CUDA](https://docs.pytorch.org/docs/2.11/notes/cuda.html#memory-management), [reproducibility](https://docs.pytorch.org/docs/2.11/notes/randomness.html). Also [data loading](https://docs.pytorch.org/docs/stable/data.html) and [activation checkpointing](https://docs.pytorch.org/docs/stable/checkpoint.html), living documentation.
 - Qwen Team. **Qwen2.5-0.5B model card**, model family released September 2024. [Model](https://huggingface.co/Qwen/Qwen2.5-0.5B).
 
 ### Product evidence

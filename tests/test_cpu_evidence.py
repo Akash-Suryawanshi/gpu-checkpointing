@@ -25,7 +25,7 @@ def events(paused: bool) -> list[dict]:
 class EvidenceTests(unittest.TestCase):
     def test_live_counter_waits_and_continues_without_loading_state(self) -> None:
         """AC3: readiness fixes step/file position until release; this is not a CRIU test."""
-        script = Path(__file__).resolve().parents[1] / "cpu_counter.py"
+        script = Path(__file__).resolve().parents[1] / "experiments/cpu/cpu_counter.py"
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
             (run_dir / "input.txt").write_bytes(b"".join(f"{step:04d}\n".encode() for step in range(1, 26)))

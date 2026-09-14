@@ -1,98 +1,58 @@
-# CPU/GPU checkpointing POC
+# Learning CPU and GPU checkpointing
 
-A small, observable experiment to learn what GPU snapshotting is, how it works, and where it can help. One Linux host, one process, then one NVIDIA GPU. Start by proving CPU process restoration before adding GPU training.
+A running program can become saved files and later become a running program again. This repository studies what must be saved to make that possible, how Linux and NVIDIA cooperate, and what an experiment can actually prove. The scope is a bounded learning POC: one Linux host, one process, and one NVIDIA GPU.
 
-## Current status
+## Start with the machine
 
-**GPU-only checkpoint/restore passed on the L4.** A 64 MiB tensor matched byte-for-byte after NVIDIA released and restored its GPU state; a second GPU job ran while it was suspended, and the original process completed its next GPU operation correctly.
+The **CPU** executes a program's general instructions: running Python, deciding which batch comes next, and asking for GPU calculations. **RAM**, also called host memory, holds the objects and working data that the CPU accesses. A **GPU** executes many numerical operations in parallel. Its device memory, commonly called **VRAM**, holds tensors and other data used by those calculations.
 
-**DMTCP restored a complete PyTorch GPU process, with a compatibility qualification.** The original process exited; a disk image restored into a new Linux process; the full tensor hash and next GPU operation checks passed. Four anonymous shared-memory warnings remain unresolved, so this is not yet an unqualified fine-tuning acceptance result. DMTCP's CPU counter restore passed. See the [fine-tuning feasibility audit](docs/r-2026-09-14-finetuning-feasibility.html) and [measured results](docs/gate-results.md).
+**Storage** holds files: program code, datasets, and saved checkpoints. RAM and VRAM are live working memory; their contents do not by themselves survive losing the machine. Storage can outlive a process, but a local disk does not necessarily survive removal of a cloud instance. A durable checkpoint needs both a completed write and storage that survives the failure it is meant to protect against.
 
-**The CRIU route remains blocked on this container.** Both its 3.16.1 capability check and direct CPU dump fail during startup feature detection. The CRIU scripts below remain useful on a compatible execution host.
+A **program** is a set of instructions, such as a Python script on disk. A **process** is a running instance of that program, with current memory, execution positions, and resources. Two processes can run the same program while holding different data. Its **state** is the information needed to describe where it has reached and continue its work.
 
-The [study guide](docs/r-2026-09-14T10-56-45.html) is unchanged. The [implementation plan](docs/implementation-plan.md) now follows the agreed CPU-first scope.
+The **operating system**, Linux on our execution host, manages CPU scheduling, memory, files, and access to devices. Its central privileged component is the **kernel**. Applications request services through operating-system interfaces rather than managing all hardware themselves. A **library** supplies reusable code; PyTorch is one example. A **driver** is software that manages a device and exposes operations applications can use. NVIDIA's driver manages the GPU's memory and execution state.
 
-## First experiment: CPU state
-
-Use a Linux environment where you may checkpoint your own disposable process. Run the gate and the experiment under the same user, in the same container or host. Root inside a restricted container may still lack required permissions.
-
-```bash
-bash scripts/check-host.sh cpu
-bash checkpoint.sh cpu "$PWD/runs/cpu-01"
+```mermaid
+flowchart TB
+    A["Application: Python training process"]
+    subgraph CPU["CPU and host-memory lane"]
+      C["Python and ordinary libraries"] --> O["Linux: scheduling, memory, files"]
+      O --> H["CPU execution and host RAM"]
+    end
+    subgraph GPU["GPU execution lane"]
+      P["PyTorch and CUDA libraries"] --> D["CUDA interfaces and NVIDIA driver"]
+      D --> G["GPU execution and VRAM"]
+    end
+    A --> C
+    A --> P
+    D -. "Uses Linux device support and host memory" .-> O
+    H -. "Checkpoint tools write saved state" .-> S[("Storage: checkpoint files")]
+    G -. "NVIDIA stages GPU state in RAM" .-> H
 ```
 
-The second command requires a **new** run directory and refuses to overwrite an existing one. It creates all input files. Python needs only the standard library. Linux prerequisites are CRIU and the usual GNU/core Linux tools (`timeout`, `sync`, `setsid`).
+These are cooperating paths, not a single ladder with a GPU beneath the CPU and a disk beneath the GPU. The application runs on the CPU and submits GPU work through libraries and the driver. Storage is the destination for saved state, not another execution layer.
 
-Do not change host security settings to force a failed probe through. Read the retained error first; a missing executable and a denied kernel operation are different setup problems. See [previous host observations](docs/gate-results.md).
+## Why model weights are only part of the state
 
-The experiment performs:
+Imagine training has completed update 20. The model's learned numbers may be in VRAM, while Python's counter and the choice of the next input batch live in RAM. The optimizer also remembers information from earlier updates; a random-number generator affects later data and calculations. Linux tracks open files, and the CPU has an execution position. These pieces must agree about which work has completed.
 
-1. An uninterrupted reference run from 1 through 25.
-2. A second process that reads 20 fixed-size records, then waits with its counter, random token and open-file position still in memory.
-3. A CRIU dump that ends that process; the shell reaps it and checks its PID has disappeared.
-4. A detached CRIU restore, followed by explicit release of the waiting process.
-5. Comparison of state before/after the pause and all 25 records against the reference.
+An **application checkpoint** saves values chosen by the program, for example model weights, optimizer state, random-generator state, and data position. A fresh program loads them and reconstructs training. A weights-only save is usually insufficient for equivalent training continuation.
 
-`cpu_counter.py` never reads an application checkpoint or the evidence logs. CRIU is the only restore mechanism in this experiment. The input file must remain present and unchanged. CRIU commonly restores the original numeric PID; disappearance before restore, not a different PID afterward, demonstrates that the original ended.
+A **process checkpoint**, or transparent snapshot, instead aims to reconstruct the running process and its supported resources. It must preserve memory and the execution context as well as GPU state. “Transparent” describes the restore mechanism; our experiments can still use an explicit waiting point to make the saved boundary observable. Neither approach automatically rolls back external files, remote services, or the whole machine.
 
-## Read the result
+## Reading path
 
-```bash
-cat runs/cpu-01/comparison.json
-cat runs/cpu-01/lifecycle.txt
-cat runs/cpu-01/process.jsonl
-```
+1. [CPU checkpointing](docs/01-cpu-checkpointing.md): memory, threads, files, CRIU's nine capture/restore stages, and how DMTCP differs.
+2. [GPU checkpointing](docs/02-gpu-checkpointing.md): asynchronous CUDA work, NVIDIA's state transitions, CPU/GPU coordination, costs, limitations, and useful comparisons.
 
-Expected state: step 20, byte offset 100 and the same random token before/after restoration; next record 21; final step 25 at offset 125.
+The Markdown chapters are the authoritative explanation. The CPU chapter also links to a standalone interactive walkthrough. After the concepts, read the [single-GPU fine-tuning research](research/single-gpu-finetuning.md) for workload choices and open compatibility questions, and [experiment results](experiments/results.md) for commands, environment details, and evidence.
 
-A matching JSON log **alone does not prove CRIU ran**. The command script also checks original-process exit and successful dump/restore commands. Retain `images/dump.log`, `images/restore.log`, `original.pid`, `restored.pid` and `lifecycle.txt` together with the state comparison.
+## What has been observed
 
-`host.log` records the environment and CRIU gate. `timing-ns.txt` records monotonic timestamps; subtract pairs and divide by 1e9 for seconds. `image-directory-bytes.txt` records the image directory's apparent size, including its logs. Polling and timestamp-command overhead are included; this is an initial observation, not a precise benchmark.
+As recorded on September 14, 2026, the resumed L4 host reports NVIDIA driver **595.58.03**. The current evidence has three separate outcomes:
 
-`sync -f` completes a filesystem sync on this Linux host. That does not establish survival if the provider removes the host's local storage. This first experiment is same-host restoration.
+- **CRIU is blocked in this container:** its capability check and direct CPU dump fail during startup feature detection, before process capture.
+- **NVIDIA GPU-only pause/restore passed:** a 64 MiB tensor returned correctly and another job used the released GPU. The original CPU process remained alive; this was not a saved process image.
+- **DMTCP CPU restore passed, and a complete PyTorch GPU process restored after the original exited:** tensor data and the next GPU operation matched. Anonymous shared-memory warnings remain unresolved, so this is a qualified result. Complete LoRA fine-tuning has not been validated.
 
-If CRIT is installed:
-
-```bash
-crit decode -i runs/cpu-01/images/pstree.img --pretty
-```
-
-Inspect the image directory for the matching `core-*.img`, `mm-*.img`, `pagemap-*.img` and raw `pages-*.img`. File names depend on CRIU version; raw page files are not structured CRIT records.
-
-## Files to read, in order
-
-| File | Purpose |
-| --- | --- |
-| `cpu_counter.py` | The running program and its explicit wait at 20 |
-| `checkpoint.sh` | Visible CRIU dump/restore commands and lifecycle evidence |
-| `verify_cpu.py` | Check continuity, counter, file position and token |
-| `scripts/check-host.sh` | Verify the actual execution environment |
-
-Local checks:
-
-```bash
-python3 -m unittest discover -s tests -v
-bash -n checkpoint.sh scripts/check-host.sh
-```
-
-## GPU-only probe
-
-This separate experiment uses manual NVIDIA transitions and keeps the original CPU process alive. It does not use CRIU, create a durable process image, or prove training restart after process/host loss.
-
-```bash
-bash scripts/probe-gpu.sh /home/gpu-checkpointing-tools/cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint "$PWD/runs/gpu-only-02"
-```
-
-Use a fresh run directory. `gpu_memory_probe.py` creates and hashes a 64 MiB tensor, waits for external release, then verifies its contents and another GPU operation. The shell records CUDA state, process GPU memory, host RSS and transition times; runs job B while A is checkpointed; and restores/unlocks A before release.
-
-The tested NVIDIA utility is version 595.58.03, source commit `00d5cce84c628088d6caa203fc4af40c1538b6f7`. Obtain it from [NVIDIA's official repository](https://github.com/NVIDIA/cuda-checkpoint). These utility files are in a separate tools directory on the instance.
-
-## Next: full process restore and training
-
-The current-host route is DMTCP's native CUDA plugin at the pinned maintenance revision recorded in the audit. Its basic CPU/GPU process restoration has been observed; next investigate the shared-memory warnings and implement the small deterministic training comparison. The complete LoRA workload has not yet been tested.
-
-CRIU remains an alternative on an environment with the necessary permissions. That route needs CRIU 4.0 or newer with its CUDA plugin; the Ubuntu 3.16.1 package was used only for the initial CPU feasibility check. For either integration, let its plugin own CUDA restoration and do not append unconditional manual restore/unlock commands. Verify the installed plugin and tool versions before adding orchestration.
-
-Generated images contain process memory. They are kept under ignored `runs/` with restrictive permissions. Failed runs preserve evidence and attempt to terminate only this experiment's process.
-
-Sources: [CRIU example](https://criu.org/Simple_loop), [CRIU command options](https://github.com/checkpoint-restore/criu/blob/criu-dev/Documentation/criu.txt), [CUDA plugin](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c).
+The [measured results](experiments/results.md) contain the dated evidence and exact qualifications. Local development is on macOS; NVIDIA CUDA checkpoint validation runs on the compatible Linux host. This repository is not building a production scheduling platform, and the later fine-tuning implementation plan is intentionally deferred.

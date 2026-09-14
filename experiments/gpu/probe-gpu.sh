@@ -2,9 +2,9 @@
 # Manual NVIDIA transitions only: no CRIU or full-process restoration here.
 set -euo pipefail
 umask 077
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ $# -ne 2 ]]; then
-  echo 'Usage: bash scripts/probe-gpu.sh /path/to/cuda-checkpoint /path/to/new-run-dir' >&2
+  echo 'Usage: bash experiments/gpu/probe-gpu.sh /path/to/cuda-checkpoint /path/to/new-run-dir' >&2
   exit 2
 fi
 cuda_tool="$(realpath "$1")"
@@ -15,7 +15,7 @@ pid=''
 cleanup() {
   status=$?
   if [[ -n "$pid" && -r "/proc/$pid/cmdline" ]] &&
-     tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$root/gpu_memory_probe.py"; then
+     tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$root/experiments/gpu/gpu_memory_probe.py"; then
     kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   fi
@@ -48,7 +48,7 @@ transition() {
 }
 "$cuda_tool" --help > "$run_dir/tool-help.txt"
 nvidia-smi > "$run_dir/nvidia-smi.txt"
-python3 "$root/gpu_memory_probe.py" --run-dir "$run_dir" > "$run_dir/process.jsonl" 2> "$run_dir/process.stderr" &
+python3 "$root/experiments/gpu/gpu_memory_probe.py" --run-dir "$run_dir" > "$run_dir/process.jsonl" 2> "$run_dir/process.stderr" &
 pid=$!
 printf '%s\n' "$pid" > "$run_dir/pid.txt"
 wait_marker ready

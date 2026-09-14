@@ -2,9 +2,9 @@
 # First milestone: one CPU process, one dump, one restore, with retained evidence.
 set -euo pipefail
 umask 077
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ $# -ne 2 || "$1" != cpu ]]; then
-  echo 'Usage: bash checkpoint.sh cpu /absolute/path/to/new-run-directory' >&2
+  echo 'Usage: bash experiments/cpu/checkpoint.sh cpu /absolute/path/to/new-run-directory' >&2
   exit 2
 fi
 run_dir="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve())' "$2")"
@@ -21,20 +21,20 @@ cleanup() {
     fi
     # Never act on a PID alone: it might now belong to another process.
     if [[ -n "$pid" && -r "/proc/$pid/cmdline" ]] &&
-       tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$root/cpu_counter.py" &&
+       tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$root/experiments/cpu/cpu_counter.py" &&
        tr '\0' '\n' < "/proc/$pid/cmdline" | grep -Fxq -- "$run_dir"; then
       kill -KILL "$pid" 2>/dev/null || true
     fi
   fi
 }
 trap cleanup EXIT
-bash "$root/scripts/check-host.sh" cpu > "$run_dir/host.log" 2>&1 || {
+bash "$root/experiments/check-host.sh" cpu > "$run_dir/host.log" 2>&1 || {
   cat "$run_dir/host.log" >&2
   exit 1
 }
 mkdir "$run_dir/images"
 python3 -c 'import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(b"".join(f"{i:04d}\n".encode() for i in range(1,26)))' "$run_dir/input.txt"
-python3 "$root/cpu_counter.py" --mode baseline --run-dir "$run_dir" > "$run_dir/baseline.jsonl"
+python3 "$root/experiments/cpu/cpu_counter.py" --mode baseline --run-dir "$run_dir" > "$run_dir/baseline.jsonl"
 
 wait_for_file() {
   local target="$1"
@@ -51,7 +51,7 @@ now() { python3 -c 'import time; print(time.monotonic_ns())'; }
 record_time() { printf '%s %s\n' "$1" "$(now)" >> "$run_dir/timing-ns.txt"; }
 
 # Disconnected stdin and regular output files avoid checkpointing the driving terminal.
-setsid python3 "$root/cpu_counter.py" --mode pause --run-dir "$run_dir" \
+setsid python3 "$root/experiments/cpu/cpu_counter.py" --mode pause --run-dir "$run_dir" \
   < /dev/null > "$run_dir/process.jsonl" 2> "$run_dir/process.stderr" &
 pid=$!
 printf '%s\n' "$pid" > "$run_dir/original.pid"
@@ -80,7 +80,7 @@ printf 'restore_command_succeeded\n' >> "$run_dir/lifecycle.txt"
 touch "$run_dir/release"
 wait_for_file "$run_dir/done"
 record_time final_step_observed
-python3 "$root/verify_cpu.py" "$run_dir" > "$run_dir/comparison.json"
+python3 "$root/experiments/cpu/verify_cpu.py" "$run_dir" > "$run_dir/comparison.json"
 du -sb "$run_dir/images" > "$run_dir/image-directory-bytes.txt"
 printf 'cpu_full_restore_verified\n' >> "$run_dir/lifecycle.txt"
 cat "$run_dir/comparison.json"

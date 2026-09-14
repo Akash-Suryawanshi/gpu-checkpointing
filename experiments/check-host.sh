@@ -2,7 +2,7 @@
 # Read-only capability probe. Run inside the same Linux environment as the experiment.
 set -euo pipefail
 mode="${1:-cpu}"
-case "$mode" in cpu|gpu) ;; *) echo 'Usage: bash scripts/check-host.sh [cpu|gpu]' >&2; exit 2 ;; esac
+case "$mode" in cpu|gpu) ;; *) echo 'Usage: bash experiments/check-host.sh [cpu|gpu]' >&2; exit 2 ;; esac
 uname -srm
 if [[ "$(uname -s)" != Linux ]]; then
   echo 'BLOCKED: CRIU requires Linux. This machine can author the demo but cannot execute restore.' >&2
