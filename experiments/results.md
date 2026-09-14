@@ -176,6 +176,8 @@ The mapping progression contained zero `/dev/zero (deleted)` ranges after Python
 
 The complete application-checkpoint route also passed at dropout zero: after update 2 it saved 6,705,655 bytes, ended the original, ran job B, rebuilt a fresh trainer, and matched the saved boundary and updates 3–4. The diagnostic trial took 35.44 seconds; nine CPU contract tests pass. [Application evidence](evidence/2026-09-14/application-summary.json).
 
+The full dropout-0.1 application and CRIU comparisons passed, including CUDA dropout execution and RNG advancement on every update. A repeated CRIU run exposed a controller bug: the second restore refused the existing PID filename (`O_EXCL`). Generation-specific PID files fixed it; fresh matching references and the corrected two-capture run passed through update 4 in **104.83 s**. Each capture verified original exit and job B. Ten CPU tests pass, including the PID-file regression. The failed run was cleaned up and its diagnostic evidence retained. [Stochastic and repeated-lifecycle evidence](evidence/2026-09-14/stochastic-summary.json).
+
 ## Environment history
 
 The initial September 12 host observation reported driver 580.126.20 with CUDA 13.0 and neither `criu` nor `cuda-checkpoint` on `PATH`. After the instance resumed on September 14, it reported driver 595.58.03. Workspace persistence therefore did not imply an unchanged driver environment. Each experiment must record its live GPU, driver, runtime, tools, permissions, and cgroup limits.

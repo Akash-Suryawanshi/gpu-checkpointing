@@ -1,6 +1,6 @@
 # Single-GPU Fine-Tuning Checkpoint Implementation Plan
 
-**Status:** Implementation underway. Isolated one-update and four-update CRIU restores pass; application restart also passes. Full dropout/repeated restoration and paired timing remain.
+**Status:** Implementation underway. Isolated one-update and four-update CRIU restores pass; application restart also passes. Full dropout and repeated restoration also pass; paired timing remains.
 
 **Goal:** End a real LoRA training process after update 2, reconstruct it from a CPU/GPU process image, and verify that its state and updates 3–4 match an uninterrupted run. Compare the cost with a complete application checkpoint.
 
@@ -19,6 +19,8 @@
 - Shared trainer/controller: the isolated active-dropout one-update restore passed in 59.21 seconds; the four-update zero-dropout restore passed in 62.75 seconds. Both matched verified reference pairs. Eight CPU contract tests pass. Mapping ownership and interrupted-system-call warnings remain qualified. [Milestone evidence](../experiments/evidence/2026-09-14/isolated-criu-summary.json).
 
 - Application restart: the four-update zero-dropout comparison passes with complete saved state and a fresh process. Nine CPU tests pass, including preservation of a previous save after an injected write failure. [Evidence](../experiments/evidence/2026-09-14/application-summary.json).
+
+- Stochastic continuation: full application and CRIU comparisons pass with active CUDA dropout. Repeated capture at updates 2 and 3 passes in 104.83 seconds after correcting PID-file reuse. Ten CPU tests pass. [Evidence](../experiments/evidence/2026-09-14/stochastic-summary.json).
 
 ## Global constraints
 
@@ -202,6 +204,7 @@ Trainer: perform update 3, then continue through 4
 
 - [ ] Repeat the reference/application/process comparison with LoRA dropout 0.1. Establish matching uninterrupted references for this configuration first. Require evidence that the enabled LoRA dropout path executes in training mode and that the used CUDA generator state changes across an actual update, including restored continuation. RNG advancement from an unrelated operation is insufficient. Compare effective behavior and RNG states before any post-restore modification; do not add diagnostic random draws.
 - [ ] Run a separate process-restoration case with captures after updates 2 and 3. Use unique checkpoint directories and handshake markers, verify original exit each time, and compare through update 4.
+- The restored PID file must also be generation-specific: CRIU refuses to overwrite it. A repeated-lifecycle test caught this controller bug; the first successful restore alone could not expose it.
 - [ ] Require clean process exit and no remaining experiment GPU work or helper process after the lifecycle tests. Retain old completed images until their replacements are verified.
 
 **Gate:** Active dropout and CUDA RNG consumption are demonstrated, stochastic continuation matches, and a second checkpoint cycle passes. State clearly which configurations passed and whether compatibility qualifications remain.

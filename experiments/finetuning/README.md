@@ -29,6 +29,8 @@ runs/finetuning/venv/bin/python experiments/finetuning/run.py application runs/f
 Each run directory must be new. Add `--dropout 0.1` to both commands to exercise
 CUDA randomness. The early gate uses `--until 2` for both commands and `--capture 1`
 for the CRIU trial. The default is four updates, with capture after two.
+Use `--capture 2,3` for the repeated CRIU lifecycle. Images, PID files, and
+handshake markers all use separate generation numbers.
 
 The application route saves adapters, buffers, Adam, schedule, data position, RNG,
 and training behavior. It flushes and atomically publishes the save, verifies the

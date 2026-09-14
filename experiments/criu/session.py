@@ -82,9 +82,10 @@ def command(arguments, log, env, timeout=120):
 
 def criu(action, run, generation, tools, env, pid=None):
     directory = run / f"images-{generation}"
+    pidfile = run / f"restored-{generation}.pid"
     if action == "dump":
         directory.mkdir()
-    extra = ["--tree", str(pid)] if action == "dump" else ["--restore-detached", "--pidfile", str(run / "restored.pid")]
+    extra = ["--tree", str(pid)] if action == "dump" else ["--restore-detached", "--pidfile", str(pidfile)]
     args = ["sudo", "-n", "env", "-i", "PATH=" + env["PATH"],
             "LD_LIBRARY_PATH=" + tools["libraries"], "timeout", "--kill-after=5", "120",
             tools["criu"], "--no-default-config", action,
@@ -99,15 +100,15 @@ def criu(action, run, generation, tools, env, pid=None):
         if not all((directory / name).is_file() for name in ("inventory.img", "pstree.img")):
             raise RuntimeError("Successful dump lacks image inventory")
     else:
-        subprocess.run(["sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(run / "restored.pid")], check=True)
+        subprocess.run(["sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(pidfile)], check=True)
     log = (directory / (action + ".log")).read_text()
     required = "Checkpointing CUDA devices" if action == "dump" else "resuming devices on pid"
     if required not in log or "cuda_plugin: initialized:" not in log or " Error " in log or "unsupported" in log.lower():
         if action == "restore":
-            cleanup(int((run / "restored.pid").read_text()), run)
+            cleanup(int(pidfile.read_text()), run)
         raise RuntimeError(f"CUDA plugin did not perform {action}")
     if action == "restore":
-        return int((run / "restored.pid").read_text())
+        return int(pidfile.read_text())
 
 
 def release_verified(run, generation, reference, timing=False):

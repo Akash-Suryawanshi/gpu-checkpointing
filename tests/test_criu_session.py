@@ -12,6 +12,23 @@ import session
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_second_restore_uses_a_fresh_pidfile(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            tools = {"libraries": "unused", "criu": "unused", "plugin": "unused"}
+
+            def fake_restore(arguments, log, env, timeout):
+                pidfile = Path(arguments[arguments.index("--pidfile") + 1])
+                with pidfile.open("x") as out:
+                    out.write("123")  # Like CRIU, refuse to overwrite a previous PID file.
+                images = Path(arguments[arguments.index("--images-dir") + 1])
+                images.mkdir()
+                (images / "restore.log").write_text("cuda_plugin: initialized: resuming devices on pid 123")
+
+            with patch.object(session, "command", side_effect=fake_restore), patch.object(session.subprocess, "run"):
+                self.assertEqual(session.criu("restore", run, 2, tools, {"PATH": "/usr/bin"}), 123)
+                self.assertEqual(session.criu("restore", run, 3, tools, {"PATH": "/usr/bin"}), 123)
+
     def test_continuation_requires_matching_inspection_for_this_generation(self):
         with tempfile.TemporaryDirectory() as folder:
             run = Path(folder)
