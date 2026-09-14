@@ -111,16 +111,15 @@ def criu(action, run, generation, tools, env, pid=None):
         return int(pidfile.read_text())
 
 
-def release_verified(run, generation, reference, timing=False):
+def release_verified(run, generation, reference):
     # Import only at verification; the controller never provides restore state to the trainer.
     from state import compare
     if not (run / f"inspected-{generation}").exists():
         raise ValueError("Restored inspection has not completed")
-    if not timing:
-        before = json.loads((run / f"state-{generation}.json").read_text())
-        after = json.loads((run / f"after-{generation}.json").read_text())
-        compare(reference, before)
-        compare(before, after)
+    before = json.loads((run / f"state-{generation}.json").read_text())
+    after = json.loads((run / f"after-{generation}.json").read_text())
+    compare(reference, before)
+    compare(before, after)
     (run / f"continue-{generation}").touch(exist_ok=False)
 
 

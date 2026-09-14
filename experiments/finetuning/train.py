@@ -43,8 +43,9 @@ def main(args):
     config = {**manifest["config"], "dropout": args.dropout}
     identity = manifest["identity"]
     model_path = Path(manifest["model_path"])
-    for name, digest in identity["files"].items():
-        state.compare(digest, file_hash(model_path / name), f"asset.{name}")
+    if not args.timing:  # The controller verifies assets before launching a timing trial.
+        for name, digest in identity["files"].items():
+            state.compare(digest, file_hash(model_path / name), f"asset.{name}")
     state.compare(identity["tokens_sha256"], file_hash(args.assets / "tokens.json"), "tokens")
     tokens = json.loads((args.assets / "tokens.json").read_text())
     random.seed(config["seed"])
@@ -80,8 +81,8 @@ def main(args):
         if isinstance(module, torch.nn.Dropout) and "lora_dropout" in name:
             module.register_forward_hook(observe(name))
 
-    def evidence(name):
-        if not args.timing:
+    def evidence(name, full=False):
+        if not args.timing or full:
             record = state.inspect(model, optimizer, schedule, progress, identity, config)
             write_json(run / name, record)
             del record
@@ -92,6 +93,8 @@ def main(args):
 
     def inspect_restored(update):
         torch.cuda.synchronize()
+        if args.timing:
+            return  # Full correctness was checked separately; measure the next real update.
         evidence(f"after-{update}.json")  # Observe first; never repair process-restored state.
         (run / f"inspected-{update}").touch(exist_ok=False)
         wait(run / f"continue-{update}")
@@ -144,6 +147,8 @@ def main(args):
             inspect_restored(update)
     if not any(initial[n] != state.tensor_record(p) for n, p in parameters.items()):
         raise ValueError("Adapters did not change")
+    if args.timing:
+        evidence(f"state-{args.until}.json", full=True)  # After the measured next-update endpoint.
     (run / "done").touch(exist_ok=False)
 
 

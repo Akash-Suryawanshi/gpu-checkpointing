@@ -45,13 +45,13 @@ A **process checkpoint**, or transparent snapshot, instead aims to reconstruct t
 1. [CPU checkpointing](docs/01-cpu-checkpointing.md): memory, threads, files, CRIU's nine capture/restore stages, and how DMTCP differs.
 2. [GPU checkpointing](docs/02-gpu-checkpointing.md): asynchronous CUDA work, NVIDIA's state transitions, CPU/GPU coordination, costs, limitations, and useful comparisons.
 
-The Markdown chapters are the authoritative explanation. The CPU chapter also links to a standalone interactive walkthrough. After the concepts, read the [single-GPU fine-tuning research](research/single-gpu-finetuning.md) for workload choices and open compatibility questions, the [implementation plan](docs/implementation-plan.md) for the proposed experiment, and [experiment results](experiments/results.md) for commands, environment details, and evidence.
+The Markdown chapters are the authoritative explanation. The CPU chapter also links to a standalone interactive walkthrough. After the concepts, read the [single-GPU fine-tuning research](research/single-gpu-finetuning.md), the [implementation plan](docs/implementation-plan.md), and [experiment results](experiments/results.md). The [runnable LoRA experiment](experiments/finetuning/README.md) explains setup, correctness checks, and timing commands.
 
 ## What has been observed
 
 September 14, 2026 evidence covers two different execution hosts:
 
-- **EC2 A10G, driver 570.172.08: CRIU CPU, GPU tensor, and preliminary LoRA restore passed.** A real Qwen 0.5B LoRA process was captured after update 1, the original exited, job B used the GPU, and restored state and update 2 matched two uninterrupted references with active dropout. The full diagnostic trial took about 64 seconds. Interrupted-system-call warnings remain recorded. CRIU is selected for this host's POC.
+- **EC2 A10G, driver 570.172.08: isolated four-update LoRA continuation passed.** Application restart and CRIU restore match uninterrupted training with dropout zero and 0.1. CRIU trials verify original-process exit, job B, restored state, and continuation; two successive captures also pass. The observed diagnostic CRIU trials take about one minute, or under two minutes for two captures. Interrupted-system-call warnings and sharing ownership remain qualified.
 - **Earlier L4 container, driver 595.58.03:** CRIU was blocked during startup feature detection. NVIDIA GPU-only suspension passed while the CPU process stayed alive. DMTCP restored a complete GPU process after original exit with matching tensor data and subsequent computation, but shared-memory warnings remain unresolved.
 
-The [measured results](experiments/results.md) contain dated evidence and exact qualifications. The isolated four-update experiment, application-checkpoint comparison, and repeated restoration remain to be implemented. The preliminary LoRA result uses existing EC2 packages and does not establish replacement-host or spot recovery. This repository is not building a production scheduling platform.
+The [measured results](experiments/results.md) contain dated evidence and exact qualifications. These are same-host experiments; replacement-host and spot recovery remain untested. This repository is not building a production scheduling platform.

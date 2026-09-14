@@ -58,6 +58,52 @@ References are reused only when their environment, assets, settings, and code
 fingerprints match. Full state evidence is read only by the verifier. The restored
 trainer waits until the controller compares it before allowing another update.
 
+After the full correctness run passes, measure a separate trial:
+
+```bash
+runs/finetuning/venv/bin/python experiments/finetuning/run.py application runs/finetuning/timing-application-1 \
+  --reference runs/finetuning/reference-zero --timing --validated-run runs/finetuning/application-zero
+runs/finetuning/venv/bin/python experiments/finetuning/run.py criu runs/finetuning/timing-criu-1 \
+  --reference runs/finetuning/reference-zero --timing --validated-run runs/finetuning/criu-zero
+```
+
+Repeat the pair with fresh `-2` and `-3` directories, keeping dropout, capture
+boundary, assets, and cache conditions the same. Full hashes and inspection waits
+are absent from the timing restore path. Asset hashes are checked by the controller
+before launch; losses and the full final state are checked after the measured
+next-update endpoint. Results identify this narrower verification scope.
+
+The report records capture request to filesystem sync, restore request to the next
+completed update, verified original exit, and an immediate GPU observation after
+exit. The GPU observation window bounds polling uncertainty; job B remains a
+separate functional check. Trainer RAM is sampled every 100 ms, and CUDA allocator
+peaks come from the trainer. Cgroup usage includes other processes and file cache.
+Tool/trainer launch is included in request latencies; the overall trial timer runs
+from trainer launch to verification, excluding controller preflight.
+
+CRIU restores a time namespace, so the trainer's monotonic clock can differ from
+the controller's. The measurement code reads the pinned CRIU restore log's exact
+namespace offset and converts the completed-update timestamp to the controller's
+clock. Within-process update durations need no adjustment. Negative latencies are
+rejected. Raw timestamps and namespace offsets remain in the evidence.
+
+Curate the selected matching trials without publishing their images or raw logs:
+
+```bash
+python3 experiments/finetuning/report.py runs/finetuning/reference-zero \
+  runs/finetuning/application-zero runs/finetuning/criu-zero \
+  runs/finetuning/timing-application-{1,2,3} runs/finetuning/timing-criu-{1,2,3} \
+  --output runs/finetuning/report.json
+```
+
+The JSON retains individual runs and gives timing medians and ranges. Run against
+an otherwise idle GPU. Warm page cache is retained; `sync -f` covers this filesystem
+and does not establish replacement-host or host-loss recovery.
+For older runs without a recorded controller clock offset, reporting requires
+`--controller-clock-offset-ns` from measured namespace evidence. The September 14
+matrix used zero. Reanalysis retains the superseded calculation and fingerprints
+the analysis source separately from the code that executed the workload.
+
 Run the small CPU-side contract tests with:
 
 ```bash
