@@ -1,0 +1,529 @@
+<!doctype html>
+<!--
+  html-response skill · canonical template.
+  When composing a response, copy this whole file, then replace ONLY the four
+  marker comments:
+      Single-GPU fine-tuning snapshots         <-- short page title (also the browser tab)
+      RESEARCH · SINGLE GPU       <-- tiny mono uppercase label above title (e.g., "HAB-19 · STATUS")
+      2026-09-13 · 13:15 IST     <-- ISO-ish human time, e.g. "2026-05-14 · 16:34 IST"
+      Response content       <-- the response body, as HTML blocks (see SKILL.md catalog)
+  Everything else (CSS, scripts, fonts, refresh logic) is locked — do not edit.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Single-GPU fine-tuning snapshots</title>
+
+  <!-- Fonts: Cormorant Garamond italic for accents · JetBrains Mono for eyebrows + code · Inter for body -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500;1,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- KaTeX for math -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+          onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}], throwOnError:false});"></script>
+
+  <!-- highlight.js for syntax-highlighted code -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/atom-one-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => hljs.highlightAll());</script>
+
+  <!-- mermaid for diagrams (init lazily) -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: {
+      darkMode: true,
+      background: '#0A0907',
+      primaryColor: '#1a1714',
+      primaryTextColor: '#F0EBE0',
+      primaryBorderColor: '#D4AB68',
+      lineColor: '#D4AB68',
+      secondaryColor: '#5C2329',
+      tertiaryColor: '#1a1714',
+      fontFamily: 'Inter, system-ui, sans-serif'
+    }});
+  </script>
+
+  <style>
+    :root {
+      /* Quiet Luxury — matches the locked Habit Tracker chassis */
+      --bg: #0A0907;
+      --bg-lift: #15110D;
+      --surface: rgba(255,255,255,0.025);
+      --surface-2: rgba(255,255,255,0.045);
+      --border: rgba(212,171,104,0.08);
+      --border-2: rgba(212,171,104,0.20);
+      --ink: #F0EBE0;
+      --ink-2: rgba(240,235,224,0.62);
+      --ink-3: rgba(240,235,224,0.38);
+      --gold: #D4AB68;
+      --gold-deep: #9F7937;
+      --gold-tint: rgba(212,171,104,0.14);
+      --maroon: #5C2329;
+      --success: #A3BE8C;
+      --warning: #EBCB8B;
+      --danger: #BF616A;
+
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { background: var(--bg); color: var(--ink); margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 15.5px;
+      line-height: 1.62;
+      letter-spacing: -0.005em;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: var(--gold); text-decoration: none; border-bottom: 1px solid var(--gold-tint); transition: border-color .15s; }
+    a:hover { border-bottom-color: var(--gold); }
+
+    code, pre, .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace; }
+
+    /* ── Layout ── */
+    .r-page { max-width: 920px; margin: 0 auto; padding: 64px 32px 96px; }
+
+    /* ── Header ── */
+    .r-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 18px;
+    }
+    .r-eyebrow .r-eyebrow-accent { color: var(--gold); }
+    .r-title {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 52px;
+      line-height: 1.05;
+      color: var(--ink);
+      margin: 0 0 12px 0;
+      background: linear-gradient(180deg, #F8F1E3 0%, var(--gold) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .r-lede {
+      color: var(--ink-2);
+      font-size: 17px;
+      line-height: 1.55;
+      margin: 4px 0 40px 0;
+      max-width: 70ch;
+    }
+    .r-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-2), transparent);
+      margin: 48px 0;
+      border: 0;
+    }
+
+    /* ── Headings ── */
+    .r-h2 {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--ink);
+      margin: 48px 0 16px 0;
+    }
+    .r-h2-accent {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--gold);
+    }
+    .r-h3 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin: 32px 0 12px 0;
+    }
+
+    /* ── Prose ── */
+    .r-prose p { margin: 0 0 14px 0; max-width: 72ch; }
+    .r-prose ul, .r-prose ol { margin: 0 0 14px 0; padding-left: 20px; max-width: 72ch; }
+    .r-prose li { margin: 4px 0; }
+    .r-prose em { font-family: 'Cormorant Garamond', Georgia, serif; font-style: italic; font-weight: 500; color: var(--gold); font-size: 1.08em; }
+    .r-prose strong { color: var(--ink); font-weight: 600; }
+    .r-prose code { background: var(--gold-tint); color: var(--gold); padding: 1px 6px; border-radius: 4px; font-size: 0.88em; border: 1px solid var(--border); }
+
+    /* ── Callout ── */
+    .r-callout {
+      border-left: 2px solid var(--gold);
+      background: var(--surface);
+      padding: 16px 20px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin: 18px 0;
+    }
+    .r-callout.info  { border-left-color: var(--gold); }
+    .r-callout.warn  { border-left-color: var(--warning); }
+    .r-callout.danger { border-left-color: var(--danger); }
+    .r-callout.success { border-left-color: var(--success); }
+    .r-callout-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 6px;
+    }
+
+    /* ── Insight (matches the "★ Insight" pattern) ── */
+    .r-insight {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 22px;
+      margin: 22px 0;
+      position: relative;
+    }
+    .r-insight::before {
+      content: "★";
+      color: var(--gold);
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    .r-insight-title {
+      display: inline;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+    .r-insight ul { margin: 10px 0 0 0; padding-left: 20px; }
+    .r-insight li { margin: 6px 0; color: var(--ink-2); }
+
+    /* ── Grids (side-by-side panels) ── */
+    .r-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+    .r-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 18px 0; }
+    @media (max-width: 760px) {
+      .r-grid-2, .r-grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ── Card / surface panel ── */
+    .r-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .r-card .r-card-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 10px;
+    }
+
+    /* ── Big stat ── */
+    .r-stat { padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); text-align: center; }
+    .r-stat-value {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 56px;
+      line-height: 1;
+      background: linear-gradient(180deg, #F8F1E3 0%, var(--gold) 100%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+    .r-stat-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+
+    /* ── Table ── */
+    .r-table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14.5px; }
+    .r-table th {
+      text-align: left;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 500;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-2);
+    }
+    .r-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--ink-2);
+      vertical-align: top;
+    }
+    .r-table tr:last-child td { border-bottom: none; }
+    .r-table td strong, .r-table td .r-em { color: var(--gold); }
+
+    /* ── Code blocks ── */
+    pre {
+      background: #1a1714 !important;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px 18px !important;
+      margin: 16px 0;
+      overflow-x: auto;
+      font-size: 13.5px;
+      line-height: 1.55;
+    }
+    pre code { background: transparent !important; padding: 0 !important; border: none !important; color: var(--ink); }
+
+    /* ── KaTeX tweaks ── */
+    .katex { font-size: 1.04em; color: var(--ink); }
+    .katex-display { margin: 18px 0 !important; padding: 8px 0; }
+
+    /* ── Mermaid container ── */
+    .r-mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 18px; margin: 18px 0; overflow-x: auto; }
+    .mermaid { background: transparent !important; }
+
+    /* ── Collapsible ── */
+    details.r-collapsible { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0; margin: 14px 0; background: var(--surface); }
+    details.r-collapsible > summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 12px 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+    details.r-collapsible > summary::-webkit-details-marker { display: none; }
+    details.r-collapsible > summary::before { content: "▸ "; color: var(--gold-deep); transition: transform .15s; display: inline-block; }
+    details.r-collapsible[open] > summary::before { transform: rotate(90deg); }
+    details.r-collapsible > .r-collapsible-body { padding: 0 18px 16px; border-top: 1px solid var(--border); padding-top: 16px; }
+
+    /* ── Math inline emphasis when math is in a heading ── */
+    h1 .katex, .r-title .katex { font-size: 0.88em; }
+
+    /* ── Footer ── */
+    .r-footer {
+      margin-top: 80px;
+      padding-top: 28px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .r-footer a { color: var(--ink-3); border: none; }
+    .r-footer a:hover { color: var(--gold); }
+
+    /* ── Refresh status pill (only shown when auto-refresh is active) ── */
+    #r-refresh-pill {
+      position: fixed; bottom: 18px; right: 18px;
+      padding: 6px 12px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--ink-3);
+      backdrop-filter: blur(8px);
+      opacity: 0; transition: opacity .25s;
+    }
+    #r-refresh-pill.visible { opacity: 1; }
+    #r-refresh-pill .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); margin-right: 6px; vertical-align: middle; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* ── Print ── */
+    @media print {
+      body { background: white; color: black; }
+      #r-refresh-pill { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="r-page">
+    <div class="r-eyebrow">RESEARCH · SINGLE GPU</div>
+    <h1 class="r-title">Single-GPU fine-tuning snapshots</h1>
+    <hr class="r-rule">
+
+    <main class="r-prose">
+<p><strong>Single-GPU fine-tuning is a sensible next experiment. The checkpoint mechanism stays broadly the same; the training state, compatibility checks, and economic comparison become more demanding.</strong> Start with a small pretrained model, ordinary LoRA, and a non-paged optimizer. Compare restoring the whole process with restarting from a complete training checkpoint.</p>
+<p>Companies already implement GPU snapshots. NVIDIA supplies the driver mechanism; MemVerge and Cedana document workload checkpoint/restore; Modal, Beam, Google Cloud, and NVIDIA Dynamo expose related startup features. Their documented scope varies, especially between resuming training and starting an initialized inference worker. The company comparison below makes that distinction explicit.</p>
+<p>This report covers language-model supervised fine-tuning: learning from examples with desired outputs, on one NVIDIA GPU. It compares full fine-tuning, LoRA, and quantized LoRA. Recommendations are proposed experiments, not measurements from the Jarvis instance. Product documentation was checked on September 13, 2026; individual papers and version constraints are identified below.</p>
+<nav aria-label="Report contents"><details class="r-collapsible" open><summary>Navigate the report</summary><div class="r-collapsible-body"><ol><li><a href="#1-what-changes-from-the-tiny-training-poc">1. What changes from the tiny training POC</a></li><li><a href="#2-full-fine-tuning-lora-and-qlora">2. Full fine-tuning, LoRA, and QLoRA</a></li><li><a href="#3-compatibility-issues-that-matter-first">3. Compatibility issues that matter first</a></li><li><a href="#4-papers-most-relevant-to-this-project">4. Papers most relevant to this project</a></li><li><a href="#5-open-source-tools-and-frameworks">5. Open-source tools and frameworks</a></li><li><a href="#6-companies-already-doing-related-work">6. Companies already doing related work</a></li><li><a href="#7-the-bounded-experiment-to-do-next">7. The bounded experiment to do next</a></li><li><a href="#8-measure-the-return-not-just-the-snapshot">8. Measure the return, not just the snapshot</a></li><li><a href="#9-remaining-uncertainties">9. Remaining uncertainties</a></li><li><a href="#sources-and-reading-order">Sources and reading order</a></li></ol><p><a href="single-gpu-finetuning-research.md" download>Download the Markdown report</a></p></div></details></nav>
+<h2 class="r-h2" id="1-what-changes-from-the-tiny-training-poc">1. What changes from the tiny training POC</h2>
+<p>The current design has one Python process, a small neural network, deterministic inputs, and a checkpoint after a completed update. Fine-tuning replaces the little network with a pretrained language model and replaces synthetic numbers with tokenized text. CUDA still sees allocations, kernels, and streams; it does not need a special “fine-tuning snapshot” operation. The driver prepares supported GPU state for capture; a CPU checkpoint system preserves the process around it. <a href="https://github.com/NVIDIA/cuda-checkpoint">NVIDIA cuda-checkpoint</a>, <a href="https://www.criu.org/GPU_Checkpointing">CRIU GPU integration</a>.</p>
+<div class="r-mermaid"><pre class="mermaid">flowchart TB
+    A[&quot;Pretrained model + training examples&quot;] --&gt; B[&quot;Python training loop&quot;]
+    B --&gt; C[&quot;GPU: weights, gradients, optimizer tensors&quot;]
+    B --&gt; D[&quot;CPU: next example, counters, random state&quot;]
+    C --&gt; E[&quot;NVIDIA prepares GPU state in host memory&quot;]
+    D --&gt; F[&quot;CRIU saves the Linux process&quot;]
+    E --&gt; F
+    F --&gt; G[&quot;Restore the process and GPU state&quot;]
+    G --&gt; H[&quot;Perform the next training update&quot;]</pre></div>
+<p>The important change is the amount and meaning of the state. A model can produce sensible text after an incomplete restore while its training trajectory has already changed.</p>
+<div class="r-mermaid" role="region" aria-label="Comparison table" tabindex="0"><table class="r-table"><thead><tr><th scope="col">State to preserve</th><th scope="col">Why it matters after resume</th></tr></thead><tbody><tr><td>Trainable weights</td><td>They contain the learning completed so far.</td></tr><tr><td>Optimizer state</td><td>Adam keeps moving averages of gradients and squared gradients. Losing them changes subsequent updates.</td></tr><tr><td>Learning-rate schedule and update count</td><td>They determine the size of the next update.</td></tr><tr><td>Random-generator states</td><td>They determine dropout and other random choices. Preserve each generator actually used.</td></tr><tr><td>Dataset order and next example</td><td>Restarting at the wrong position repeats or skips training examples.</td></tr><tr><td>Partially accumulated gradients</td><td>Needed if the snapshot occurs before a complete optimizer update. Avoid this boundary initially.</td></tr><tr><td>Precision-related state</td><td>FP16 training may use a gradient scaler; quantized weights have representation metadata. Include these when present.</td></tr><tr><td>Python objects and CUDA resources</td><td>A process snapshot preserves execution machinery that an application restart normally rebuilds.</td></tr></tbody></table></div>
+<p>Framework support already exists for much of the explicit training state. Accelerate saves models, optimizers, random generators, and gradient scalers, and supports registering additional stateful objects. Dataset position still needs deliberate handling. <a href="https://huggingface.co/docs/accelerate/usage_guides/checkpoint">Accelerate checkpointing</a>.</p>
+<p><strong>One GPU does not automatically mean one process.</strong> Data loading, experiment tracking, and compilation can introduce workers or external services. Our proposed baseline uses already-tokenized local examples, no data-loader worker processes, and local logs. PyTorch documents the distinction between loading data in the main process and using multiple workers. <a href="https://docs.pytorch.org/docs/stable/data.html">PyTorch data loading</a>.</p>
+<h3 class="r-h3">Choose a complete update as the pause point</h3>
+<p>A training update is: compute predictions, compute the loss, run the backward pass, update weights, update the learning-rate schedule if applicable, and clear gradients. With gradient accumulation, several small batches contribute to one update. The checkpoint boundary should come after that whole update.</p>
+<div class="r-mermaid"><pre class="mermaid">flowchart LR
+    A[&quot;Forward + backward&quot;] --&gt; B[&quot;Optimizer update&quot;]
+    B --&gt; C[&quot;Schedule + clear gradients&quot;]
+    C --&gt; D[&quot;Finish GPU work&quot;]
+    D --&gt; E[&quot;Record state and wait&quot;]</pre></div>
+<p>At the boundary, use an explicit readiness/release handshake, rather than a short sleep. The shell must see readiness; the training process must wait until restore is finished before proceeding. Drop references to temporary outputs where appropriate. A completed backward pass does not mean every allocated byte has been returned to the driver: PyTorch retains reusable memory in its caching allocator. Measure both allocated and reserved memory. <a href="https://docs.pytorch.org/docs/stable/notes/cuda.html#memory-management">PyTorch memory management</a>.</p>
+<p>This is <strong>a cooperative pause point with transparent state capture</strong>. It deliberately makes correctness easy to inspect. It does not establish that every arbitrary interruption point works.</p>
+<h2 class="r-h2" id="2-full-fine-tuning-lora-and-qlora">2. Full fine-tuning, LoRA, and QLoRA</h2>
+<p><strong>Full fine-tuning</strong> changes the base model&#x27;s weights. <strong>LoRA</strong> freezes those weights and learns small additional matrices, called adapters. The original model still participates in the computation and still occupies memory. <a href="https://arxiv.org/abs/2106.09685">Hu et al., LoRA, 2021</a>.</p>
+<p><strong>QLoRA</strong> combines a low-bit representation of the frozen base model with trainable adapters. Its original design also introduced paged optimizers to handle memory pressure. Quantization and optimizer paging are distinct choices in an implementation. <a href="https://arxiv.org/abs/2305.14314">Dettmers et al., QLoRA, 2023</a>.</p>
+<div class="r-mermaid" role="region" aria-label="Comparison table" tabindex="0"><table class="r-table"><thead><tr><th scope="col">Method</th><th scope="col">What an application checkpoint can save</th><th scope="col">What a basic process snapshot must account for</th></tr></thead><tbody><tr><td>Full fine-tuning</td><td>Updated model, optimizer, and other training state</td><td>The same learning state, plus the process and CUDA environment</td></tr><tr><td>LoRA</td><td>Adapters and their optimizer state, other training state, and a reference to the fixed base model</td><td>The resident base model as well as adapters and process state</td></tr><tr><td>QLoRA</td><td>Adapters, optimizer and other training state; exact base/quantization configuration</td><td>Quantized resident base, its metadata, adapters, runtime state, and any supported allocations</td></tr></tbody></table></div>
+<p>PEFT&#x27;s adapter export intentionally omits the base model. That is useful for a compact artifact, but an adapter export alone is not a full training-resume checkpoint: optimizer, schedule, data position, and random state need their own handling. <a href="https://huggingface.co/docs/peft/developer_guides/checkpoint">PEFT checkpoint format</a>.</p>
+<h3 class="r-h3">The central tradeoff for LoRA</h3>
+<p>Imagine an unchanged 7-billion-parameter base represented with two bytes per parameter. Its raw weights alone are approximately <strong>14 GB</strong>, before temporary memory or runtime overhead. Four bits per parameter would be approximately <strong>3.5 GB</strong>, before quantization metadata and higher-precision components. These are arithmetic illustrations, not observed memory use or model fit guarantees.</p>
+<p>An application knows that the base can be loaded again from a fixed model revision. A general snapshot mechanism sees live allocations; it cannot infer the same saving from <code>requires_grad=False</code> without additional support. Consequently, the portion we train may be small while the portion we snapshot remains large. <strong>LoRA can make application checkpointing more attractive even while making the training job itself cheaper.</strong> This is an analytical consequence of the different saved state, not a claim that snapshots always lose.</p>
+<div class="r-mermaid"><pre class="mermaid">flowchart TB
+    A[&quot;LoRA process in memory&quot;] --&gt; B[&quot;Large frozen base&quot;]
+    A --&gt; C[&quot;Small changing adapters + training state&quot;]
+    B --&gt; D[&quot;Full snapshot: preserve resident state&quot;]
+    C --&gt; D
+    C --&gt; E[&quot;Application save: record changes + progress&quot;]
+    F[&quot;Fixed base model on storage&quot;] --&gt; G[&quot;Application restart reloads base&quot;]
+    E --&gt; G</pre></div>
+<p>For full fine-tuning, application checkpoints also become large because all model weights change and optimizer state grows. That narrows this particular size advantage. Actual pause and resume times still need measurement.</p>
+<h2 class="r-h2" id="3-compatibility-issues-that-matter-first">3. Compatibility issues that matter first</h2>
+<h3 class="r-h3">Paged optimizers are the most concrete QLoRA trap</h3>
+<p>bitsandbytes documents paged optimizers as using CUDA unified memory, which lets memory be managed across the CPU and GPU. Its implementation calls <code>cudaMallocManaged</code> for paged buffers. NVIDIA&#x27;s current checkpoint utility lists UVM as unsupported. This creates a specific incompatibility to avoid in our first experiment. <a href="https://huggingface.co/docs/bitsandbytes/explanations/optimizers">bitsandbytes optimizer explanation</a>, <a href="https://github.com/NVIDIA/cuda-checkpoint#functionality">NVIDIA limitations</a>.</p>
+<p>The code path is inspectable: <code>get_state_buffer()</code> chooses paged buffers when paging is enabled and a tensor meets its size threshold; the native allocator uses <code>cudaMallocManaged</code>. Smaller tensors can take the ordinary allocation path. Probe after optimizer state is initialized, not merely after loading the model. Managed allocation can exist before any visible paging under memory pressure. <a href="https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/bitsandbytes/optim/optimizer.py#L339-L355">optimizer.py, get_state_buffer</a>, <a href="https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/csrc/pythonInterface.cpp#L501-L504">pythonInterface.cpp, cget_managed_ptr</a>.</p>
+<p><strong>Recommendation:</strong> start with plain <code>torch.optim.AdamW</code> over the trainable adapter parameters. Later, add four-bit base weights while retaining a non-paged optimizer. A successful ordinary LoRA run does not prove bitsandbytes compatibility; a paged-optimizer failure does not prove all QLoRA is impossible.</p>
+<h3 class="r-h3">Other boundaries</h3>
+<div class="r-mermaid" role="region" aria-label="Comparison table" tabindex="0"><table class="r-table"><thead><tr><th scope="col">Concern</th><th scope="col">First-experiment choice and reason</th></tr></thead><tbody><tr><td>CUDA work still running</td><td>Wait at the completed update boundary. Driver checkpointing drains submitted work; it does not save a kernel halfway through execution.</td></tr><tr><td>CPU keeps advancing</td><td>Hold an explicit release gate until the restored CUDA state is ready. CUDA suspension alone is not CPU process freezing.</td></tr><tr><td>Host RAM</td><td>Leave room for the active CPU process plus staged GPU memory and checkpoint overhead; GPU fit alone is insufficient.</td></tr><tr><td>Software and hardware</td><td>Restore on the same host and GPU with the same environment. Cross-host portability is a separate experiment.</td></tr><tr><td>Compilation and optimized kernels</td><td>Start with eager execution; introduce compilation or additional kernel libraries one at a time after the baseline.</td></tr><tr><td>External state</td><td>Keep data and logs local and controlled. Restoring memory cannot roll back an external upload or reset another service&#x27;s clock.</td></tr></tbody></table></div>
+<p>The driver behavior above is described by NVIDIA; the experiment restrictions are our scope choices, not claims that all excluded features are fundamentally unsupported. <a href="https://github.com/NVIDIA/cuda-checkpoint#the-utility">NVIDIA execution model</a>.</p>
+<p><strong>“Gradient checkpointing” means something else.</strong> It saves training memory by discarding selected intermediate results and recomputing them during the backward pass. It does not create a restartable process snapshot. We can add it later if memory pressure requires it. <a href="https://docs.pytorch.org/docs/stable/checkpoint.html">PyTorch activation checkpointing</a>.</p>
+<h2 class="r-h2" id="4-papers-most-relevant-to-this-project">4. Papers most relevant to this project</h2>
+<p>These papers answer different questions. Training experiments establish more than a model-loading demo, but neither automatically establishes our precise LoRA or QLoRA configuration.</p>
+<h3 class="r-h3">CRIUgpu — closest to our implementation path</h3>
+<p>Stoyanov et al., February 2025, describe integrating vendor GPU capture with CRIU, including language-model training. Their single-H100 Llama 3.1 8B experiment reports <strong>77.40 seconds to checkpoint, 38.83 seconds to restore, and a 55.89 GB unified snapshot</strong>. The setup used an older driver and HDD storage; these figures are not predictions for our L4. The paper does not establish a tested LoRA/QLoRA recipe.</p>
+<p>Read its workflow, Table 2, and Table 4. Its practical lesson is that saving GPU state to host memory and writing a complete process snapshot are different costs. The implementation path leads to upstream CRIU&#x27;s CUDA plugin, rather than a new fine-tuning framework. <a href="https://arxiv.org/html/2502.16631v1">CRIUgpu paper</a>, <a href="https://github.com/checkpoint-restore/criu/tree/criu-dev/plugins/cuda">upstream CUDA plugin</a>.</p>
+<h3 class="r-h3">CRIU-LZ4 — direct fine-tuning evidence, with a useful negative result</h3>
+<p>Stoyanov et al., EuroMLSys 2026, explicitly evaluate supervised fine-tuning on a single B200. Section 5.3 reports training snapshots shrinking by roughly <strong>1.1–1.6×</strong>, while checkpoint freeze time grows <strong>2–3×</strong> and restore time grows <strong>1.5–1.7×</strong>. Training state compresses less effectively than empty inference caches. The exact adapter/quantization recipe is not specified sufficiently to reproduce our proposed workload.</p>
+<p>This is a strong reason to measure compression rather than assume it helps. Current upstream <code>criu-dev</code> documentation includes LZ4 compression options; availability must be checked in the actual installed build. <a href="https://radostin.io/files/stoyanov-euromlsys-2026.pdf">CRIU-LZ4 paper, §5.3 and Figure 9</a>, <a href="https://github.com/checkpoint-restore/criu/blob/criu-dev/Documentation/criu.txt">CRIU compression options</a>.</p>
+<h3 class="r-h3">GCR — the most useful performance paper to read next</h3>
+<p>Zeng et al., FAST 2026, combine driver-managed control state with separately managed data copying. Their incremental design tracks modified memory, allowing unchanged buffers to be skipped. They report <strong>72.1% lower checkpoint latency</strong> against their NVIDIA baseline; the often-cited <strong>86.6% size reduction concerns inference experiments</strong>. Their implementation stores checkpoints in CPU memory, so these results are not durable disk-checkpoint timings.</p>
+<p>Read §§5, 6.1.3, and 6.2 together. The public artifact uses a tested two-A100 environment and specific framework versions. It is a research implementation, not evidence that our modern single-GPU LoRA stack works unchanged. <a href="https://www.usenix.org/system/files/fast26-zeng.pdf">GCR paper</a>, <a href="https://www.usenix.org/conference/fast26/presentation/zeng">FAST paper and artifact recognition</a>, <a href="https://github.com/thustorage/GCR">GCR source and evaluation</a>.</p>
+<h3 class="r-h3">PhoenixOS — copying while execution continues</h3>
+<p>Wei et al., SOSP 2025, study overlapping checkpoint/restore with application execution. Their system infers which memory operations matter and validates those inferences. The public Apache-2.0 repository explicitly supports single-GPU checkpoint/restore and describes substantial build machinery and ongoing development.</p>
+<p>This is relevant once stopping to copy memory becomes the measured problem. It would add considerable systems work to our first demo. <a href="https://arxiv.org/html/2405.12079v4">PhoenixOS paper, September 2025 revision</a>, <a href="https://github.com/SJTU-IPADS/PhoenixOS">PhoenixOS source and support notes</a>.</p>
+<h3 class="r-h3">Singularity — why a cloud provider builds this</h3>
+<p>Shukla et al., Microsoft, February 2022, present a scheduling service that makes deep-learning jobs preemptible, migratable, and resizable through a device-proxy architecture. It connects checkpoint mechanisms to better fleet utilization and reliability.</p>
+<p>It is valuable background for the Jarvis interview, but the publication is not a downloadable, supported single-GPU fine-tuning package. Its 2022 description also does not establish the exact current scope of an Azure product. <a href="https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/">Microsoft Research publication</a>, <a href="https://arxiv.org/abs/2202.07848">Singularity paper</a>.</p>
+<h3 class="r-h3">CRAC — evidence that driver limitations are not universal laws</h3>
+<p>Jain and Cooperman, SC 2020, describe a DMTCP-based design supporting CUDA streams and unified memory. It uses a different architecture from NVIDIA&#x27;s driver-native utility. The public early-development repository warns of incomplete portability work. It is historical context, not a low-effort fix for today&#x27;s QLoRA UVM restriction. <a href="https://arxiv.org/abs/2008.10596">CRAC paper</a>, <a href="https://github.com/DMTCP-CRAC/CRAC-early-development">CRAC source and caveats</a>.</p>
+<p>The original <strong>LoRA</strong> and <strong>QLoRA</strong> papers explain how training state becomes smaller; they do not claim transparent CPU/GPU process restoration. Keep those research questions separate. <a href="https://arxiv.org/abs/2106.09685">LoRA</a>, <a href="https://arxiv.org/abs/2305.14314">QLoRA</a>.</p>
+<h2 class="r-h2" id="5-open-source-tools-and-frameworks">5. Open-source tools and frameworks</h2>
+<p>There are two layers to choose: the code that trains the model, and the code that captures the running process. A training framework with a <code>resume</code> option does not thereby preserve a CUDA process.</p>
+<div class="r-mermaid" role="region" aria-label="Comparison table" tabindex="0"><table class="r-table"><thead><tr><th scope="col">Tool</th><th scope="col">What it provides</th><th scope="col">Fit for this POC</th></tr></thead><tbody><tr><td><a href="https://www.criu.org/GPU_Checkpointing">cuda-checkpoint + CRIU CUDA plugin</a></td><td>Supported GPU state capture combined with Linux process capture. The CLI/plugin are public; GPU internals remain in NVIDIA&#x27;s driver.</td><td><strong>First choice for transparent capture.</strong></td></tr><tr><td><a href="https://huggingface.co/docs/peft/developer_guides/checkpoint">Transformers + PEFT</a></td><td>Pretrained models, adapters, and explicit model/adaptor saving.</td><td><strong>First choice for a readable training loop.</strong></td></tr><tr><td><a href="https://huggingface.co/docs/trl/sft_trainer">TRL SFTTrainer</a></td><td>A supervised fine-tuning trainer built on Transformers Trainer, including training resume.</td><td>Add after the explicit loop, to check a common framework path.</td></tr><tr><td><a href="https://huggingface.co/docs/accelerate/usage_guides/checkpoint">Accelerate</a></td><td>Application-state save/load and registration of custom state.</td><td>Useful reference or implementation for the application baseline.</td></tr><tr><td><a href="https://meta-pytorch.org/torchtune/stable/deep_dives/checkpointer.html">torchtune</a></td><td>Full and LoRA fine-tuning recipes with model and recipe-state checkpoints.</td><td>Another application-level comparator; the cited 0.6 guide describes epoch-end intermediate saves.</td></tr><tr><td><a href="https://github.com/thustorage/GCR">GCR</a> / <a href="https://github.com/SJTU-IPADS/PhoenixOS">PhoenixOS</a></td><td>Public research implementations of more advanced GPU capture.</td><td>Read and reproduce later if measured pause costs justify the effort.</td></tr><tr><td><a href="https://github.com/cedana/cedana">Cedana daemon</a></td><td>AGPL-3.0 orchestration around checkpoint/restore.</td><td>Its GPU options include the community CUDA plugin and a separately proprietary Cedana plugin; do not treat the whole stack as open source.</td></tr></tbody></table></div>
+<p>TRL&#x27;s resume interface restores model, optimizer, and scheduler state from a Trainer checkpoint. In Transformers, <code>save_only_model=True</code> omits state needed for full training resume. Compare against a proper training checkpoint, not merely <code>save_pretrained()</code> or a final adapter export. <a href="https://huggingface.co/docs/trl/sft_trainer#trl.SFTTrainer.train">TRL resume API</a>, <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer">Transformers training arguments</a>.</p>
+<p>Code worth opening while implementing: <a href="https://github.com/huggingface/peft/blob/main/src/peft/utils/save_and_load.py">PEFT adapter serialization</a>, <a href="https://github.com/huggingface/trl/blob/main/trl/trainer/sft_trainer.py">TRL trainer</a>, and the <a href="https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c">CRIU CUDA plugin</a>. Check out fixed revisions before reproducing an experiment; these links follow moving development branches.</p>
+<h2 class="r-h2" id="6-companies-already-doing-related-work">6. Companies already doing related work</h2>
+<p>“No company implements this” is incorrect. The narrower question is which product documents the ability to resume our kind of training, under which constraints. Documentation is evidence of an offered capability; it is not independent validation of every supported workload or a count of production customers.</p>
+<div class="r-mermaid" role="region" aria-label="Comparison table" tabindex="0"><table class="r-table"><thead><tr><th scope="col">Company / offering</th><th scope="col">Public evidence</th><th scope="col">Relevance to single-GPU fine-tuning</th></tr></thead><tbody><tr><td><strong>MemVerge</strong></td><td>GPU Cluster Manager documents pausing/resuming training workspaces. Memory Machine Batch documents single-GPU restore on the same GPU model and full GPU backups. <a href="https://docs.memverge.com/AI/GPU_Cluster_Manager/0.4.0/quickstart_guide/checkpoint-restore/">Workspace guide</a>, <a href="https://docs.memverge.com/MMBatch/latest/User%20Guide/Getting%20Started/prerequisites/">Batch requirements</a></td><td>One of the closest commercial use cases. The workspace quickstart contains a placeholder for training code, so it is not a reproducible LoRA correctness benchmark.</td></tr><tr><td><strong>Cedana</strong></td><td>General GPU save/migrate/resume, with public usage documentation. A vendor benchmark includes training on an L4. <a href="https://docs.cedana.ai/daemon/checkpoint-restore/cr-1">GPU guide</a>, <a href="https://docs.cedana.ai/articles/performance-of-cedanas-gpu-interception">vendor performance article</a></td><td>Relevant commercial implementation. Proprietary GPU plugin requires access. The cited compatibility table stops at driver 570, so confirm newer-driver support before considering it for our recorded 580 host.</td></tr><tr><td><strong>Modal</strong></td><td>GPU Memory Snapshots are documented as <strong>alpha</strong>, capturing initialized state before function execution. <a href="https://modal.com/docs/guide/memory-snapshots">Memory Snapshots</a></td><td>Strong evidence for GPU startup snapshots; the documented lifecycle is not an arbitrary mid-training save API. Modal explicitly warns that weight-loading-bound startup may not improve.</td></tr><tr><td><strong>Google Cloud GKE</strong></td><td>Pod snapshots capture GPU state using <code>cuda-checkpoint</code>, with gVisor for the sandbox. Docs updated September 9, 2026 list single-GPU support and specific L4/A100/H100 machine types. <a href="https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots">GKE Pod snapshots</a></td><td>Real managed GPU snapshot support. The documented motivation is fast initialization. Restore needs matching hardware/software and changes external network connections; exact training continuation still requires workload validation.</td></tr><tr><td><strong>NVIDIA Dynamo</strong></td><td>Snapshot infrastructure combines CRIU and <code>cuda-checkpoint</code> to start initialized inference workers; snapshot-agent remains marked <strong>preview</strong>. <a href="https://docs.nvidia.com/dynamo/v1.0.2/kubernetes-deployment/deployment-guide/snapshot">Snapshot guide</a>, <a href="https://docs.dynamo.nvidia.com/dynamo/dev/reference/release-artifacts">current artifact status</a></td><td>Useful implementation reference for a future platform. The documented supported workers are inference workers, not a fine-tuning trainer.</td></tr><tr><td><strong>Beam</strong></td><td><code>checkpoint_enabled=True</code> snapshots a container after <code>on_start</code>, including GPU initialization. <a href="https://docs.beam.cloud/v2/topics/cold-start">Cold-start documentation</a></td><td>A shipped startup feature with a defined lifecycle. It does not establish saving arbitrary training progress.</td></tr><tr><td><strong>Cerebrium</strong></td><td>July 1, 2026 engineering article describes CPU/GPU snapshots of warmed containers. <a href="https://cerebrium.ai/blog/reducing-gpu-cold-starts-with-memory-snapshots-restoring-cuda-workloads-in-second">Engineering article</a></td><td>Another commercial cold-start implementation. Its published performance evidence concerns serving workloads.</td></tr><tr><td><strong>Microsoft Singularity</strong></td><td>Microsoft describes transparent training preemption and migration in its 2022 research publication. <a href="https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/">Microsoft Research</a></td><td>Strong systems precedent; public evidence here is a research/service description, not a currently purchasable standalone snapshot library.</td></tr></tbody></table></div>
+<p>NVIDIA Run:ai also documents preemptible training using application checkpoints saved periodically or around interruption. That shows the alternative a transparent snapshot competes with; it does not establish the absence of other Run:ai mechanisms. <a href="https://run-ai-docs.nvidia.com/self-hosted/workloads-in-nvidia-run-ai/using-training/checkpointing-preemptible-workloads">Run:ai training checkpoint guidance</a>.</p>
+<h3 class="r-h3">Why startup snapshots can be an easier product</h3>
+<p>An initialized inference image can serve as a template for many future workers. The expensive snapshot creation is paid once and reused. Each useful training checkpoint represents new learning; repeated saves contain new state, and many will never need restoration. This is an economic difference, even when both features share underlying technology.</p>
+<p>Startup also gives a controlled capture point. Arbitrary training suspension has to handle the current data position, pending updates, attached services, and library behavior. Inference engines can sometimes discard empty caches before saving; optimizer history cannot simply be discarded while claiming exact training continuation. These are reasons to offer constrained products and explicit support matrices, rather than a universal promise.</p>
+<h2 class="r-h2" id="7-the-bounded-experiment-to-do-next">7. The bounded experiment to do next</h2>
+<p><strong>Recommendation: ordinary LoRA on Qwen2.5-0.5B, one GPU, one training process, one save/restore.</strong> Its published base model has approximately 0.49 billion parameters. Its small size keeps the question about restoration rather than GPU capacity. This is a mechanism demonstration, not an attempt to improve model quality in 25 steps. <a href="https://huggingface.co/Qwen/Qwen2.5-0.5B">Qwen model card</a>.</p>
+<h3 class="r-h3">Proposed configuration</h3>
+<div class="r-mermaid" role="region" aria-label="Comparison table" tabindex="0"><table class="r-table"><thead><tr><th scope="col">Choice</th><th scope="col">Proposed baseline</th></tr></thead><tbody><tr><td>Training code</td><td>Small explicit PyTorch loop using Transformers and PEFT</td></tr><tr><td>Model</td><td>Fixed revision of <code>Qwen/Qwen2.5-0.5B</code>; downloaded before the experiment</td></tr><tr><td>Method</td><td>LoRA rank 8, explicit query/value projection targets, no additional trainable base modules</td></tr><tr><td>Precision</td><td>FP32 for this small correctness baseline; BF16 is a later controlled change</td></tr><tr><td>Optimizer</td><td>Non-paged <code>torch.optim.AdamW</code>, trainable parameters only</td></tr><tr><td>Data</td><td>Small fixed local set of prompt/answer examples, tokenized before launch; record its hash and batch order</td></tr><tr><td>Work per update</td><td>Batch size 1, short fixed sequence length, initially no gradient accumulation</td></tr><tr><td>Execution</td><td>Eager attention, no <code>torch.compile</code>, no extra kernel packages, no remote tracking</td></tr><tr><td>Boundary</td><td>After update 20: clear gradients, finish GPU work, record state, publish readiness, wait for release</td></tr><tr><td>Comparison</td><td>Finish at update 25; same host, GPU, model revision, data and package versions</td></tr></tbody></table></div>
+<p>LoRA target selection is explicit to make the trainable state easy to inspect, not a recommendation for best model quality. PEFT documents the relevant configuration and parameter counting. <a href="https://huggingface.co/docs/peft/package_reference/lora">PEFT LoRA reference</a>.</p>
+<h3 class="r-h3">Three runs answer three different questions</h3>
+<ol><li><strong>Uninterrupted reference:</strong> train from the chosen initial state through update 25. Record state at updates 20 and 25.</li><li><strong>Application restart:</strong> train to update 20, save adapters plus complete training state, terminate the process, rebuild from the fixed base and saved state, then perform five more updates.</li><li><strong>Whole-process restore:</strong> train to update 20, capture CPU and GPU state, verify the original process has exited, restore it, then perform five more updates. Application checkpoint files must not be its restore input.</li></ol>
+<p>Use exactly the same training loop for all three runs. Keep the base model cached on disk for both restore paths so a network download does not manufacture an apparent snapshot advantage. Any diagnostic tensor copies used for validation belong outside the measured checkpoint interval and should not inflate the captured process accidentally.</p>
+<p>The first correctness baseline may disable dropout. A small follow-up should enable it and verify random-state restoration; otherwise matching random-state hashes alone has not exercised stochastic continuation. Before interpreting final-step differences, establish that two uninterrupted runs match in this fixed environment. <a href="https://docs.pytorch.org/docs/stable/notes/randomness.html">PyTorch reproducibility</a>.</p>
+<h3 class="r-h3">What counts as success</h3>
+<p>Before the next update after restore, require exact equality of adapter tensors, optimizer tensors, update count, next batch position, and used random-generator states with the corresponding pre-save values. Verify the fixed base and configuration too. Then compare updates 21–25 with the uninterrupted reference, including losses and trainable state. A decreasing loss alone is insufficient.</p>
+<p>For deterministic execution in the same environment, target exact continuation. If a numerical tolerance is necessary, retain values, choose the tolerance in advance, and explain the source of variation. Hashes prove equality, but cannot measure how close unequal tensors are.</p>
+<p>Also establish that the GPU was released during suspension and could be used by a separate tiny disposable workload. GPU-only suspend/resume is a useful intermediate check, but the final claim requires the original CPU process to exit and the saved process image to be restored.</p>
+<h3 class="r-h3">Where this fits in the repository</h3>
+<p>The existing <a href="implementation-plan.md">implementation plan</a> names <code>train.py</code> and <code>checkpoint.sh</code>; those files are not present in this checkout yet. Its <a href="implementation-plan-review.md">review</a> already identifies the explicit release gate, deterministic reference, detached restore, cleanup, and the need to choose one owner for CUDA restore. Retain that small division of responsibilities when extending to fine-tuning.</p>
+<p>The last <a href="gate-results.md">host gate record</a> reports driver <strong>580.126.20</strong> and both tools missing from PATH. That is a setup gap, not proof of incompatibility. The next execution session must establish permissions and CPU restore first, then tiny CUDA restore, before spending time on fine-tuning. Later driver features must not be assumed on this recorded host.</p>
+<p>If CRIU&#x27;s CUDA plugin restores and unlocks CUDA, the shell must not unconditionally repeat those transitions. This is already recorded in the project guidance. <a href="https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505">Upstream restore hook</a>.</p>
+<h3 class="r-h3">Add one source of complexity at a time</h3>
+<div class="r-mermaid" role="region" aria-label="Comparison table" tabindex="0"><table class="r-table"><thead><tr><th scope="col">Stage</th><th scope="col">What it teaches</th><th scope="col">Effort judgment</th></tr></thead><tbody><tr><td>Tiny existing model</td><td>Whether this host can restore any training process</td><td>Necessary first gate</td></tr><tr><td>Small ordinary LoRA</td><td>Whether real pretrained-model training continues correctly</td><td>Highest-value next extension</td></tr><tr><td>BF16, then four-bit base with non-paged optimizer</td><td>Precision and quantization compatibility, separately</td><td>Bounded follow-ups</td></tr><tr><td>TRL SFTTrainer</td><td>Behavior in a common training framework</td><td>Useful once the explicit loop works</td></tr><tr><td>Larger model or full fine-tuning</td><td>How state size changes the comparison</td><td>Only after correctness and headroom are established</td></tr><tr><td>Compression or incremental capture</td><td>Whether a measured bottleneck can be reduced</td><td>Separate optimization work; incremental capture is substantially more involved</td></tr></tbody></table></div>
+<p>These are relative effort judgments, not delivery estimates. Kernel permissions and driver/library interactions can dominate setup time. A reproducible blocker is a valid feasibility finding, but it is not a successful restore demonstration.</p>
+<h2 class="r-h2" id="8-measure-the-return-not-just-the-snapshot">8. Measure the return, not just the snapshot</h2>
+<p>Record separate timestamps for <strong>request to GPU release</strong>, <strong>request to completed image</strong>, and <strong>restore request to the next completed optimizer update</strong>. If the image has not been flushed or copied to storage that survives the relevant failure, do not call it durable. A fast in-memory snapshot solves a different failure case from a checkpoint on independent storage.</p>
+<p>Also record image size, host-memory peak, GPU allocated/reserved memory at the boundary, uninterrupted step time, and any failures. For a later timing comparison, repeat a few times under the same cache and storage conditions and report the spread. Do not infer an L4 result from an H100 or B200 paper.</p>
+<p>For a planned pause, both methods can stop after the same update, so neither needs to redo useful work. Compare the combined save and restart costs, plus the engineering cost of preserving the whole process. For an unexpected failure, only an already-saved checkpoint helps; one cannot capture a dead GPU after the event.</p>
+<p>An illustrative event-cost comparison is:</p>
+<pre><code class="language-text">Process snapshot cost = save time + restore-to-next-update time
+Application restart cost = save time + rebuild-to-next-update time + work repeated</code></pre>
+<p>The terms must use the same completion and storage criteria. Periodic save overhead also matters even when no failure happens. If failures are equally likely throughout a checkpoint interval, average lost work is roughly half that interval; this is a simplifying assumption, not a guarantee.</p>
+<p><strong>Choose an application checkpoint when</strong> training state is explicit, adapter saves are small, startup is tolerable, and portability matters. <strong>Choose a process snapshot when</strong> preserving a complex live environment or avoiding expensive reconstruction is worth its state-transfer cost and tighter compatibility requirements. Often the practical design uses process snapshots for planned pause/resume and keeps application checkpoints as a separate recovery/export path.</p>
+<p>The interview claim to aim for is precise: <strong>“We restored one supported single-GPU LoRA process and verified its next updates. We measured its cost against a full training-state checkpoint and identified where the approach stops being attractive.”</strong> That demonstrates more judgment than claiming universal or instantaneous GPU migration.</p>
+<h2 class="r-h2" id="9-remaining-uncertainties">9. Remaining uncertainties</h2>
+<p>Public evidence supports the feasibility of GPU-aware training checkpoint/restore and several commercial uses. It does not settle compatibility or cost for our exact Jarvis container, package versions, model, and allocator. The B200 fine-tuning paper does not provide a sufficiently explicit LoRA/QLoRA configuration; Cedana&#x27;s cited driver table needs current confirmation; hosted startup features do not establish an arbitrary mid-training API.</p>
+<p>The recommended decision is therefore to measure a narrow supported case first. The most promising later optimization for LoRA is avoiding repeated capture of an unchanged base model. Proving that safely requires more than ignoring tensors marked frozen, because the snapshot layer must still restore addresses and resource relationships correctly.</p>
+<h2 class="r-h2" id="sources-and-reading-order">Sources and reading order</h2>
+<p>All web documentation and repositories below were consulted on September 13, 2026. “Living documentation” means no stable publication date was established; pin a release or commit before reproducing an implementation. Performance numbers above are author-reported and tied to the stated experiment.</p>
+<h3 class="r-h3">Start with these papers</h3>
+<ol><li>Stoyanov et al. <strong>CRIUgpu: Transparent Checkpointing of GPU-Accelerated Workloads.</strong> arXiv v1, February 23, 2025. <a href="https://arxiv.org/html/2502.16631v1">Paper</a>. Closest architecture and training measurements.</li><li>Zeng et al. <strong>GPU Checkpoint/Restore Made Fast and Lightweight.</strong> FAST, February 24–26, 2026. <a href="https://www.usenix.org/system/files/fast26-zeng.pdf">Paper</a>, <a href="https://github.com/thustorage/GCR">artifact</a>. Separate CPU-memory results and inference increments from durable training saves.</li><li>Stoyanov et al. <strong>Towards On-the-Fly Snapshot Memory Compression for Low-Latency Elastic Inference Serving Systems.</strong> EuroMLSys, April 27–30, 2026. <a href="https://radostin.io/files/stoyanov-euromlsys-2026.pdf">Paper</a>. Section 5.3 supplies the training counterexample to compression optimism.</li><li>Wei et al. <strong>PhoenixOS: Concurrent OS-level GPU Checkpoint and Restore with Validated Speculation.</strong> SOSP 2025; cited arXiv revision September 1, 2025. <a href="https://arxiv.org/html/2405.12079v4">Paper</a>, <a href="https://github.com/SJTU-IPADS/PhoenixOS">code</a>.</li><li>Shukla et al. <strong>Singularity: Planet-Scale, Preemptive and Elastic Scheduling of AI Workloads.</strong> Microsoft, February 2022. <a href="https://arxiv.org/abs/2202.07848">Paper</a>, <a href="https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/">publisher page</a>.</li><li>Jain and Cooperman. <strong>CRAC: Checkpoint-Restart Architecture for CUDA with Streams and UVM.</strong> SC 2020. <a href="https://arxiv.org/abs/2008.10596">Paper</a>, <a href="https://github.com/DMTCP-CRAC/CRAC-early-development">early code</a>.</li><li>Hu et al. <strong>LoRA: Low-Rank Adaptation of Large Language Models.</strong> arXiv, June 2021. <a href="https://arxiv.org/abs/2106.09685">Paper</a>.</li><li>Dettmers et al. <strong>QLoRA: Efficient Finetuning of Quantized LLMs.</strong> arXiv, May 2023. <a href="https://arxiv.org/abs/2305.14314">Paper</a>.</li></ol>
+<h3 class="r-h3">Implementation references</h3>
+<ul><li>NVIDIA. <strong>cuda-checkpoint</strong>, living README and source. <a href="https://github.com/NVIDIA/cuda-checkpoint">Repository</a>.</li><li>CRIU maintainers. <strong>GPU Checkpointing</strong>, CUDA plugin, and current command documentation. <a href="https://www.criu.org/GPU_Checkpointing">Guide</a>, <a href="https://github.com/checkpoint-restore/criu/tree/criu-dev/plugins/cuda">plugin</a>, <a href="https://github.com/checkpoint-restore/criu/blob/criu-dev/Documentation/criu.txt">CLI and compression options</a>.</li><li>Hugging Face / bitsandbytes maintainers. <strong>Paged optimizers</strong> and allocation implementation, living documentation/source. <a href="https://huggingface.co/docs/bitsandbytes/explanations/optimizers">Explanation</a>, <a href="https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/bitsandbytes/optim/optimizer.py">optimizer.py</a>, <a href="https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/csrc/pythonInterface.cpp">native allocation</a>.</li><li>Hugging Face. <strong>PEFT checkpoint format and LoRA reference</strong>, living documentation. <a href="https://huggingface.co/docs/peft/developer_guides/checkpoint">Format</a>, <a href="https://huggingface.co/docs/peft/package_reference/lora">LoRA</a>.</li><li>Hugging Face. <strong>Transformers Trainer, TRL SFTTrainer, and Accelerate checkpointing</strong>, living documentation. <a href="https://huggingface.co/docs/transformers/main/en/main_classes/trainer">Trainer</a>, <a href="https://huggingface.co/docs/trl/sft_trainer">SFTTrainer</a>, <a href="https://huggingface.co/docs/accelerate/usage_guides/checkpoint">Accelerate</a>.</li><li>PyTorch / Meta. <strong>Checkpointing in torchtune</strong>, cited stable documentation version 0.6. <a href="https://meta-pytorch.org/torchtune/stable/deep_dives/checkpointer.html">Guide</a>.</li><li>PyTorch contributors. <strong>CUDA memory management, data loading, reproducibility, and activation checkpointing</strong>, living documentation. <a href="https://docs.pytorch.org/docs/stable/notes/cuda.html#memory-management">CUDA</a>, <a href="https://docs.pytorch.org/docs/stable/data.html">data</a>, <a href="https://docs.pytorch.org/docs/stable/notes/randomness.html">reproducibility</a>, <a href="https://docs.pytorch.org/docs/stable/checkpoint.html">activation checkpointing</a>.</li><li>Qwen Team. <strong>Qwen2.5-0.5B model card</strong>, model family released September 2024. <a href="https://huggingface.co/Qwen/Qwen2.5-0.5B">Model</a>.</li></ul>
+<h3 class="r-h3">Product evidence</h3>
+<ul><li>MemVerge. <strong>Working with Snapshots</strong>, GPU Cluster Manager 0.4.0, and <strong>Memory Machine Batch prerequisites</strong>, living documentation. <a href="https://docs.memverge.com/AI/GPU_Cluster_Manager/0.4.0/quickstart_guide/checkpoint-restore/">Training workspace</a>, <a href="https://docs.memverge.com/MMBatch/latest/User%20Guide/Getting%20Started/prerequisites/">Batch limits</a>.</li><li>Cedana. <strong>Checkpoint/restore with GPUs</strong>, <strong>Performance of Cedana&#x27;s GPU Interception</strong>, and daemon source, living documentation. <a href="https://docs.cedana.ai/daemon/checkpoint-restore/cr-1">GPU support</a>, <a href="https://docs.cedana.ai/articles/performance-of-cedanas-gpu-interception">performance</a>, <a href="https://github.com/cedana/cedana">source</a>.</li><li>Modal. <strong>Memory Snapshots</strong>, living documentation; GPU feature marked alpha at access. <a href="https://modal.com/docs/guide/memory-snapshots">Guide</a>.</li><li>Google Cloud. <strong>About GKE Pod snapshots</strong>, updated September 9, 2026. <a href="https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots">Guide</a>.</li><li>NVIDIA Dynamo. <strong>Snapshot</strong>, cited version 1.0.2 guide, and current <strong>Release Artifacts</strong>. <a href="https://docs.nvidia.com/dynamo/v1.0.2/kubernetes-deployment/deployment-guide/snapshot">Guide</a>, <a href="https://docs.dynamo.nvidia.com/dynamo/dev/reference/release-artifacts">status</a>.</li><li>Beam. <strong>Cold Start Performance</strong>, living documentation. <a href="https://docs.beam.cloud/v2/topics/cold-start">Guide</a>.</li><li>Hamdulay, Yaseen / Cerebrium. <strong>Reducing GPU Cold Starts with Memory Snapshots: Restoring CUDA Workloads in Seconds.</strong> July 1, 2026. <a href="https://cerebrium.ai/blog/reducing-gpu-cold-starts-with-memory-snapshots-restoring-cuda-workloads-in-second">Article</a>.</li><li>NVIDIA Run:ai. <strong>Checkpointing Preemptible Training Workloads</strong>, living documentation. <a href="https://run-ai-docs.nvidia.com/self-hosted/workloads-in-nvidia-run-ai/using-training/checkpointing-preemptible-workloads">Guide</a>.</li></ul>
+</main>
+
+    <footer class="r-footer">
+      <span>2026-09-13 · 13:15 IST</span>
+      <span><a href="/index">all responses</a></span>
+    </footer>
+  </div>
+
+  <div id="r-refresh-pill"><span class="dot"></span>auto-refresh</div>
+
+  <script>
+    // Auto-refresh logic: poll /version every 3s, reload only when changed.
+    // Active only when served at root path "/" — direct file URLs stay static.
+    (function() {
+      const isLatest = (location.pathname === '/' || location.pathname === '');
+      if (!isLatest) return;
+      const pill = document.getElementById('r-refresh-pill');
+      pill.classList.add('visible');
+      let lastVersion = null;
+      async function check() {
+        try {
+          const r = await fetch('/version', { cache: 'no-store' });
+          if (!r.ok) return;
+          const { latest } = await r.json();
+          if (lastVersion === null) { lastVersion = latest; return; }
+          if (latest !== lastVersion) {
+            // Preserve scroll position across reload
+            sessionStorage.setItem('r-scroll', window.scrollY);
+            location.reload();
+          }
+        } catch (e) { /* server momentarily down — keep trying */ }
+      }
+      const saved = sessionStorage.getItem('r-scroll');
+      if (saved) { window.scrollTo(0, parseInt(saved, 10)); sessionStorage.removeItem('r-scroll'); }
+      setInterval(check, 3000);
+      check();
+    })();
+  </script>
+</body>
+</html>

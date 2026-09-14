@@ -1,0 +1,511 @@
+<!doctype html>
+<!--
+  html-response skill · canonical template.
+  When composing a response, copy this whole file, then replace ONLY the four
+  marker comments:
+      GPU snapshotting, step by step         <-- short page title (also the browser tab)
+      CONCEPTS · JARVIS LABS · OUR SMALL POC       <-- tiny mono uppercase label above title (e.g., "HAB-19 · STATUS")
+      2026-09-13 · 01:04 IST     <-- ISO-ish human time, e.g. "2026-05-14 · 16:34 IST"
+      Response content       <-- the response body, as HTML blocks (see SKILL.md catalog)
+  Everything else (CSS, scripts, fonts, refresh logic) is locked — do not edit.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPU snapshotting, step by step</title>
+
+  <!-- Fonts: Cormorant Garamond italic for accents · JetBrains Mono for eyebrows + code · Inter for body -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500;1,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- KaTeX for math -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+          onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}], throwOnError:false});"></script>
+
+  <!-- highlight.js for syntax-highlighted code -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/atom-one-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => hljs.highlightAll());</script>
+
+  <!-- mermaid for diagrams (init lazily) -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: {
+      darkMode: true,
+      background: '#0A0907',
+      primaryColor: '#1a1714',
+      primaryTextColor: '#F0EBE0',
+      primaryBorderColor: '#D4AB68',
+      lineColor: '#D4AB68',
+      secondaryColor: '#5C2329',
+      tertiaryColor: '#1a1714',
+      fontFamily: 'Inter, system-ui, sans-serif'
+    }});
+  </script>
+
+  <style>
+    :root {
+      /* Quiet Luxury — matches the locked Habit Tracker chassis */
+      --bg: #0A0907;
+      --bg-lift: #15110D;
+      --surface: rgba(255,255,255,0.025);
+      --surface-2: rgba(255,255,255,0.045);
+      --border: rgba(212,171,104,0.08);
+      --border-2: rgba(212,171,104,0.20);
+      --ink: #F0EBE0;
+      --ink-2: rgba(240,235,224,0.62);
+      --ink-3: rgba(240,235,224,0.38);
+      --gold: #D4AB68;
+      --gold-deep: #9F7937;
+      --gold-tint: rgba(212,171,104,0.14);
+      --maroon: #5C2329;
+      --success: #A3BE8C;
+      --warning: #EBCB8B;
+      --danger: #BF616A;
+
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { background: var(--bg); color: var(--ink); margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-size: 15.5px;
+      line-height: 1.62;
+      letter-spacing: -0.005em;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: var(--gold); text-decoration: none; border-bottom: 1px solid var(--gold-tint); transition: border-color .15s; }
+    a:hover { border-bottom-color: var(--gold); }
+
+    code, pre, .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace; }
+
+    /* ── Layout ── */
+    .r-page { max-width: 920px; margin: 0 auto; padding: 64px 32px 96px; }
+
+    /* ── Header ── */
+    .r-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 18px;
+    }
+    .r-eyebrow .r-eyebrow-accent { color: var(--gold); }
+    .r-title {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 52px;
+      line-height: 1.05;
+      color: var(--ink);
+      margin: 0 0 12px 0;
+      background: linear-gradient(180deg, #F8F1E3 0%, var(--gold) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .r-lede {
+      color: var(--ink-2);
+      font-size: 17px;
+      line-height: 1.55;
+      margin: 4px 0 40px 0;
+      max-width: 70ch;
+    }
+    .r-rule {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border-2), transparent);
+      margin: 48px 0;
+      border: 0;
+    }
+
+    /* ── Headings ── */
+    .r-h2 {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--ink);
+      margin: 48px 0 16px 0;
+    }
+    .r-h2-accent {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-style: italic;
+      font-weight: 500;
+      color: var(--gold);
+    }
+    .r-h3 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin: 32px 0 12px 0;
+    }
+
+    /* ── Prose ── */
+    .r-prose p { margin: 0 0 14px 0; max-width: 72ch; }
+    .r-prose ul, .r-prose ol { margin: 0 0 14px 0; padding-left: 20px; max-width: 72ch; }
+    .r-prose li { margin: 4px 0; }
+    .r-prose em { font-family: 'Cormorant Garamond', Georgia, serif; font-style: italic; font-weight: 500; color: var(--gold); font-size: 1.08em; }
+    .r-prose strong { color: var(--ink); font-weight: 600; }
+    .r-prose code { background: var(--gold-tint); color: var(--gold); padding: 1px 6px; border-radius: 4px; font-size: 0.88em; border: 1px solid var(--border); }
+
+    /* ── Callout ── */
+    .r-callout {
+      border-left: 2px solid var(--gold);
+      background: var(--surface);
+      padding: 16px 20px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin: 18px 0;
+    }
+    .r-callout.info  { border-left-color: var(--gold); }
+    .r-callout.warn  { border-left-color: var(--warning); }
+    .r-callout.danger { border-left-color: var(--danger); }
+    .r-callout.success { border-left-color: var(--success); }
+    .r-callout-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 6px;
+    }
+
+    /* ── Insight (matches the "★ Insight" pattern) ── */
+    .r-insight {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 22px;
+      margin: 22px 0;
+      position: relative;
+    }
+    .r-insight::before {
+      content: "★";
+      color: var(--gold);
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    .r-insight-title {
+      display: inline;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+    .r-insight ul { margin: 10px 0 0 0; padding-left: 20px; }
+    .r-insight li { margin: 6px 0; color: var(--ink-2); }
+
+    /* ── Grids (side-by-side panels) ── */
+    .r-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+    .r-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 18px 0; }
+    @media (max-width: 760px) {
+      .r-grid-2, .r-grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ── Card / surface panel ── */
+    .r-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+    }
+    .r-card .r-card-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 10px;
+    }
+
+    /* ── Big stat ── */
+    .r-stat { padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); text-align: center; }
+    .r-stat-value {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-style: italic;
+      font-weight: 500;
+      font-size: 56px;
+      line-height: 1;
+      background: linear-gradient(180deg, #F8F1E3 0%, var(--gold) 100%);
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+    .r-stat-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+
+    /* ── Table ── */
+    .r-table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14.5px; }
+    .r-table th {
+      text-align: left;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      font-weight: 500;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-2);
+    }
+    .r-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--ink-2);
+      vertical-align: top;
+    }
+    .r-table tr:last-child td { border-bottom: none; }
+    .r-table td strong, .r-table td .r-em { color: var(--gold); }
+
+    /* ── Code blocks ── */
+    pre {
+      background: #1a1714 !important;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px 18px !important;
+      margin: 16px 0;
+      overflow-x: auto;
+      font-size: 13.5px;
+      line-height: 1.55;
+    }
+    pre code { background: transparent !important; padding: 0 !important; border: none !important; color: var(--ink); }
+
+    /* ── KaTeX tweaks ── */
+    .katex { font-size: 1.04em; color: var(--ink); }
+    .katex-display { margin: 18px 0 !important; padding: 8px 0; }
+
+    /* ── Mermaid container ── */
+    .r-mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 18px; margin: 18px 0; overflow-x: auto; }
+    .mermaid { background: transparent !important; }
+
+    /* ── Collapsible ── */
+    details.r-collapsible { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0; margin: 14px 0; background: var(--surface); }
+    details.r-collapsible > summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 12px 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.20em;
+      text-transform: uppercase;
+      color: var(--gold);
+    }
+    details.r-collapsible > summary::-webkit-details-marker { display: none; }
+    details.r-collapsible > summary::before { content: "▸ "; color: var(--gold-deep); transition: transform .15s; display: inline-block; }
+    details.r-collapsible[open] > summary::before { transform: rotate(90deg); }
+    details.r-collapsible > .r-collapsible-body { padding: 0 18px 16px; border-top: 1px solid var(--border); padding-top: 16px; }
+
+    /* ── Math inline emphasis when math is in a heading ── */
+    h1 .katex, .r-title .katex { font-size: 0.88em; }
+
+    /* ── Footer ── */
+    .r-footer {
+      margin-top: 80px;
+      padding-top: 28px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+    }
+    .r-footer a { color: var(--ink-3); border: none; }
+    .r-footer a:hover { color: var(--gold); }
+
+    /* ── Refresh status pill (only shown when auto-refresh is active) ── */
+    #r-refresh-pill {
+      position: fixed; bottom: 18px; right: 18px;
+      padding: 6px 12px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--ink-3);
+      backdrop-filter: blur(8px);
+      opacity: 0; transition: opacity .25s;
+    }
+    #r-refresh-pill.visible { opacity: 1; }
+    #r-refresh-pill .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); margin-right: 6px; vertical-align: middle; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* ── Print ── */
+    @media print {
+      body { background: white; color: black; }
+      #r-refresh-pill { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="r-page">
+    <div class="r-eyebrow">CONCEPTS · JARVIS LABS · OUR SMALL POC</div>
+    <h1 class="r-title">GPU snapshotting, step by step</h1>
+    <hr class="r-rule">
+
+    <div class="r-prose">
+<p><strong>A snapshot lets a running program become saved files, then become a running program again.</strong><br>GPU training keeps information in ordinary memory and GPU memory.<br>NVIDIA brings the GPU part into ordinary memory; CRIU saves the process.<br>Our small experiment: train 20 steps, save, restore, then train 5 more.</p>
+<p>Start with the pictures. Open the explanations when you want more. There is no timer, and you can revisit this page later.</p>
+<p><a href="#state">1 · The state</a> &nbsp; <a href="#journey">2 · The journey</a> &nbsp; <a href="#proof">3 · Our experiment</a> &nbsp; <a href="#limits">4 · The limits</a></p>
+</div>
+
+<h2 class="r-h2" id="state">1. What must survive?</h2>
+<div class="r-prose"><p>A program is instructions. A <strong>process</strong> is those instructions running with their current information. That information is its <strong>state</strong>.</p></div>
+<div class="r-grid-2">
+<div class="r-card r-prose"><div class="r-card-eyebrow">CPU · Runs the Python program</div><p><strong>Ordinary memory · RAM</strong></p><p>“I have finished step 20.”<br>“This is the next batch.”<br>“This is where execution continues.”</p><p>Python objects, random-generator state, and references to open files also matter.</p></div>
+<div class="r-card r-prose"><div class="r-card-eyebrow">GPU · Does the tensor calculations</div><p><strong>GPU memory · VRAM</strong></p><p>The model’s learned numbers.<br>The optimizer’s accumulated history.<br>The input and working tensors.</p><p>The NVIDIA driver also manages records of the process’s GPU resources.</p></div>
+</div>
+<div class="r-prose"><p>Both halves must describe <strong>the same point in the work</strong>. A counter saying “step 20” beside weights from step 19 would be inconsistent.</p></div>
+<details class="r-collapsible"><summary>Why aren't the weights enough?</summary><div class="r-collapsible-body r-prose">
+<p>A momentum optimizer remembers earlier updates. Identical weights with different momentum can take a different next step. The next batch and random-generator state can change the result too.</p>
+<p>An <strong>application checkpoint</strong>, such as a dictionary written with <code>torch.save</code>, saves values chosen by the code. A new program loads them and rebuilds training.</p>
+<p>A <strong>process checkpoint</strong> reconstructs the running program. The platform saves its execution state. Our demo still adds a cooperative waiting point to make the experiment easy to observe.</p>
+</div></details>
+<details class="r-collapsible"><summary>The GPU words, translated</summary><div class="r-collapsible-body r-prose">
+<p><strong>CUDA:</strong> NVIDIA’s software interface for GPU computation.<br><strong>Driver:</strong> software managing access to the GPU.<br><strong>Context:</strong> the process’s GPU working environment.<br><strong>Kernel:</strong> a function running on the GPU.<br><strong>Stream:</strong> an ordered sequence of GPU operations.<br><strong>Event:</strong> a marker of GPU progress.</p>
+<p>One training step usually launches many kernels. Tensor bytes are only part of the state that must survive.</p>
+</div></details>
+
+<h2 class="r-h2" id="journey">2. Follow the information</h2>
+<div class="r-grid-2">
+<div><h3 class="r-h3">Save</h3><div class="r-mermaid" role="img" aria-label="Save: GPU state is copied into process RAM by NVIDIA, then CRIU saves the process to disk."><pre class="mermaid">
+flowchart TD
+ G["GPU memory"] -->|"NVIDIA copies"| H["Process RAM + GPU copy"]
+ H -->|"CRIU saves"| D[("Files on disk")]
+</pre></div></div>
+<div><h3 class="r-h3">Restore</h3><div class="r-mermaid" role="img" aria-label="Restore: CRIU rebuilds the process from disk, then NVIDIA restores the GPU state."><pre class="mermaid">
+flowchart TD
+ D[("Files on disk")] -->|"CRIU rebuilds"| H["Process RAM + GPU copy"]
+ H -->|"NVIDIA restores"| G["GPU memory"]
+</pre></div></div>
+</div>
+<div class="r-callout info r-prose"><div class="r-callout-title">The bridge</div><p><strong>GPU → RAM → disk. Then disk → RAM → GPU.</strong><br>RAM stages the GPU copy. Disk holds the checkpoint after the original process ends. The tools also save and rebuild resource records.</p></div>
+<div class="r-prose"><p><strong>Why two tools?</strong> CRIU saves supported Linux process resources. NVIDIA’s private GPU state needs NVIDIA’s help before CRIU can capture it. <a href="https://www.criu.org/GPU_Checkpointing">CRIU’s explanation</a>.</p></div>
+<details class="r-collapsible" open><summary>01 · Stop changes and finish submitted work</summary><div class="r-collapsible-body r-prose"><p><strong>Why:</strong> copying changing data risks an inconsistent snapshot.</p><p><strong>How:</strong> block CUDA calls that change GPU state, then finish submitted work. A kernel completes; its half-finished computation is not captured.</p><p>Our loop finishes step 20, reports state, and waits for an explicit release. This chosen pause point keeps our comparison simple.</p></div></details>
+<details class="r-collapsible"><summary>02 · Bring GPU state into RAM</summary><div class="r-collapsible-body r-prose"><p><strong>Why:</strong> make GPU state available for process capture.</p><p><strong>How:</strong> NVIDIA copies device memory into driver-managed host memory and releases the process’s GPU resources.</p><p>CPU threads are not frozen by this operation. Our explicit wait keeps training from advancing.</p></div></details>
+<details class="r-collapsible"><summary>03 · Save the process to disk</summary><div class="r-collapsible-body r-prose"><p><strong>Why:</strong> a copy in RAM disappears if the process or host is lost.</p><p><strong>How:</strong> CRIU freezes the process and writes checkpoint files, including its memory and staged GPU data. In our experiment the original process must end after a successful dump.</p><p>“Image files” means saved process data, not photographs. This does not back up every file on the machine.</p></div></details>
+<details class="r-collapsible"><summary>04 · Rebuild, reconnect, continue</summary><div class="r-collapsible-body r-prose"><p><strong>Why:</strong> saved bytes need a process and working GPU resources again.</p><p><strong>How:</strong> CRIU rebuilds the process. NVIDIA restores GPU memory, mappings, and CUDA objects, then unblocks CUDA calls.</p><p>Our loop checks its restored state before step 21. It does not reload the tensors with <code>torch.load</code>.</p></div></details>
+<div class="r-prose"><p>The sequence follows <a href="https://developer.nvidia.com/blog/checkpointing-cuda-applications-with-criu/">NVIDIA’s suspend/restore description</a>. The step-20 waiting point is our <a href="implementation-plan-review.md">reviewed demo design</a>.</p></div>
+<details class="r-collapsible"><summary>Why restore the original memory addresses?</summary><div class="r-collapsible-body r-prose"><p>The CPU holds pointers—addresses identifying GPU data. Restoring the original GPU virtual addresses keeps those saved references meaningful. Otherwise they could point to the wrong place. <a href="https://github.com/NVIDIA/cuda-checkpoint#the-utility">NVIDIA’s restore behavior</a>.</p></div></details>
+
+<h2 class="r-h2" id="proof">3. What our project will prove</h2>
+<div class="r-prose"><p><strong>One Linux host. One L4. One process. One tiny model.</strong><br>Two layers, generated input data, and an optimizer with momentum. The diagrams show our proposed experiment, not measured results.</p></div>
+<div class="r-grid-2">
+<div><h3 class="r-h3">A · Uninterrupted reference</h3><div class="r-mermaid" role="img" aria-label="Reference run: same starting state, twenty steps recorded as A20, then five more steps recorded as A25."><pre class="mermaid">
+flowchart TD
+ S["Same starting state"] --> A["20 steps · record A20"]
+ A -->|"5 more steps"| B["Record A25"]
+</pre></div></div>
+<div><h3 class="r-h3">B · Checkpoint run</h3><div class="r-mermaid" role="img" aria-label="Checkpoint run: same starting state, twenty steps recorded as B20, save and end process, restore and record R20 before another update, then five more steps recorded as B25."><pre class="mermaid">
+flowchart TD
+ S["Same starting state"] --> A["20 steps · record B20"]
+ A --> C["Save · original process ends"]
+ C --> D["Restore · record R20"]
+ D -->|"5 more steps"| E["Record B25"]
+</pre></div></div>
+</div>
+<div class="r-grid-2">
+<div class="r-card r-prose"><p><strong>Did the saved state return?</strong></p><p><code>B20 = R20</code></p><p>Require exact matching tensor fingerprints before another update. Also check the step, input position, and random-generator state used by the loop.</p></div>
+<div class="r-card r-prose"><p><strong>Did training continue correctly?</strong></p><p><code>A25 = B25</code></p><p>Target equality under the same deterministic setup. Compare A20 with B20 too, to confirm both runs reached the same state before capture.</p></div>
+</div>
+<details class="r-collapsible"><summary>What is a fingerprint?</summary><div class="r-collapsible-body r-prose"><p>A <strong>digest</strong> is a short fingerprint calculated from tensor bytes. Matching digests strongly support byte equality for the data checked; they do not prove that every process resource is correct.</p><p>A mismatched digest cannot measure closeness. If we allow rounding differences at step 25, compare actual values and choose a tolerance beforehand.</p><p>A fixed seed alone does not guarantee repeatable GPU results; deterministic operations and the same environment matter too. <a href="https://docs.pytorch.org/docs/main/notes/randomness.html">PyTorch guidance</a>.</p></div></details>
+<details class="r-collapsible"><summary>Where each idea goes in the code</summary><div class="r-collapsible-body r-prose">
+<p><strong>These are proposed files; they are not implemented yet.</strong> See <a href="implementation-plan.md">implementation-plan.md, lines 30–56</a>.</p>
+<table class="r-table"><thead><tr><th>Part</th><th>Job</th></tr></thead><tbody>
+<tr><td><code>train.py</code><br><code>make_model()</code></td><td>Create the tiny GPU model.</td></tr>
+<tr><td><code>train_step()</code></td><td>Predict → measure error → compute gradients → update.</td></tr>
+<tr><td><code>state_digest()</code></td><td>Report the state we compare.</td></tr>
+<tr><td><code>main()</code></td><td>Set up repeatable input, run steps, and wait at step 20.</td></tr>
+<tr><td><code>checkpoint.sh</code></td><td>Coordinate platform tools, checks, timeouts, and measurements.</td></tr>
+<tr><td><code>README.md</code></td><td>Record commands, observed results, and limits.</td></tr>
+</tbody></table>
+<p>The shell releases the loop only after restoration. A short sleep can expire before capture; an explicit readiness/release handshake keeps the comparison at step 20.</p>
+</div></details>
+<details class="r-collapsible"><summary>One owner must handle CUDA restore</summary><div class="r-collapsible-body r-prose"><p>Either the script handles CUDA transitions manually with automatic handling disabled and verified, or CRIU’s CUDA plugin handles them.</p><p>The upstream plugin already restores and unlocks CUDA. Unconditional manual commands afterward can fail because the process is already running. We must inspect the installed integration before choosing commands. <a href="https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505">Plugin source</a>.</p></div></details>
+
+<h3 class="r-h3">Where we actually stand</h3>
+<div class="r-prose"><p>The last recorded host check found driver <code>580.126.20</code>, with <code>cuda-checkpoint</code> and <code>criu</code> missing from PATH. That is a setup gap, not proof the host cannot support them. <a href="gate-results.md">Recorded checks</a>.</p><p>The Jarvis instance was confirmed paused in our last session. <strong>No successful GPU restore has been demonstrated in this repository.</strong> This page illustrates the idea.</p></div>
+<details class="r-collapsible"><summary>The next steps when we implement</summary><div class="r-collapsible-body r-prose"><ol>
+<li>Install available tools; check Linux features and permissions; restore a disposable CPU process.</li>
+<li>Run a repeatable 25-step GPU training reference.</li>
+<li>Check GPU-only pause/resume to isolate the NVIDIA part.</li>
+<li>Run the full save/end/restore cycle and compare the two runs.</li>
+<li>Record times, saved size, memory use, and the precise outcome.</li>
+</ol><p>Finding a command proves only that it exists. <code>criu check</code> probes required kernel features; an actual restore checks the environment more directly. <a href="https://criu.org/Check_the_kernel">CRIU checks</a>.</p><p>The <a href="implementation-plan.md">original plan</a> needs the corrections in the <a href="implementation-plan-review.md">review</a>, including bounded waits, detached restore, and cleanup after failures.</p></div></details>
+
+<h2 class="r-h2" id="limits">4. Why useful, why difficult?</h2>
+<div class="r-prose"><p>A GPU cloud wants to reassign occupied GPUs without discarding training progress. Checkpointing supplies a mechanism: save, release, restore later. Migration and recovery after failures are further uses requiring extra coordination. <a href="https://github.com/NVIDIA/cuda-checkpoint#background">NVIDIA’s use cases</a>.</p></div>
+<div class="r-grid-2">
+<div class="r-card r-prose"><p><strong>High return for our small POC</strong></p><p>One process reveals the CPU/GPU split, resource release, and correctness checks. A failure can identify a concrete platform restriction.</p></div>
+<div class="r-card r-prose"><p><strong>More effort beyond it</strong></p><p>Multiple workers, live connections, different hosts, GPU sharing, and automatic scheduling introduce separate problems. They stay outside this experiment.</p></div>
+</div>
+<details class="r-collapsible"><summary>Time and size: what costs us?</summary><div class="r-collapsible-body r-prose"><p>Our planning model is <strong>wait for work + copy GPU bytes to RAM + write the process image</strong>. More saved data generally needs more copying, RAM, and disk space.</p><p>For intuition only: 8 GB at an assumed effective 16 GB/s takes 0.5 seconds for that one copy. This is not a prediction of total checkpoint time. We measure our own result; a tiny demo cannot establish large-model performance.</p></div></details>
+<details class="r-collapsible"><summary>Five boundaries to remember</summary><div class="r-collapsible-body r-prose"><ol>
+<li><strong>Kernels finish first.</strong> A long-running kernel delays capture.</li>
+<li><strong>GPU suspend alone is not a disk checkpoint.</strong> Its staged state still depends on the CPU process.</li>
+<li><strong>Some workloads remain unsupported.</strong> CUDA managed memory, also called UVM, is one documented limit. Some driver failures can leave the process unhealthy. <a href="https://github.com/NVIDIA/cuda-checkpoint#functionality">NVIDIA limits</a>.</li>
+<li><strong>Restore needs compatibility.</strong> NVIDIA’s migration API requires the same GPU chip type and enough memory. Our demo uses the same host and GPU. <a href="https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html">API requirements</a>.</li>
+<li><strong>The outside world keeps moving.</strong> External files and messages do not automatically rewind; remote services can time out.</li>
+</ol><p>Ordinary PyTorch memory caching is different from CUDA managed memory. The earlier brief conflated them. Cached allocations alone do not rule out our POC. <a href="https://docs.pytorch.org/docs/main/notes/cuda.html#memory-management">PyTorch memory management</a>.</p></div></details>
+<details class="r-collapsible"><summary>Yesterday's Jarvis pause is different evidence</summary><div class="r-collapsible-body r-prose"><p>The dashboard pause retained files under <code>/home</code>. That does not establish that a running Python process and GPU tensors survived. Our experiment must demonstrate that separately.</p><p><strong>Full process restore demonstrated</strong>, <strong>GPU pause/resume only</strong>, and <strong>environment blocked</strong> are three different outcomes. Only the first meets the complete POC goal.</p></div></details>
+
+<h2 class="r-h2">One picture to carry forward</h2>
+<div class="r-callout info r-prose"><p><strong>Finish submitted work.<br>Bring GPU state into RAM.<br>Save the process to disk.<br>Rebuild both halves and continue.</strong></p></div>
+<details class="r-collapsible"><summary>Recall check · Why do we need both tools?</summary><div class="r-collapsible-body r-prose"><p>NVIDIA handles GPU state that ordinary Linux process tools cannot reconstruct. CRIU saves and rebuilds the process containing that staged GPU state. Together, on a supported setup, they can preserve the running job.</p></div></details>
+<details class="r-collapsible"><summary>Original project documents</summary><div class="r-collapsible-body r-prose"><p><a href="concepts.md">Concepts and code map</a><br><a href="implementation-plan.md">Original implementation plan</a><br><a href="implementation-plan-review.md">Review and corrections</a><br><a href="gate-results.md">Observed environment checks</a></p><p>This guide combines the concept notes with review corrections. The original plan has not been rewritten.</p></div></details>
+
+
+    <footer class="r-footer">
+      <span>2026-09-13 · 01:04 IST</span>
+      <span><a href="/index">all responses</a></span>
+    </footer>
+  </div>
+
+  <div id="r-refresh-pill"><span class="dot"></span>auto-refresh</div>
+
+  <script>
+    // Auto-refresh logic: poll /version every 3s, reload only when changed.
+    // Active only when served at root path "/" — direct file URLs stay static.
+    (function() {
+      const isLatest = (location.pathname === '/' || location.pathname === '');
+      if (!isLatest) return;
+      const pill = document.getElementById('r-refresh-pill');
+      pill.classList.add('visible');
+      let lastVersion = null;
+      async function check() {
+        try {
+          const r = await fetch('/version', { cache: 'no-store' });
+          if (!r.ok) return;
+          const { latest } = await r.json();
+          if (lastVersion === null) { lastVersion = latest; return; }
+          if (latest !== lastVersion) {
+            // Preserve scroll position across reload
+            sessionStorage.setItem('r-scroll', window.scrollY);
+            location.reload();
+          }
+        } catch (e) { /* server momentarily down — keep trying */ }
+      }
+      const saved = sessionStorage.getItem('r-scroll');
+      if (saved) { window.scrollTo(0, parseInt(saved, 10)); sessionStorage.removeItem('r-scroll'); }
+      setInterval(check, 3000);
+      check();
+    })();
+  </script>
+</body>
+</html>

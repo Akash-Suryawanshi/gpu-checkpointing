@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inside CPU and GPU snapshots</title>
+
+  <!-- System fonts for a simple book-style reading layout. -->
+
+  <!-- KaTeX for math -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+          onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}], throwOnError:false});"></script>
+
+  <!-- highlight.js for syntax-highlighted code -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js"></script>
+  <script>document.addEventListener('DOMContentLoaded', () => hljs.highlightAll());</script>
+
+  <!-- mermaid for diagrams (init lazily) -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        background: '#fffefb',
+        primaryColor: '#f3f1eb',
+        primaryTextColor: '#262626',
+        primaryBorderColor: '#77736b',
+        lineColor: '#77736b',
+        secondaryColor: '#f3f1eb',
+        tertiaryColor: '#fffefb',
+        fontFamily: 'Georgia, Times New Roman, serif'
+      }
+    });
+  </script>
+
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html { background: #fffefb; color: #262626; }
+    body { margin: 0; font: 18px/1.75 Georgia, "Times New Roman", serif; }
+    .r-page { max-width: 860px; margin: 0 auto; padding: 56px 36px 80px; }
+    .r-eyebrow, .r-card-eyebrow, .r-footer {
+      font: 13px/1.5 system-ui, sans-serif; color: #65615b;
+      letter-spacing: 0; text-transform: none;
+    }
+    .r-eyebrow { margin-bottom: 16px; }
+    .r-title { font: bold 38px/1.2 Georgia, "Times New Roman", serif; margin: 0 0 24px; }
+    .r-rule { height: 1px; border: 0; background: #d7d3ca; margin: 28px 0; }
+    .r-h2 { font-size: 25px; line-height: 1.4; margin: 36px 0 16px; }
+    .r-h3 { font-size: 20px; margin: 28px 0 12px; }
+    p { margin: 0 0 18px; }
+    strong { font-weight: bold; }
+    em { font-family: inherit; color: inherit; }
+    a { color: #285374; text-decoration: underline; text-underline-offset: 3px; }
+    a:hover { color: #162f43; }
+    ul, ol { margin: 0 0 20px; padding-left: 26px; }
+    li { margin: 10px 0; }
+    .r-card { padding: 0; margin: 30px 0; background: none; border: 0; }
+    .r-card-eyebrow { margin: 0 0 8px; font-weight: 600; }
+    .r-grid-2, .r-grid-3 { display: block; }
+    .r-callout, .r-insight {
+      background: none; border-left: 2px solid #b4afa3;
+      padding: 0 0 0 22px; margin: 28px 0;
+    }
+    .r-callout p:last-child, .r-insight p:last-child { margin-bottom: 0; }
+    .r-table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 15px; line-height: 1.6; }
+    .r-table th { font-weight: bold; text-align: left; background: #f3f1eb; }
+    .r-table th, .r-table td { padding: 12px 10px; vertical-align: top; border-bottom: 1px solid #d7d3ca; }
+    code, pre, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+    code { font-size: .84em; overflow-wrap: anywhere; background: #f3f1eb; padding: 1px 4px; }
+    pre { font-size: 14px; line-height: 1.6; padding: 18px; overflow-x: auto; background: #f3f1eb; }
+    pre code { padding: 0; background: none; }
+    .r-mermaid { margin: 30px 0; overflow-x: auto; }
+    pre.mermaid { background: none; text-align: center; }
+    .r-collapsible { border: 0; border-top: 1px solid #d7d3ca; margin: 28px 0; padding-top: 18px; }
+    .r-collapsible > summary { cursor: pointer; font-weight: bold; font-size: 19px; line-height: 1.5; }
+    .r-collapsible-body { padding: 20px 0 0; }
+    .r-footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid #d7d3ca; display: flex; gap: 20px; justify-content: space-between; }
+    #r-refresh-pill { display: none; }
+    @media (max-width: 600px) {
+      body { font-size: 17px; }
+      .r-page { padding: 28px 18px 48px; }
+      .r-title { font-size: 30px; }
+      .r-table { font-size: 13px; }
+      .r-table th, .r-table td { padding: 9px 5px; }
+    }
+    @media print {
+      html { background: white; }
+      .r-page { max-width: none; padding: 0; }
+      .r-footer { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="r-page">
+    <div class="r-eyebrow">JARVIS LABS · LEARNING SCOPE · THEORY BEFORE IMPLEMENTATION</div>
+    <h1 class="r-title">Inside CPU and GPU snapshots</h1>
+    <hr class="r-rule">
+
+
+<div class="r-prose">
+<p><strong>The scope is now: understand the mechanism, then build the smallest experiment that makes it visible.</strong><br>
+Published large-training examples support your point: repeated training can be much longer than a short interruption warning.<br>
+CRIU rebuilds a Linux process; NVIDIA makes its GPU state safe to capture and restore.<br>
+The experiment must compare against a complete application checkpoint, including one triggered by a warning.</p>
+<p>Read the main flow first; expand the technical details as questions arise. This is a study guide and proposed scope, not a completed GPU experiment.</p>
+</div>
+
+<div class="r-card r-prose">
+<p><strong>Repeated work means repeating training since the last saved state.</strong> You are right about the quantity that matters: T is the training time between checkpoints. Five minutes was only the result of my hypothetical T = 10 minutes; it was not an estimate for real workloads.</p>
+<p>If we save every N iterations and an iteration takes s minutes, then <strong>T = N × s</strong>. With interruptions spread roughly uniformly through that interval, the average training to repeat is approximately <strong>T/2</strong>. This is time to recompute the lost updates, assuming the resumed job runs at the same speed. It is separate from checkpoint writing and process restart time.</p>
+<table class="r-table"><thead><tr><th>Symbol</th><th>Meaning</th></tr></thead><tbody>
+<tr><td>T</td><td>Useful training minutes between periodic checkpoints.</td></tr>
+<tr><td>C</td><td>Time to capture and finish storing a new checkpoint.</td></tr>
+<tr><td>W</td><td>Time available between warning and removal.</td></tr>
+<tr><td>p</td><td>Total compute price per minute for the training job: GPU count × per-GPU hourly rate / 60.</td></tr>
+</tbody></table>
+<p><strong>Real training numbers support the importance of T/2 ≫ W.</strong> Databricks and PyTorch report cloud checkpoints as frequently as every 30 minutes for their large-model training setup. BLOOM’s March 22, 2022 training log records a switch to 100 iterations between checkpoints, corresponding to roughly three hours of training.</p>
+<table class="r-table"><thead><tr><th>Published workload</th><th>Training between saves, T</th><th>Approx. repeated training, T/2</th><th>Compared with W = 2 min</th></tr></thead><tbody>
+<tr><td><a href="https://pytorch.org/blog/training-moes/">Databricks / PyTorch, 2024</a></td><td>≈30 min, using the reported checkpoint cadence</td><td>≈15 min</td><td>7.5×</td></tr>
+<tr><td><a href="https://github.com/bigscience-workshop/bigscience/blob/master/train/tr11-176B-ml/chronicles.md#2022-03-22">BLOOM 176B, March 2022</a></td><td>≈3 hours / 100 iterations</td><td>≈90 min</td><td>45×</td></tr>
+</tbody></table>
+<p>The averages and ratios are calculated here; they are not measured average recovery losses. They use the uniform-interruption approximation and treat short save overhead as negligible. The two-minute warning is <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html">AWS’s documented best-effort warning for stopping or terminating Spot Instances</a>. These workloads were not reported as AWS spot experiments; the comparison shows the relative timescales. It does not establish Jarvis’s warning duration or the checkpoint frequency of all its customers.</p>
+<p>BLOOM makes the distinction particularly clear: its log reports about <strong>40 seconds to write a checkpoint</strong>, while the training interval was measured in hours. The potential repeated training comes from those hours, not half of the 40-second save. <a href="https://github.com/bigscience-workshop/bigscience/blob/master/train/tr11-176B-ml/chronicles.md#2022-03-18">BLOOM timing record</a>.</p>
+<p><strong>For these large-training examples, your argument holds:</strong> preserving the latest state can avoid substantially more training than a two-minute warning window. The remaining question is whether the capture can finish in that window. A warning-triggered save needs <strong>detection time + time to reach the chosen boundary + C + safety margin ≤ W</strong> if the whole instance will disappear. W is a deadline, not necessarily extra billable time.</p>
+<p><strong>Use Jarvis’s published H200 spot rate: $1.99 per GPU-hour.</strong> That is about $0.033 per GPU-minute. The earlier $0.02/minute equals $1.20/hour: it was a plausible single-GPU estimate, but below this H200 rate. Jarvis lists H200 on-demand at $3.99/hour; the spot savings calculation should use the spot rate. Prices checked September 14, 2026; storage is extra and regional availability varies. <a href="https://jarvislabs.ai/gpu/nvidia-h200">Jarvis H200 pricing</a>.</p>
+<p>For a job whose GPUs must restart together, use <strong>p = GPU count × hourly spot rate / 60</strong>. Keeping T = 30 training minutes and an assumed additional billed save time of 0.5 minutes:</p>
+<table class="r-table"><thead><tr><th>Job</th><th>Spot compute / hour</th><th>p: whole job / minute</th><th>Net saving / interruption</th></tr></thead><tbody>
+<tr><td>1 × H200</td><td>$1.99</td><td>≈$0.0332</td><td>≈$0.48</td></tr>
+<tr><td>8 × H200</td><td>$15.92</td><td>≈$0.2653</td><td>≈$3.85</td></tr>
+</tbody></table>
+<p>For eight GPUs, avoiding 15 minutes of repeated training saves <strong>$3.98</strong>. The assumed 30-second save costs about <strong>$0.13</strong>, leaving <strong>$3.85</strong> before other costs. A 20% share is about <strong>$0.77 per successful interruption</strong>. If T were three hours instead, the same eight-GPU rate would give approximately <strong>$23.75</strong> net savings and a <strong>$4.75</strong> fee under the same assumptions. These are calculations at the published per-GPU rate, not a quoted cluster offer.</p>
+<p>For an India-priced reference, Jarvis publishes H200 spot at <strong>₹188.73 per GPU-hour</strong>, about <strong>₹3.15/minute for one GPU</strong> or <strong>₹25.16/minute for eight</strong>. These are its listed INR prices, not a currency conversion of the USD example. <a href="https://jarvislabs.ai/in">Jarvis India spot pricing</a>.</p>
+<p>The checkpoint intervals are illustrative scenarios from the discussion; the 30-second save is still an assumption, especially for eight GPUs. These calculations assume a successful save, equal restart times, the same price and training speed after resumption, and that all GPUs in the example would otherwise repeat the lost work. The one-GPU POC scope remains unchanged.</p>
+<p>Real savings must include failed or missed saves, restore time, storage and transfer charges. Converting a fee per interruption into an hourly premium also requires the interruption frequency. More customers and healthy margins are hypotheses to test.</p>
+</div>
+
+<div class="r-callout info r-prose">
+<p><strong>The crucial comparison:</strong> an ordinary complete training checkpoint can also be triggered by the warning. If it fits within W, it too preserves the latest completed update. Then snapshotting earns its value through easier application support or a better total save-and-restart time; the avoided T/2 loss is no longer its unique advantage.</p>
+</div>
+
+<details class="r-collapsible"><summary>A has spot; B requests on-demand. Who waits and pays?</summary><div class="r-collapsible-body r-prose">
+<p>Jarvis's scheduler—the software assigning machines to jobs—can decide to reclaim A's GPU for B. This is a provider-controlled decision, rather than a GPU unexpectedly breaking. B's request does not itself define a mandatory warning duration or billing rule.</p>
+<p><strong>A remains allocated while capture uses its GPU.</strong> B can use that same GPU only after release and any required cleanup/setup. Jarvis might bill A through release, waive that time, or offer a snapshot fee. Charging B while it waits is also a product-policy decision; we have not established Jarvis's actual policy. Counting both customers as using the same exclusive GPU at once would overstate utilization.</p>
+<p>The provider must account for A's RAM/storage use and delayed service to B. It might keep A's CPU process and staged GPU data in RAM while B uses the GPU, if the platform supports that arrangement. That offers quick planned pause/resume but does not protect against losing the host.</p>
+<p>Jarvis documents reclaimable spot capacity. A two-minute warning is an AWS example, delivered best-effort for stop/terminate; it is not a verified Jarvis guarantee. <a href="https://jarvislabs.ai/in">Jarvis spot description</a>; <a href="https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-instance-termination-notices.html">AWS warning behavior</a>.</p>
+</div></details>
+
+<div class="r-prose">
+<p><strong>What is a snapshot, physically?</strong> Files containing saved memory bytes plus records explaining how to reconstruct a running process. “CPU snapshot” here means that process's execution state, not the entire CPU chip or every application on the server.</p>
+<p>Consider <code>step = 20</code>, a Python tensor object, and its GPU allocation. The counter and object live in host RAM. The tensor object contains a pointer—an address referring to its GPU data. Saving the numbers alone leaves out both that relationship and where execution should continue.</p>
+</div>
+
+<div class="r-grid-2">
+<div class="r-card r-prose"><div class="r-card-eyebrow">Linux side</div><p>Memory containing Python objects and function stacks; each thread's registers, including its next instruction; memory mappings; open-file references and positions; supported timers, pipes and sockets.</p></div>
+<div class="r-card r-prose"><div class="r-card-eyebrow">CUDA side</div><p>GPU allocations and their contents; their addresses; the CUDA context—the process's GPU environment; streams—ordered queues of work; and related CUDA objects.</p></div>
+</div>
+
+<details class="r-collapsible" id="criu-walkthrough" open><summary>Inside CRIU: follow one program through a snapshot</summary><div class="r-collapsible-body r-prose">
+<style>
+#criu-walkthrough { scroll-margin-top: 24px; }
+#criu-walkthrough .cw-controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:20px 0 12px; }
+#criu-walkthrough button { font:inherit; font-size:16px; color:#262626; background:#fffefb; border:1px solid #aaa69d; padding:6px 14px; border-radius:3px; cursor:pointer; }
+#criu-walkthrough button:hover:not(:disabled) { background:#eeede6; }
+#criu-walkthrough button:focus-visible { outline:2px solid #285374; outline-offset:3px; }
+#criu-walkthrough button:disabled { opacity:.4; cursor:default; }
+#criu-walkthrough .cw-count { margin-left:auto; font-size:16px; }
+#criu-walkthrough .cw-progress { display:flex; gap:5px; margin-bottom:20px; }
+#criu-walkthrough .cw-progress span { flex:1; height:4px; background:#e4e2da; }
+#criu-walkthrough .cw-progress span[data-current="true"] { background:#285374; }
+#criu-walkthrough .cw-phase { font-size:16px; color:#555; margin:0 0 4px; }
+#criu-walkthrough h3 { font-family:inherit; font-size:22px; font-weight:bold; letter-spacing:0; text-transform:none; margin:0 0 16px; color:inherit; }
+#criu-walkthrough .cw-diagram { display:grid; grid-template-columns:1fr 28px 1fr 28px 1fr; align-items:stretch; margin:16px 0; }
+#criu-walkthrough .cw-node { border:1px solid #bdb9b0; padding:12px; min-width:0; background:#f8f7f2; font-size:15px; line-height:1.5; }
+#criu-walkthrough .cw-node[data-active="true"] { border:2px solid #285374; padding:11px; background:#edf3f5; }
+#criu-walkthrough .cw-node strong { display:block; font-size:17px; margin-bottom:8px; }
+#criu-walkthrough .cw-node span { display:block; white-space:pre-line; }
+#criu-walkthrough .cw-arrow { align-self:center; text-align:center; font-size:24px; color:#285374; }
+#criu-walkthrough .cw-caption { font-size:15px; color:#555; margin:8px 0 18px; }
+#criu-walkthrough .cw-explain p { margin:10px 0; }
+#criu-walkthrough .cw-interface { padding:10px 14px; border-left:3px solid #aaa69d; background:#f7f6f0; font-size:16px; }
+#criu-walkthrough .cw-map { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:16px 0; font-size:16px; line-height:1.5; }
+#criu-walkthrough .cw-map-column { border:1px solid #bdb9b0; padding:12px; }
+#criu-walkthrough .cw-map-cell { border:1px solid #cecac0; padding:10px; margin-top:10px; }
+#criu-walkthrough .cw-safe { background:#edf3f5; border-color:#285374; }
+#criu-walkthrough .cw-late { border-left:3px solid #285374; padding-left:16px; margin:22px 0; }
+#criu-walkthrough .cw-reference { font-size:15px; }
+@media(max-width:600px) {
+ #criu-walkthrough .cw-diagram { grid-template-columns:1fr; }
+ #criu-walkthrough .cw-arrow { transform:rotate(90deg); line-height:1.2; }
+ #criu-walkthrough .cw-map { grid-template-columns:1fr; }
+ #criu-walkthrough .cw-count { width:100%; margin-left:0; }
+}
+</style>
+<p>A <strong>process</strong> is a running program. It has memory and one or more <strong>threads</strong>—sequences of instructions that Linux schedules on CPU cores. CRIU saves this process, not the whole machine.</p>
+<p>Follow the three boxes below. The left is the process being saved or rebuilt; the middle is the machinery doing the work; the right is the saved files. This is a simplified CPU-only sequence. The CUDA sequence follows in the next part of this page.</p>
+<div class="cw-controls" aria-label="CRIU walkthrough controls">
+<button type="button" data-cw="prev" disabled>← Previous</button>
+<button type="button" data-cw="next">Next →</button>
+<button type="button" data-cw="play" aria-pressed="false">Play slowly</button>
+<button type="button" data-cw="restart">Restart</button>
+<span class="cw-count" data-cw="count">Step 1 of 9</span>
+</div>
+<div class="cw-progress" aria-hidden="true"><span data-current="true"></span><span data-current="false"></span><span data-current="false"></span><span data-current="false"></span><span data-current="false"></span><span data-current="false"></span><span data-current="false"></span><span data-current="false"></span><span data-current="false"></span></div>
+<div data-cw="stage" aria-live="polite" aria-atomic="true">
+<p class="cw-phase" data-cw="phase"></p>
+<h3 data-cw="title"></h3>
+<div class="cw-diagram" role="group" aria-label="Process, checkpoint machinery, and saved files">
+<div class="cw-node" data-cw="process"><strong>Program in RAM</strong><span></span></div>
+<div class="cw-arrow" data-cw="arrow1" aria-hidden="true"></div>
+<div class="cw-node" data-cw="worker"><strong>Who does the work?</strong><span></span></div>
+<div class="cw-arrow" data-cw="arrow2" aria-hidden="true"></div>
+<div class="cw-node" data-cw="files"><strong>Snapshot files</strong><span></span></div>
+</div>
+<p class="cw-caption" data-cw="caption"></p>
+<div class="cw-explain">
+<p><strong>What happens.</strong> <span data-cw="what"></span></p>
+<p><strong>Why now.</strong> <span data-cw="why"></span></p>
+<p class="cw-interface"><strong>Important interface:</strong> <span data-cw="interface"></span> <a data-cw="source">Read the source</a>.</p>
+</div>
+</div>
+<noscript><p>The interactive steps need JavaScript. The explanations and memory diagram below remain readable. See <a href="https://criu.org/Checkpoint/Restore">CRIU's checkpoint/restore sequence</a> for the complete sequence.</p></noscript>
+
+<h3 style="margin-top:32px">Why can't CRIU put all the memory back immediately?</h3>
+<p>Each process sees its own numbered memory addresses. A <strong>memory mapping</strong> tells Linux which address range refers to which memory or file. A saved pointer still refers to the old address, so restoring bytes somewhere else would not be enough. But the process doing the rebuilding already has code and data at some of those addresses.</p>
+<div class="cw-map" role="img" aria-label="Before the final memory change: rebuilding code occupies the ordinary memory area, and a small restorer runs in a separate safe area. After the change: saved program memory occupies its original addresses, while the restorer remains safely outside.">
+<div class="cw-map-column"><strong>Before the final memory change</strong>
+<div class="cw-map-cell">Ordinary memory area<br>Code and data doing the rebuilding</div>
+<div class="cw-map-cell cw-safe">Separate, unused address range<br>Small restorer routine ← executing here</div>
+</div>
+<div class="cw-map-column"><strong>After the final memory change</strong>
+<div class="cw-map-cell">Same addresses as the saved program<br>Original code, objects and stacks</div>
+<div class="cw-map-cell cw-safe">Same safe range<br>Restorer survives the replacement</div>
+</div>
+</div>
+<p>A <strong>stack</strong> holds a thread's active function calls and local data. CRIU first loads saved memory into temporary mappings. A small <strong>restorer</strong>, placed outside both memory layouts, then moves memory to its required addresses. It can replace the old layout without deleting the instructions it is currently executing. <a href="https://criu.org/Memory_dumping_and_restoring">Memory restoration</a>; <a href="https://criu.org/Restorer_context">restorer context</a>.</p>
+
+<div class="cw-late">
+<h3>“Restore” is several steps. Resuming the program is last.</h3>
+<p>Restoration starts when CRIU begins rebuilding processes. The final action is to hand control back to the saved application instructions. Before that handoff:</p>
+<ul>
+<li><strong>Memory must be at the right addresses.</strong> Otherwise a saved pointer or stack pointer could refer to the wrong bytes.</li>
+<li><strong>The remaining threads are recreated late.</strong> Their stacks must be ready; creating them late also avoids keeping extra threads parked during memory replacement.</li>
+<li><strong>Timers are restored late.</strong> Starting them early could let them expire while reconstruction is still underway.</li>
+<li><strong>Permissions are restored late.</strong> CRIU may need privileges to finish setup. Giving those up too early could prevent it from completing the job.</li>
+</ul>
+<p class="cw-reference"><a href="https://criu.org/Restorer_context">Why CRIU orders these operations this way</a>.</p>
+<p>At the handoff, saved <strong>CPU registers</strong>—small values held by the CPU, including the stack address and next instruction address—are restored. Linux's <code>rt_sigreturn</code> mechanism can restore this execution context. The next instruction can then use the reconstructed process. <a href="https://man7.org/linux/man-pages/man2/sigreturn.2.html">How that CPU handoff works</a>.</p>
+<p>For a GPU program, the CUDA state must also be ready before ordinary application execution resumes. The NVIDIA/CRIU coordination is shown below.</p>
+</div>
+
+<details><summary>What is actually in the saved directory?</summary>
+<p>“Image” means a saved state file here, not a picture. CRIU stores memory bytes and descriptions of the process around them.</p>
+<table class="r-table">
+<thead><tr><th>Files you may inspect</th><th>What they describe</th></tr></thead>
+<tbody>
+<tr><td><code>pages-*.img</code></td><td>Captured memory bytes: for example, Python objects and stacks.</td></tr>
+<tr><td><code>mm-*.img</code>, <code>pagemap-*.img</code></td><td>The memory layout and how saved pages belong in it.</td></tr>
+<tr><td><code>core-*.img</code></td><td>Thread information and CPU register values.</td></tr>
+<tr><td>Process-tree and file-descriptor images</td><td>Process relationships and references to open resources.</td></tr>
+</tbody></table>
+<p>CRIT is the tool for decoding CRIU's structured image records. File names and contents vary by version and workload. <a href="https://criu.org/Images">CRIU image formats</a>.</p>
+</details>
+<p>Restoring an open-file reference does not recreate every file's contents. The executable, libraries, datasets and external services must remain available or be provided separately. Snapshotting one process does not roll back the outside world. <a href="https://criu.org/External_resources">External resources</a>.</p>
+<script>
+(() => {
+  const root = document.getElementById('criu-walkthrough');
+  const el = name => root.querySelector('[data-cw="' + name + '"]');
+  const steps = [
+    {
+      phase: 'Before the snapshot', title: '1. The program is running',
+      process: 'Application instructions execute.\nMemory and file positions change.',
+      worker: 'Linux schedules its threads on CPU cores.',
+      files: 'No new snapshot yet.', active: ['process'], arrows: ['·', '·'],
+      caption: 'RAM contains the live process. A snapshot directory is a separate thing.',
+      what: 'The program changes memory as it runs. Linux also tracks resources such as open files. A file descriptor is the small number the program uses to refer to an open resource.',
+      why: 'Saving just memory would miss information held by Linux, including which files are open and where the program was reading.',
+      interface: '/proc is Linux’s interface for inspecting process information.',
+      source: 'https://man7.org/linux/man-pages/man5/proc.5.html'
+    },
+    {
+      phase: 'Checkpoint · stop changes', title: '2. Stop the application threads',
+      process: 'Ordinary application code is paused.\nOther programs can still run.',
+      worker: 'CRIU finds the selected processes and threads, then stops them.',
+      files: 'Not complete.', active: ['process', 'worker'], arrows: ['←', '·'],
+      caption: 'Control moves from the application to CRIU; the whole computer is not frozen.',
+      what: 'CRIU discovers the selected process tree through /proc and controls its threads with ptrace, the interface also used by debuggers.',
+      why: 'If the application kept changing memory during collection, one part could describe an earlier moment than another.',
+      interface: 'ptrace: PTRACE_SEIZE attaches; PTRACE_INTERRUPT stops an attached thread. Attaching alone does not stop it.',
+      source: 'https://man7.org/linux/man-pages/man2/ptrace.2.html'
+    },
+    {
+      phase: 'Checkpoint · collect', title: '3. Read the state, including from inside',
+      process: 'Application code stays paused.\nA temporary helper runs under CRIU’s control.',
+      worker: 'CRIU reads Linux records and CPU registers; its helper gathers state inside the process.',
+      files: 'State is being collected.', active: ['process', 'worker'], arrows: ['↔', '·'],
+      caption: '“Paused” means normal application execution is stopped; CRIU can deliberately run its helper.',
+      what: 'CRIU uses /proc and ptrace to inspect the process. It also injects a small helper called parasite code into the process’s memory, where it can use interfaces available from inside that process.',
+      why: 'Some state is easier or only possible to collect from inside the target. The helper is temporary checkpoint machinery, not a restart of the training script.',
+      interface: 'ptrace sets up the helper; shared memory and a Unix socket—a local communication channel—let CRIU exchange data and commands with it.',
+      source: 'https://criu.org/Parasite_code'
+    },
+    {
+      phase: 'Checkpoint · write', title: '4. Write memory and reconstruction records',
+      process: 'The captured application state remains fixed.',
+      worker: 'CRIU writes image files.',
+      files: 'Memory bytes\nCPU register records\nMemory and resource descriptions',
+      active: ['worker', 'files'], arrows: ['→', '→'],
+      caption: 'Data direction: process RAM → saved files. No new training iterations are being executed.',
+      what: 'The files contain memory bytes plus records describing their layout, threads and resources. Together they describe how to reconstruct the process.',
+      why: 'Bytes alone do not say where to put them or which instruction should execute next. The descriptions supply that missing structure.',
+      interface: 'CRIU image files, including pages, pagemap, mm and core records; CRIT decodes structured records.',
+      source: 'https://criu.org/Images'
+    },
+    {
+      phase: 'Between checkpoint and restore', title: '5. The original process can be gone',
+      process: 'For this demonstration:\noriginal process has ended.',
+      worker: 'Nothing is executing the saved application.',
+      files: 'Completed snapshot remains.\nKeep it on storage that survives instance removal.',
+      active: ['files'], arrows: ['·', '·'],
+      caption: 'Saved files are passive data. They do not train or use GPU compute.',
+      what: 'Our full-restore demonstration ends the original after a successful dump. Other CRIU dump modes can leave it running or stopped.',
+      why: 'Ending it lets the demonstration prove that a new process was reconstructed from the saved state. A snapshot is useful only if the required files survive.',
+      interface: 'criu dump creates the snapshot; its options control whether the original is left running or stopped.',
+      source: 'https://criu.org/Simple_loop'
+    },
+    {
+      phase: 'Restore · build the surroundings', title: '6. Recreate processes and resources',
+      process: 'A replacement is being built.\nApplication instructions are not running yet.',
+      worker: 'CRIU creates processes and reconnects supported resources.',
+      files: 'CRIU reads saved descriptions and memory.',
+      active: ['process', 'worker', 'files'], arrows: ['←', '←'],
+      caption: 'Data direction has reversed: saved files → a reconstructed process.',
+      what: 'CRIU rebuilds the process tree and shared resources, reopens supported files, and prepares memory. It does not start the training script at line one and call the model loader.',
+      why: 'Application code expects these things to exist. Rebuild them before giving control back to that code.',
+      interface: 'fork/clone create processes or threads; file interfaces reopen resources. CRIU coordinates these using its image records.',
+      source: 'https://criu.org/Checkpoint/Restore'
+    },
+    {
+      phase: 'Restore · place memory', title: '7. Put memory at its saved addresses',
+      process: 'Original memory layout is reconstructed.\nPointers can refer to the right bytes again.',
+      worker: 'A tiny restorer runs in a safe memory region.',
+      files: 'Saved memory has been loaded for placement.',
+      active: ['process', 'worker'], arrows: ['←', '←'],
+      caption: 'These are addresses inside the process, not fixed physical RAM locations.',
+      what: 'Saved private memory is first loaded into temporary areas. The restorer moves mappings to their required addresses and rebuilds file-backed mappings.',
+      why: 'Rearranging memory can overwrite the code doing the rearranging. The tiny restorer works from a separate region that survives this change; see the diagram below.',
+      interface: 'mmap creates memory mappings; mremap can move them to the required addresses.',
+      source: 'https://criu.org/Memory_dumping_and_restoring'
+    },
+    {
+      phase: 'Restore · finish before the handoff', title: '8. Complete the remaining execution state',
+      process: 'Memory is ready.\nRemaining threads and their stacks are reconstructed.',
+      worker: 'The restorer finishes threads, timers and permissions.',
+      files: 'Saved records supply the remaining settings.',
+      active: ['process', 'worker'], arrows: ['←', '←'],
+      caption: 'The order follows dependencies: memory first, then the work that relies on it.',
+      what: 'CRIU leaves remaining threads, timers and credentials—user identity and permissions—until late in restoration.',
+      why: 'Threads need their memory. Timers should not expire during setup. Dropping privileges too early could block work still needed to rebuild the process.',
+      interface: 'Linux thread, timer and credential interfaces, called by the restorer.',
+      source: 'https://criu.org/Restorer_context'
+    },
+    {
+      phase: 'Restore · hand control back', title: '9. Continue the saved application',
+      process: 'Application instructions execute again.\nThey use the reconstructed state.',
+      worker: 'Saved CPU context is installed; Linux returns control to application code.',
+      files: 'Snapshot remains available on storage.',
+      active: ['process'], arrows: ['←', '·'],
+      caption: 'The application continues from its saved execution point; it has not rerun all earlier training.',
+      what: 'The CPU receives the saved register values, including where the stack is and which instruction comes next. The process can now continue.',
+      why: 'Doing this earlier would let application code access memory, files or threads that were still incomplete. Restore is the rebuilding; this is its final handoff.',
+      interface: 'rt_sigreturn restores a saved CPU execution context. GPU restoration, when needed, must also finish before ordinary execution resumes.',
+      source: 'https://man7.org/linux/man-pages/man2/sigreturn.2.html'
+    }
+  ];
+  let current = 0;
+  let timer = null;
+  function stop() {
+    if (timer !== null) window.clearInterval(timer);
+    timer = null;
+    el('play').textContent = 'Play slowly';
+    el('play').setAttribute('aria-pressed', 'false');
+    el('stage').setAttribute('aria-live', 'polite');
+  }
+  function render() {
+    const step = steps[current];
+    ['phase', 'title', 'caption', 'what', 'why', 'interface'].forEach(key => {
+      el(key).textContent = step[key];
+    });
+    ['process', 'worker', 'files'].forEach(key => {
+      el(key).querySelector('span').textContent = step[key];
+      el(key).dataset.active = String(step.active.includes(key));
+    });
+    el('arrow1').textContent = step.arrows[0];
+    el('arrow2').textContent = step.arrows[1];
+    el('source').href = step.source;
+    el('count').textContent = 'Step ' + (current + 1) + ' of ' + steps.length;
+    el('prev').disabled = current === 0;
+    el('next').disabled = current === steps.length - 1;
+    root.querySelectorAll('.cw-progress span').forEach((mark, i) => {
+      mark.dataset.current = String(i === current);
+    });
+  }
+  el('prev').addEventListener('click', () => { stop(); current = Math.max(0, current - 1); render(); });
+  el('next').addEventListener('click', () => { stop(); current = Math.min(steps.length - 1, current + 1); render(); });
+  el('restart').addEventListener('click', () => { stop(); current = 0; render(); });
+  el('play').addEventListener('click', () => {
+    if (timer !== null) { stop(); return; }
+    if (current === steps.length - 1) current = 0;
+    render();
+    el('play').textContent = 'Pause';
+    el('play').setAttribute('aria-pressed', 'true');
+    el('stage').setAttribute('aria-live', 'off');
+    timer = window.setInterval(() => {
+      current += 1;
+      render();
+      if (current === steps.length - 1) stop();
+    }, 12000);
+  });
+  root.addEventListener('toggle', () => { if (!root.open) stop(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+  render();
+})();
+</script>
+</div></details>
+
+<div class="r-prose"><p><strong>Why NVIDIA is needed:</strong> Linux can describe a reference to a GPU device, but ordinary process memory does not contain everything needed to reconstruct that device's private state. NVIDIA's driver supplies that missing capability. The following is the logical sequence; the plugin coordinates the actual thread stopping and helper execution.</p></div>
+<div class="r-mermaid"><pre class="mermaid">
+flowchart TD
+ A["Finish update 20 and wait"] --> B["Block new CUDA changes; finish submitted GPU work"]
+ B --> C["Copy GPU memory into driver-managed host RAM"]
+ C --> D["Release this process's GPU resources"]
+ D --> E["CRIU captures Linux state plus staged GPU data"]
+ E --> F["Complete files on storage that survives removal"]
+ F --> G["Original process gone"]
+ G --> H["CRIU rebuilds Linux process"]
+ H --> I["NVIDIA rebuilds GPU mappings and objects; copies bytes back"]
+ I --> J["Unlock CUDA; release wait; execute update 21"]
+</pre></div>
+<div class="r-prose"><p>NVIDIA restores GPU virtual addresses so saved pointers still refer to the right data; the physical memory chips or locations need not be identical. Submitted GPU work completes before capture: this mechanism does not preserve a kernel halfway through an instruction. NVIDIA's GPU suspension alone leaves CPU threads able to run, which is why coordination matters. <a href="https://developer.nvidia.com/blog/checkpointing-cuda-applications-with-criu/">NVIDIA's capture/restore sequence</a>.</p></div>
+
+<details class="r-collapsible"><summary>CUDA, cuda-checkpoint, CRIUgpu: which component does what?</summary><div class="r-collapsible-body r-prose">
+<table class="r-table"><thead><tr><th>Component</th><th>Role</th></tr></thead><tbody>
+<tr><td>PyTorch and libraries</td><td>Turn tensor operations into GPU work, sometimes through libraries such as cuBLAS.</td></tr>
+<tr><td>CUDA Runtime API</td><td>Functions such as <code>cudaMalloc</code>; performs more setup implicitly.</td></tr>
+<tr><td>CUDA Driver API</td><td>Lower-level functions with explicit context/module control; includes checkpoint APIs.</td></tr>
+<tr><td>NVIDIA driver</td><td>Manages GPU access, memory and execution; implements GPU checkpoint/restore.</td></tr>
+<tr><td><code>cuda-checkpoint</code></td><td>Command-line control for the driver's checkpoint capability.</td></tr>
+<tr><td>CRIU CUDA plugin</td><td>Connects CUDA transitions to Linux process capture and restore.</td></tr>
+</tbody></table>
+<p>An API is a set of callable functions. Runtime and Driver APIs can both appear in one application; they are not two separate GPUs. <a href="https://docs.nvidia.com/cuda/cuda-runtime-api/driver-vs-runtime-api.html">Runtime versus Driver APIs</a>.</p>
+<p><strong>CRIUgpu</strong> is the name used in the research describing GPU-aware CRIU integration; for this NVIDIA POC, identify the installed CRIU CUDA plugin and <code>cuda-checkpoint</code> explicitly. This approach uses vendor support rather than recording and replaying every training API call. <a href="https://arxiv.org/html/2502.16631v1">CRIUgpu paper, v1</a>; <a href="https://criu.org/GPU_Checkpointing">CRIU integration</a>.</p>
+<p>The driver exposes <code>cuCheckpointProcessLock</code>, <code>cuCheckpointProcessCheckpoint</code>, <code>cuCheckpointProcessRestore</code> and <code>cuCheckpointProcessUnlock</code>. Successful transitions are <strong>RUNNING → LOCKED → CHECKPOINTED → LOCKED → RUNNING</strong>. CHECKPOINTED here means staged GPU state, not necessarily durable disk files. <a href="https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html">Driver API contract</a>.</p>
+</div></details>
+
+<details class="r-collapsible"><summary>The subtle part: frozen threads and a running helper</summary><div class="r-collapsible-body r-prose">
+<p>A fully frozen process cannot execute NVIDIA's helper work. The plugin obtains the CUDA restore-thread ID, temporarily resumes that thread for device checkpoint/restore, then stops it again as required. It keeps ordinary application execution coordinated with those operations.</p>
+<p>In the inspected source, follow <code>cuda_plugin_pause_devices()</code>, <code>cuda_plugin_checkpoint_devices()</code>, <code>resume_restore_thread()</code>, and <code>cuda_plugin_resume_devices_late()</code>. The last hook restores and unlocks CUDA. Our script must not duplicate those operations when the plugin owns them.</p>
+<p>The same source disables CUDA handling for CRIU <code>pre-dump</code>. CPU support for preliminary memory copies therefore does not establish incremental GPU capture. <a href="https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c">CUDA plugin source</a>.</p>
+<p>We can inspect this coordination and the documented driver contract. We should not claim to know every private driver record or its byte layout from those sources.</p>
+</div></details>
+
+<div class="r-card r-prose">
+<p><strong>Follow the bytes and the time.</strong> For an illustrative uncompressed snapshot, assume G = 16 GB of GPU data, H = 4 GB of CPU data to capture, GPU→RAM transfer = 12 GB/s, and completed storage writes = 1 GB/s.</p>
+<p>GPU→RAM takes about <strong>16/12 = 1.33 seconds</strong>. Writing roughly H + G = 20 GB takes <strong>20 seconds</strong>. A sequential copy-and-write estimate is therefore <strong>21.33 seconds, plus waiting, metadata and other overhead</strong>. These are assumed rates, not measurements.</p>
+<p>Host RAM needs room for its existing workload plus roughly G of staged GPU data, with additional headroom for CRIU and buffering. Image size need not equal measured RAM + VRAM: shared/file-backed pages, cached allocations and encoding affect it.</p>
+<p><strong>Two clocks:</strong> time until A releases the GPU tells us when B might start using it; time until the image reaches surviving storage tells us when losing A's host is safe. Storage completion can happen later. Merely returning from a buffered file write does not prove durable storage.</p>
+</div>
+
+<details class="r-collapsible"><summary>Challenges worth understanding before implementation</summary><div class="r-collapsible-body r-prose">
+<ul>
+<li><strong>Long GPU work:</strong> draining already-submitted operations can consume the warning window.</li>
+<li><strong>Memory headroom:</strong> enough VRAM does not imply enough host RAM for staging.</li>
+<li><strong>Unsupported memory sharing:</strong> the current NVIDIA README excludes UVM, automatically managed CPU/GPU memory, and specified IPC sharing APIs. Support depends on driver version; later features cannot be assumed on our recorded 580 host.</li>
+<li><strong>Restore compatibility:</strong> available RAM/VRAM, libraries, Linux permissions and GPU compatibility matter. The documented GPU remapping API requires the same chip type and enough memory; arbitrary L4→H100 migration is not our claim.</li>
+<li><strong>Failures outside the process:</strong> disk loss, remote connections, and multi-process GPU communication need additional coordination.</li>
+</ul>
+<p><a href="https://github.com/NVIDIA/cuda-checkpoint#functionality">NVIDIA's versioned features and limitations</a>; <a href="https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html">Restore constraints</a>.</p>
+</div></details>
+
+<div class="r-prose"><p><strong>The bounded learning POC.</strong> One compatible Linux host, one GPU, one tiny deterministic training process. Start with a CPU-only counter to see CRIU directly. Then use the same small training loop for an uninterrupted run, an application restart, and a process restore.</p></div>
+<table class="r-table"><thead><tr><th>Lesson</th><th>What the demo must show</th></tr></thead><tbody>
+<tr><td>Linux state survives</td><td>A counter and file position continue after the original CPU process ends; inspect corresponding CRIU records.</td></tr>
+<tr><td>GPU state leaves the GPU</td><td>Record CUDA state and RAM/VRAM changes; a separate tiny job B successfully uses the released GPU, then exits.</td></tr>
+<tr><td>Full restoration works</td><td>A's original process ends after dump; restore saved files and compare step-20 model, optimizer, data position and RNG state before updating.</td></tr>
+<tr><td>Training continues correctly</td><td>Compare updates 21–25 with an uninterrupted reference in the same deterministic environment.</td></tr>
+<tr><td>There is a measurable trade-off</td><td>Compare complete application save/restart and process capture/restore at the same boundary, with the same storage criterion.</td></tr>
+</tbody></table>
+<div class="r-prose">
+<p>Record request→GPU release, request→completed image, restore→next completed update, image bytes and peak host RAM. A simulated warning checks the chosen time budget; it does not establish Jarvis's real warning or billing policy.</p>
+<p>The linked September 13 page is the larger fine-tuning research proposal. Keep its small LoRA experiment as a later extension after these mechanics are understood and demonstrated. We will finalize the implementation plan around these observations; multi-GPU training, cross-host migration and production scheduling remain outside the initial demonstration.</p>
+<p><strong>Jarvis's plausible value:</strong> reclaim GPUs predictably, preserve customer applications without bespoke save logic, and reduce restart work when the measurements support it. Planned maintenance and priority scheduling also benefit. Sudden host failure still requires an earlier durable checkpoint. These are proposed uses, not verified Jarvis snapshot features. <a href="https://github.com/NVIDIA/cuda-checkpoint#background">NVIDIA's platform use cases</a>.</p>
+</div>
+
+    <footer class="r-footer">
+      <span>2026-09-14 · 16:30 IST</span>
+      <span><a href="/index">all responses</a></span>
+    </footer>
+  </div>
+
+  <div id="r-refresh-pill"><span class="dot"></span>auto-refresh</div>
+
+  <script>
+    // Auto-refresh logic: poll /version every 3s, reload only when changed.
+    // Active only when served at root path "/" — direct file URLs stay static.
+    (function() {
+      const isLatest = (location.pathname === '/' || location.pathname === '');
+      if (!isLatest) return;
+      const pill = document.getElementById('r-refresh-pill');
+      pill.classList.add('visible');
+      let lastVersion = null;
+      async function check() {
+        try {
+          const r = await fetch('/version', { cache: 'no-store' });
+          if (!r.ok) return;
+          const { latest } = await r.json();
+          if (lastVersion === null) { lastVersion = latest; return; }
+          if (latest !== lastVersion) {
+            // Preserve scroll position across reload
+            sessionStorage.setItem('r-scroll', window.scrollY);
+            location.reload();
+          }
+        } catch (e) { /* server momentarily down — keep trying */ }
+      }
+      const saved = sessionStorage.getItem('r-scroll');
+      if (saved) { window.scrollTo(0, parseInt(saved, 10)); sessionStorage.removeItem('r-scroll'); }
+      setInterval(check, 3000);
+      check();
+    })();
+  </script>
+</body>
+</html>
