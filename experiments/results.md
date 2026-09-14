@@ -168,6 +168,12 @@ All seven observed LoRA `/dev/zero (deleted)` ranges remained `rw-s` at the same
 
 The early LoRA continuation gate passes for this recorded environment. The complete application-checkpoint comparison, isolated environment, four-update acceptance, repeated restoration, replacement-host recovery, and spot interruption remain untested. DMTCP was not run on EC2, so these measurements do not establish a performance ranking between backends.
 
+## Isolated LoRA implementation — 2026-09-14
+
+The shared trainer and CRIU controller now repeat the early gate in the locked virtualenv: capture after update 1 with dropout 0.1, original exit, job B, restore inspection, and matching update 2. This passed in **59.21 s**. A four-update zero-dropout trial captured after update 2 and matched updates 3–4 in **62.75 s**. Both have separate pairs of exactly matching uninterrupted references. Eight CPU state/lifecycle tests pass. [Curated milestone evidence](evidence/2026-09-14/isolated-criu-summary.json).
+
+The mapping progression contained zero `/dev/zero (deleted)` ranges after Python, PyTorch import, and CUDA initialization; five after model construction; and seven after Adam initialization. This locates their appearance without proving ownership. Each isolated CRIU dump emitted one interrupted-system-call warning. Numerical and lifecycle checks pass; unqualified compatibility remains false. Full hashes and job B are included in these diagnostic trial times; they are not headline snapshot latencies.
+
 ## Environment history
 
 The initial September 12 host observation reported driver 580.126.20 with CUDA 13.0 and neither `criu` nor `cuda-checkpoint` on `PATH`. After the instance resumed on September 14, it reported driver 595.58.03. Workspace persistence therefore did not imply an unchanged driver environment. Each experiment must record its live GPU, driver, runtime, tools, permissions, and cgroup limits.

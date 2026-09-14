@@ -6,6 +6,11 @@ Understand what GPU snapshotting saves, how it works, and where it can help. Use
 
 If `.local-notes/context.md` exists, read it before planning work. It contains machine-local context and is intentionally untracked; its absence on another checkout is normal. Keep personal context out of tracked documentation.
 
+## Git workflow
+
+Commit each implementation milestone on a feature branch. Never commit directly to
+`main`; the user reviews and merges the branch. Do not merge on the user's behalf.
+
 ## Knowledge Updates
 
 ### 2026-09-14 - CRIU and preliminary LoRA restoration pass on the EC2 host
