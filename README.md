@@ -6,7 +6,9 @@ A small, observable experiment to learn what GPU snapshotting is, how it works, 
 
 **GPU-only checkpoint/restore passed on the L4.** A 64 MiB tensor matched byte-for-byte after NVIDIA released and restored its GPU state; a second GPU job ran while it was suspended, and the original process completed its next GPU operation correctly.
 
-**Full CPU/GPU process restore is still blocked.** Both the CRIU 3.16.1 capability check and a direct CPU dump fail during kernel feature detection because the container denies network-namespace creation. The three workload/evidence tests pass on both macOS and the Linux instance. See [measured results](docs/gate-results.md).
+**DMTCP restored a complete PyTorch GPU process, with a compatibility qualification.** The original process exited; a disk image restored into a new Linux process; the full tensor hash and next GPU operation checks passed. Four anonymous shared-memory warnings remain unresolved, so this is not yet an unqualified fine-tuning acceptance result. DMTCP's CPU counter restore passed. See the [fine-tuning feasibility audit](docs/r-2026-09-14-finetuning-feasibility.html) and [measured results](docs/gate-results.md).
+
+**The CRIU route remains blocked on this container.** Both its 3.16.1 capability check and direct CPU dump fail during startup feature detection. The CRIU scripts below remain useful on a compatible execution host.
 
 The [study guide](docs/r-2026-09-14T10-56-45.html) is unchanged. The [implementation plan](docs/implementation-plan.md) now follows the agreed CPU-first scope.
 
@@ -87,9 +89,9 @@ The tested NVIDIA utility is version 595.58.03, source commit `00d5cce84c628088d
 
 ## Next: full process restore and training
 
-First obtain an execution environment with the permissions needed by CRIU, and verify the CPU round trip. For GPU integration, CRIU 4.0 or newer with its CUDA plugin is needed; the Ubuntu 3.16.1 package was used only for the initial CPU feasibility check. Then implement the small deterministic training comparison described in the plan. The current container has not demonstrated full process restore.
+The current-host route is DMTCP's native CUDA plugin at the pinned maintenance revision recorded in the audit. Its basic CPU/GPU process restoration has been observed; next investigate the shared-memory warnings and implement the small deterministic training comparison. The complete LoRA workload has not yet been tested.
 
-The full GPU path will use the CRIU CUDA plugin as the single owner of GPU checkpoint/restore. Do not append manual CUDA restore/unlock commands after plugin-managed restoration. Verify the installed plugin and tool versions on the host before adding GPU orchestration.
+CRIU remains an alternative on an environment with the necessary permissions. That route needs CRIU 4.0 or newer with its CUDA plugin; the Ubuntu 3.16.1 package was used only for the initial CPU feasibility check. For either integration, let its plugin own CUDA restoration and do not append unconditional manual restore/unlock commands. Verify the installed plugin and tool versions before adding orchestration.
 
 Generated images contain process memory. They are kept under ignored `runs/` with restrictive permissions. Failed runs preserve evidence and attempt to terminate only this experiment's process.
 

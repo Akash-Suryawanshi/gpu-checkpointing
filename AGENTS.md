@@ -4,6 +4,22 @@ Understand what GPU snapshotting saves, how it works, and where it can help. Use
 
 ## Knowledge Updates
 
+### 2026-09-14 - DMTCP has a native NVIDIA CUDA route beyond historical CRAC
+**Finding**: DMTCP v4.2.0 introduced a native CUDA plugin; maintenance SHA `b175bb5ccadd2f02d11cf052f586d2d9ac62ad53` contains later CUDA/PyTorch fixes. On the existing restricted host, CPU restore passed and a complete PyTorch GPU process image restored after original exit with matching tensor data, but anonymous shared-memory warnings remain; see `docs/gate-results.md:3`.
+**Impact**: Do not describe CRIU permission changes or old CRAC as the only options. Preserve the distinction between measured restoration success and unqualified fine-tuning compatibility.
+
+### 2026-09-14 - PyTorch CUDA runtime and compiler headers are separate installations
+**Finding**: PyTorch uses CUDA 13.0, while `/usr/local/cuda` resolves to CUDA 12.6 development files. DMTCP's CUDA plugin required matching CUDA 13 runtime and CRT headers in isolated tools directories; the exact build and capacity observations are in `docs/gate-results.md:3`.
+**Impact**: Inspect actual include paths and package dependencies, not just `torch.version.cuda` or a Makefile version banner. Read the cgroup RAM limit as well as host-wide `free` output when sizing GPU staging memory.
+
+### 2026-09-14 - DMTCP warnings and logs require targeted evidence handling
+**Finding**: DMTCP saves `/dev/zero (deleted)` contents as private memory, potentially losing sharing relationships; its separate `anon_inode` warning concerns missing kernel objects. Coordinator logs include the inherited environment, and this revision's blocking checkpoint command did not establish image finalization for our controller; see `docs/gate-results.md:3`.
+**Impact**: Do not silently allowlist unsupported-resource warnings, publish whole coordinator logs, or end the original merely because the command returned. Launch probes with a minimal environment and verify finalized images and original-process exit separately.
+
+### 2026-09-14 - Namespace sysctls do not establish container permissions
+**Finding**: The live container exposes enabled user-namespace settings, but `unshare --user --map-root-user true` still fails with `Operation not permitted`; see `docs/gate-results.md:23`. The operation was tested without changing any security settings.
+**Impact**: Check actual namespace creation before suggesting rootless CRIU or nested rootless containers. A globally enabled feature can still be denied within the instance.
+
 ### 2026-09-14 - Distinguish CRIU startup probes from workload requirements
 **Finding**: Both the packaged CRIU gate and direct CPU dump fail in `kerndat_has_nftables_concat` before process capture; see `docs/gate-results.md:11`. The L4 GPU-only probe nevertheless passes in the same container, preserving a 64 MiB tensor while the original CPU process stays alive.
 **Impact**: Do not say the CPU counter needs networking or equate GPU suspension with a saved process image. Keep the container-permission failure and successful NVIDIA-only probe as separate outcomes.

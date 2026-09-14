@@ -1,0 +1,54 @@
+{
+  "date": "2026-09-14",
+  "dmtcp_commit": "b175bb5ccadd2f02d11cf052f586d2d9ac62ad53",
+  "dmtcp_source_locally_patched": false,
+  "environment": {
+    "gpu": "NVIDIA L4",
+    "driver": "595.58.03",
+    "pytorch": "2.11.0+cu130",
+    "pytorch_cuda_runtime": "13.0",
+    "system_nvcc": "12.6.77",
+    "plugin_runtime_headers": "13.0.96",
+    "plugin_crt_headers": "13.0.88",
+    "gpu_total_mib": 23034,
+    "container_memory_limit_bytes": 133143986176,
+    "home_available_bytes_at_inspection": 106499379200,
+    "security_settings_changed": false
+  },
+  "cpu": {
+    "run": "dmtcp-cpu-02",
+    "passed": true,
+    "original_real_pid": 11118,
+    "restored_real_pid": 11128,
+    "original_exit_verified": true,
+    "image_bytes": 38118736,
+    "image_finalization_observation_seconds_before_sync": 0.5100467018783092,
+    "counter_token_and_file_position_verified": true
+  },
+  "gpu": {
+    "run": "dmtcp-gpu-01",
+    "lifecycle_and_data_checks_passed": true,
+    "unqualified_acceptance_passed": false,
+    "qualification": "Four anonymous shared-memory warnings; sharing semantics unresolved. Separate session-leader warning on restore.",
+    "original_real_pid": 11208,
+    "restored_real_pid": 11262,
+    "application_virtual_pid": 40000,
+    "original_exit_verified": true,
+    "image_bytes": 3535032587,
+    "image_allocated_filesystem_bytes": 3535036416,
+    "image_finalization_observation_seconds_before_sync": 1.3125439248979092,
+    "tensor_payload_bytes": 67108864,
+    "tensor_sha256_before_and_after": "bcfcc724743f7bf094ad3ecaf64d1d5fcc08e80c5801a5c00d368c99bcf8f709",
+    "next_gpu_addition_endpoint_checks_passed": true,
+    "job_b_gpu_sum": 1048576.0,
+    "final_gpu_compute_process_listing_empty": true
+  },
+  "not_tested": [
+    "fine_tuning",
+    "optimizer_state_restore",
+    "stochastic_training_continuation",
+    "repeated_checkpoint_restore",
+    "replacement_host_restore",
+    "actual_spot_interruption"
+  ]
+}
