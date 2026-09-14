@@ -1,5 +1,24 @@
 # Hard gate results
 
+## Resumed-instance terminal check — 2026-09-14
+
+The user resumed the existing instance. Its code-server workspace at `/home/gpu-checkpointing` became reachable and a read-only terminal command produced these live observations:
+
+```text
+Ubuntu jammy (22.04)
+GPU: NVIDIA L4
+Driver: 595.58.03
+criu: not found on PATH
+cuda-checkpoint: not found on PATH
+CapEff: 00000000a80425fb
+CapBnd: 00000000a80425fb
+Seccomp: 2
+```
+
+The effective/bounding capability masks do not include CAP_SYS_PTRACE, CAP_SYS_ADMIN or CAP_CHECKPOINT_RESTORE. This is a reason to probe actual CRIU behavior, not a completed CRIU failure test. No tools have been installed and no dump/restore has run yet. The driver differs from the September 12 observation, so historical driver information must not be reused as the current environment fingerprint.
+
+Source transfer is prepared locally and the project is published privately at `https://github.com/Akash-Suryawanshi/gpu-checkpointing`. Browser command control has been intermittent; remote cloning/authentication remains unverified.
+
 ## Live dashboard check — 2026-09-14
 
 Located the existing `gpu-checkpoint-poc` instance in the authenticated Jarvis dashboard: one L4, region IN2, status **Paused**. Jupyter and VS Code access were disabled. The displayed cost was ₹57.02 without an hourly unit; it was not established as the resume rate.

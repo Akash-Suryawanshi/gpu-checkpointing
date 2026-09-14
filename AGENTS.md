@@ -4,6 +4,10 @@ Understand what GPU snapshotting saves, how it works, and where it can help. Use
 
 ## Knowledge Updates
 
+### 2026-09-14 - Recheck the driver after instance resume
+**Finding**: The resumed instance reports driver 595.58.03, whereas the original observation reported 580.126.20; see `docs/gate-results.md:3`. The saved workspace remaining available does not establish that the surrounding driver environment stayed identical.
+**Impact**: Record the live GPU, driver and tool versions for each experiment after a resume. Do not reuse historical compatibility results without checking the current execution environment.
+
 ### 2026-09-12 - Separate the development machine from the execution host
 **Finding**: The initial workspace is on macOS ARM64. NVIDIA's [CUDA checkpoint API](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html) is Linux-only; ARM CPU support in cuda-checkpoint does not imply macOS support.
 **Impact**: Author notes and code locally, but validate CUDA checkpoint/restore on a compatible NVIDIA Linux host. Do not report a local simulation as GPU checkpoint validation.
