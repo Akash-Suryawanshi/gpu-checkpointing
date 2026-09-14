@@ -174,6 +174,8 @@ The shared trainer and CRIU controller now repeat the early gate in the locked v
 
 The mapping progression contained zero `/dev/zero (deleted)` ranges after Python, PyTorch import, and CUDA initialization; five after model construction; and seven after Adam initialization. This locates their appearance without proving ownership. Each isolated CRIU dump emitted one interrupted-system-call warning. Numerical and lifecycle checks pass; unqualified compatibility remains false. Full hashes and job B are included in these diagnostic trial times; they are not headline snapshot latencies.
 
+The complete application-checkpoint route also passed at dropout zero: after update 2 it saved 6,705,655 bytes, ended the original, ran job B, rebuilt a fresh trainer, and matched the saved boundary and updates 3–4. The diagnostic trial took 35.44 seconds; nine CPU contract tests pass. [Application evidence](evidence/2026-09-14/application-summary.json).
+
 ## Environment history
 
 The initial September 12 host observation reported driver 580.126.20 with CUDA 13.0 and neither `criu` nor `cuda-checkpoint` on `PATH`. After the instance resumed on September 14, it reported driver 595.58.03. Workspace persistence therefore did not imply an unchanged driver environment. Each experiment must record its live GPU, driver, runtime, tools, permissions, and cgroup limits.

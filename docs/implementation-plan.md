@@ -1,6 +1,6 @@
 # Single-GPU Fine-Tuning Checkpoint Implementation Plan
 
-**Status:** Implementation underway. Isolated one-update and four-update CRIU restores pass; application restart, repeated restoration, and paired timing remain.
+**Status:** Implementation underway. Isolated one-update and four-update CRIU restores pass; application restart also passes. Full dropout/repeated restoration and paired timing remain.
 
 **Goal:** End a real LoRA training process after update 2, reconstruct it from a CPU/GPU process image, and verify that its state and updates 3–4 match an uninterrupted run. Compare the cost with a complete application checkpoint.
 
@@ -17,6 +17,8 @@
 - Environment/assets: isolated virtualenv installed from exact package pins; all 32 authored examples tokenized; a real two-update LoRA check passed. Safetensors 0.6.2 is pinned instead of the host's release candidate. Progressive mapping inspection and the shared-controller restore gate follow in the next milestone.
 
 - Shared trainer/controller: the isolated active-dropout one-update restore passed in 59.21 seconds; the four-update zero-dropout restore passed in 62.75 seconds. Both matched verified reference pairs. Eight CPU contract tests pass. Mapping ownership and interrupted-system-call warnings remain qualified. [Milestone evidence](../experiments/evidence/2026-09-14/isolated-criu-summary.json).
+
+- Application restart: the four-update zero-dropout comparison passes with complete saved state and a fresh process. Nine CPU tests pass, including preservation of a previous save after an injected write failure. [Evidence](../experiments/evidence/2026-09-14/application-summary.json).
 
 ## Global constraints
 

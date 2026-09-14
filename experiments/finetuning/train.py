@@ -134,11 +134,12 @@ def main(args):
                 raise ValueError("Adam state missing")
         evidence(f"state-{update}.json")
         if update in args.pause_at:
-            if args.save:
-                state.save_application(args.save, model, optimizer, schedule, progress, identity, config)
-                (run / f"ready-{update}").touch(exist_ok=False)
-                return
             (run / f"ready-{update}").touch(exist_ok=False)
+            if args.save:
+                wait(run / f"save-{update}")
+                state.save_application(args.save, model, optimizer, schedule, progress, identity, config)
+                (run / f"saved-{update}").touch(exist_ok=False)
+                return
             wait(run / f"inspect-{update}")
             inspect_restored(update)
     if not any(initial[n] != state.tensor_record(p) for n, p in parameters.items()):

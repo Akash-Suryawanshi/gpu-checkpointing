@@ -1,10 +1,9 @@
-"""Run a verified reference or one CRIU snapshot trial. Use the isolated interpreter."""
+"""Compare uninterrupted training, application restart, and CRIU process restoration."""
 
 import argparse
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import time
 
@@ -63,29 +62,39 @@ def run(args):
         events.append(row)
         print(json.dumps(row), flush=True)
 
-    def launch(directory, pause=()):
+    def launch(directory, pause=(), extra=()):
         arguments = ["--assets", args.assets, "--run-dir", directory,
                      "--dropout", args.dropout, "--until", args.until]
         if pause:
             arguments += ["--pause-at", ",".join(map(str, pause))]
-        return session.launch(sys.executable, ROOT / "experiments/finetuning/train.py", arguments, directory, env)
+        return session.launch(sys.executable, ROOT / "experiments/finetuning/train.py", [*arguments, *extra], directory, env)
 
     try:
-        process = launch(output, args.capture if args.mode == "criu" else ())
+        checkpoint = output / "application.pt"
+        process = launch(output, args.capture if args.mode != "reference" else (),
+                         ["--save", checkpoint] if args.mode == "application" else [])
         pid = process.pid
         event("launched", pid=pid)
-        if args.mode == "criu":
+        if args.mode != "reference":
             for generation in args.capture:
                 session.wait_marker(output / f"ready-{generation}", pid, 300)
                 expected = json.loads((args.reference / f"state-{generation}.json").read_text())
                 state.compare(expected, json.loads((output / f"state-{generation}.json").read_text()))
                 event("capture_requested", generation=generation)
-                session.criu("dump", output, generation, tools, env, pid)
-                event("dump_completed", generation=generation)
-                session.reap(pid, process)
+                if args.mode == "criu":
+                    session.criu("dump", output, generation, tools, env, pid)
+                    event("dump_completed", generation=generation)
+                else:
+                    (output / f"save-{generation}").touch(exist_ok=False)
+                    session.wait_marker(output / f"saved-{generation}", pid)
+                    event("application_save_completed", generation=generation)
+                code = session.reap(pid, process)
+                if args.mode == "application" and code != 0:
+                    raise RuntimeError("Application save process failed")
                 event("original_exit_verified", generation=generation, pid=pid)
-                pid, process = None, None
-                session.command(["sync", "-f", output / f"images-{generation}"], output / f"sync-{generation}.log", env)
+                # Keep the old PID for failure cleanup: this CRIU route restores that numeric PID.
+                process = None
+                session.command(["sync", "-f", output], output / f"sync-{generation}.log", env)
                 event("filesystem_synced", generation=generation)
                 session.command(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader"],
                                 output / f"gpu-after-exit-{generation}.csv", env)
@@ -94,10 +103,15 @@ def run(args):
                                 output / f"job-b-{generation}.log", env, timeout=60)
                 event("job_b_completed", generation=generation)
                 event("restore_requested", generation=generation)
-                pid = session.criu("restore", output, generation, tools, env)
+                if args.mode == "criu":
+                    pid = session.criu("restore", output, generation, tools, env)
+                else:
+                    process = launch(output, extra=["--load", checkpoint])
+                    pid = process.pid
                 event("restore_returned", generation=generation, pid=pid)
                 (output / f"restored-{generation}.maps").write_text(Path(f"/proc/{pid}/maps").read_text())
-                (output / f"inspect-{generation}").touch(exist_ok=False)
+                if args.mode == "criu":
+                    (output / f"inspect-{generation}").touch(exist_ok=False)
                 session.wait_marker(output / f"inspected-{generation}", pid)
                 session.release_verified(output, generation, expected)
                 event("continuation_permitted", generation=generation)
@@ -131,6 +145,7 @@ def run(args):
         result["warnings"] = session.warnings(output)
         result["compatibility"] = "qualified: sharing ownership and any resource warnings require interpretation"
         result["image_bytes"] = sum(p.stat().st_size for p in output.glob("images-*/*.img"))
+        result["application_bytes"] = (output / "application.pt").stat().st_size if (output / "application.pt").exists() else 0
         if events:
             result["trial_seconds"] = (time.monotonic_ns() - events[0]["monotonic_ns"]) / 1e9
         write_json(output / "result.json", result)
@@ -138,7 +153,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("reference", "criu"))
+    parser.add_argument("mode", choices=("reference", "application", "criu"))
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--assets", type=Path, default=ROOT / "runs/finetuning/assets")
     parser.add_argument("--tools", type=Path, default=ROOT / "runs/tools")
@@ -147,6 +162,8 @@ if __name__ == "__main__":
     parser.add_argument("--until", type=int, choices=(2, 4), default=4)
     parser.add_argument("--capture", type=lambda s: [int(n) for n in s.split(",")], default=[2])
     args = parser.parse_args()
-    if args.mode == "criu" and (args.capture != sorted(set(args.capture)) or any(n < 1 or n >= args.until for n in args.capture)):
+    if args.mode != "reference" and (args.capture != sorted(set(args.capture)) or any(n < 1 or n >= args.until for n in args.capture)):
         parser.error("Capture updates must be increasing, unique, and before the final update")
+    if args.mode == "application" and len(args.capture) != 1:
+        parser.error("Application comparison uses one capture")
     run(args)

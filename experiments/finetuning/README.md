@@ -22,11 +22,19 @@ Create two matching references, then run one process-image trial:
 runs/finetuning/venv/bin/python experiments/finetuning/run.py reference runs/finetuning/reference-zero
 runs/finetuning/venv/bin/python experiments/finetuning/run.py criu runs/finetuning/criu-zero \
   --reference runs/finetuning/reference-zero
+runs/finetuning/venv/bin/python experiments/finetuning/run.py application runs/finetuning/application-zero \
+  --reference runs/finetuning/reference-zero
 ```
 
 Each run directory must be new. Add `--dropout 0.1` to both commands to exercise
 CUDA randomness. The early gate uses `--until 2` for both commands and `--capture 1`
 for the CRIU trial. The default is four updates, with capture after two.
+
+The application route saves adapters, buffers, Adam, schedule, data position, RNG,
+and training behavior. It flushes and atomically publishes the save, verifies the
+original process has exited, runs job B, then builds a fresh trainer from the pinned
+base model and the save. It restores RNG last and compares state before update 3.
+The process-image route restores solely from CRIU images.
 
 `run.py` uses the isolated interpreter that launched it. `session.py` invokes CRIU's
 CLI and handles waiting, exit verification, and cleanup; it does not implement

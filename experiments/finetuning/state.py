@@ -1,7 +1,6 @@
 """Named training evidence and complete application checkpoints for ordinary LoRA."""
 
 import hashlib
-import json
 import os
 from pathlib import Path
 import random

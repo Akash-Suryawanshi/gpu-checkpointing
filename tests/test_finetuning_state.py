@@ -5,6 +5,7 @@ from pathlib import Path
 import random
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import torch
 import state
@@ -31,6 +32,20 @@ def update(model, optimizer, scheduler, progress):
 
 
 class StateTests(unittest.TestCase):
+    def test_failed_save_preserves_previous_completed_checkpoint(self):
+        model, optimizer, scheduler = trainer(7)
+        progress = {"update": 0, "next_example_index": 0}
+        update(model, optimizer, scheduler, progress)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "checkpoint.pt"
+            state.save_application(path, model, optimizer, scheduler, progress, {}, {})
+            completed = path.read_bytes()
+            with patch.object(state.torch, "save", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    state.save_application(path, model, optimizer, scheduler, progress, {}, {})
+            self.assertEqual(completed, path.read_bytes())
+            self.assertFalse(path.with_suffix(".temp").exists())
+
     def test_application_roundtrip_preserves_the_next_stochastic_update(self):
         torch.set_num_threads(1)
         model, optimizer, scheduler = trainer(7)
