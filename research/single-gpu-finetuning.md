@@ -1,16 +1,16 @@
 # Single-GPU fine-tuning snapshots
 
-**Single-GPU fine-tuning is a sensible next experiment. The checkpoint mechanism stays broadly the same; the training state, compatibility checks, and economic comparison become more demanding.** Start with a small pretrained model, ordinary LoRA, and a non-paged optimizer. Compare restoring the whole process with restarting from a complete training checkpoint.
+**The bounded single-GPU LoRA experiment now passes on EC2 with qualified compatibility.** The checkpoint mechanism stays broadly the same as the tensor probes; training adds optimizer history, data position, and stochastic continuation. The implemented comparison uses a small pretrained model, ordinary LoRA, and a non-paged optimizer to compare whole-process restoration with complete application checkpoints.
 
-**September 14 feasibility update:** DMTCP's newer native CUDA plugin provides a route around this container's blocked CRIU permission path. A live experiment restored a complete PyTorch GPU process from disk after original exit, with matching tensor data and working subsequent GPU computation. Anonymous shared-memory warnings remain unresolved, and the LoRA training-state acceptance experiment below has not yet run. The older CRAC prototype is not the only DMTCP CUDA option. See the [measured results](../experiments/results.md).
+**September 14 implementation results:** On EC2 A10G, CRIU 4.2.1 with its CUDA plugin restored the isolated LoRA trainer after original exit. Four-update continuation, active dropout, application restart, and repeated capture passed. Three warm timing pairs measured CRIU capture/sync and restore/update medians of 32.20 s and 4.47 s, versus 1.30 s and 7.95 s for application checkpoints. The earlier L4 container's CRIU permission blocker and qualified DMTCP tensor restoration are historical observations from a different environment. See the [measured results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
 
 Companies already implement GPU snapshots. NVIDIA supplies the driver mechanism; MemVerge and Cedana document workload checkpoint/restore; Modal, Beam, Google Cloud, and NVIDIA Dynamo expose related startup features. Their documented scope varies, especially between resuming training and starting an initialized inference worker. The company comparison below makes that distinction explicit.
 
-This report covers language-model supervised fine-tuning: learning from examples with desired outputs, on one NVIDIA GPU. It compares full fine-tuning, LoRA, and quantized LoRA. Proposed acceptance checks remain future work; host and mechanism measurements are identified as such. Product documentation was checked on September 13, 2026; the DMTCP feasibility evidence was checked on September 14, 2026. Individual papers and version constraints are identified below.
+This report covers language-model supervised fine-tuning: learning from examples with desired outputs, on one NVIDIA GPU. It compares full fine-tuning, LoRA, and quantized LoRA; only the bounded ordinary-LoRA configuration has been validated here. Product documentation was checked on September 13, 2026; mechanism and training evidence was recorded on September 14, 2026. The September 16 documentation update aligns local status with those results without revalidating external product claims. Individual papers and version constraints are identified below.
 
 ## 1. What changes from the mechanism probes
 
-The implemented probes cover a deterministic CPU counter, NVIDIA-only suspension of a tensor process, and DMTCP restoration of that complete GPU process. No training model exists in the repository yet. Fine-tuning would add a pretrained language model, tokenized text, optimizer history, and data position. CUDA still sees allocations, kernels, and streams; it does not need a special “fine-tuning snapshot” operation. The driver prepares supported GPU state for capture; CRIU or DMTCP preserves the CPU process around it. [NVIDIA cuda-checkpoint](https://github.com/NVIDIA/cuda-checkpoint), [CRIU GPU integration](https://www.criu.org/GPU_Checkpointing), [DMTCP CUDA plugin](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda).
+The initial probes covered a deterministic CPU counter, NVIDIA-only suspension of a tensor process, and DMTCP restoration of that complete GPU process. The [implemented LoRA experiment](../experiments/finetuning/README.md) adds a pretrained language model, tokenized text, optimizer history, and data position, using CRIU on EC2. CUDA still sees allocations, kernels, and streams; it does not need a special “fine-tuning snapshot” operation. The driver prepares supported GPU state for capture; CRIU or DMTCP preserves the CPU process around it. [NVIDIA cuda-checkpoint](https://github.com/NVIDIA/cuda-checkpoint), [CRIU GPU integration](https://www.criu.org/GPU_Checkpointing), [DMTCP CUDA plugin](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda).
 
 ```mermaid
 flowchart TB
@@ -39,7 +39,7 @@ The important change is the amount and meaning of the state. A model can produce
 
 Framework support already exists for much of the explicit training state. Accelerate saves models, optimizers, random generators, and gradient scalers, and supports registering additional stateful objects. Dataset position still needs deliberate handling. [Accelerate checkpointing](https://huggingface.co/docs/accelerate/usage_guides/checkpoint).
 
-**One GPU does not automatically mean one process.** Data loading, experiment tracking, and compilation can introduce workers or external services. Our proposed baseline uses already-tokenized local examples, no data-loader worker processes, and local logs. PyTorch documents the distinction between loading data in the main process and using multiple workers. [PyTorch data loading](https://docs.pytorch.org/docs/stable/data.html).
+**One GPU does not automatically mean one process.** Data loading, experiment tracking, and compilation can introduce workers or external services. Our implemented baseline uses already-tokenized local examples, no data-loader worker processes, and local logs. PyTorch documents the distinction between loading data in the main process and using multiple workers. [PyTorch data loading](https://docs.pytorch.org/docs/stable/data.html).
 
 ### Choose a complete update as the pause point
 
@@ -92,7 +92,11 @@ For full fine-tuning, application checkpoints also become large because all mode
 
 ## 3. Compatibility issues that matter first
 
-### Current-host route and its qualification
+### EC2 route and its qualification
+
+The implementation uses CRIU 4.2.1 at `9539417f3e3cfa4eb84c319cd71f4d52f1f08645` with its native CUDA plugin and pinned NVIDIA helper on EC2 A10G/driver 570.172.08. CPU, GPU tensor, and isolated LoRA restoration passed. The plugin alone owns CUDA transitions. Interrupted-system-call warnings remain recorded; preserved shared mapping addresses and flags do not independently prove driver-side sharing ownership. These are qualified same-host results, not replacement-host or spot recovery. See the [environment and evidence](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
+
+### Historical DMTCP route on the L4 container
 
 DMTCP v4.2.0 introduced a native NVIDIA CUDA plugin in June 2026. The successful local lifecycle and numerical probe used maintenance commit `b175bb5ccadd2f02d11cf052f586d2d9ac62ad53` from September 7, 2026, which includes later CUDA helper-thread and PyTorch mapping fixes. The application must be launched through DMTCP; unlike CRIU, this is not external attachment to an arbitrary running process. [DMTCP release](https://github.com/dmtcp/dmtcp/releases/tag/v4.2.0), [pinned plugin](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp).
 
@@ -173,8 +177,8 @@ There are two layers to choose: the code that trains the model, and the code tha
 
 | Tool | What it provides | Fit for this POC |
 | --- | --- | --- |
-| [cuda-checkpoint + CRIU CUDA plugin](https://www.criu.org/GPU_Checkpointing) | Supported GPU state capture combined with Linux process capture. The CLI/plugin are public; GPU internals remain in NVIDIA's driver. | Reference route on an environment with appropriate permissions; blocked in the current container. |
-| [DMTCP native CUDA plugin, pinned maintenance revision](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda) | NVIDIA driver checkpointing plus DMTCP process images; launch the application through DMTCP. Distinct from historical CRAC. | **Current-host alternative:** real CPU/GPU restoration observed; shared-memory qualifications and full LoRA correctness still need validation. |
+| [cuda-checkpoint + CRIU CUDA plugin](https://www.criu.org/GPU_Checkpointing) | Supported GPU state capture combined with Linux process capture. The CLI/plugin are public; GPU internals remain in NVIDIA's driver. | **Implemented EC2 route:** isolated LoRA continuation and timings pass with qualified compatibility. The earlier container permission blocker is historical. |
+| [DMTCP native CUDA plugin, pinned maintenance revision](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda) | NVIDIA driver checkpointing plus DMTCP process images; launch the application through DMTCP. Distinct from historical CRAC. | **Historical L4 route:** CPU/GPU tensor restoration observed with unresolved sharing qualifications. No DMTCP LoRA validation or EC2 timing comparison. |
 | [Transformers + PEFT](https://huggingface.co/docs/peft/developer_guides/checkpoint) | Pretrained models, adapters, and explicit model/adaptor saving. | **First choice for a readable training loop.** |
 | [TRL SFTTrainer](https://huggingface.co/docs/trl/sft_trainer) | A supervised fine-tuning trainer built on Transformers Trainer, including training resume. | Add after the explicit loop, to check a common framework path. |
 | [Accelerate](https://huggingface.co/docs/accelerate/usage_guides/checkpoint) | Application-state save/load and registration of custom state. | Useful reference or implementation for the application baseline. |
@@ -209,13 +213,13 @@ An initialized inference image can serve as a template for many future workers. 
 
 Startup also gives a controlled capture point. Arbitrary training suspension has to handle the current data position, pending updates, attached services, and library behavior. Inference engines can sometimes discard empty caches before saving; optimizer history cannot simply be discarded while claiming exact training continuation. These are reasons to offer constrained products and explicit support matrices, rather than a universal promise.
 
-## 7. Candidate bounded fine-tuning experiment
+## 7. Implemented bounded fine-tuning experiment
 
-The preserved research candidate is ordinary LoRA on Qwen2.5-0.5B, one GPU, one training process, and one save/restore. It is not a finalized implementation plan. Its published base model has approximately 0.49 billion parameters, keeping the research question focused on restoration rather than GPU capacity. The intended outcome is a mechanism demonstration, not improved model quality in 25 steps. [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B).
+The implementation uses ordinary LoRA on Qwen2.5-0.5B, one GPU, one training process, and a default save after update 2 of 4. A separate trial captures after updates 2 and 3. The [implementation plan](../docs/implementation-plan.md) defines the complete state contract and acceptance gates; this section summarizes the final workload. Its published base model has approximately 0.49 billion parameters, keeping the question focused on restoration rather than GPU capacity or model quality. [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B).
 
-### Candidate configuration
+### Validated configuration
 
-| Choice | Proposed baseline |
+| Choice | Implemented baseline |
 | --- | --- |
 | Training code | Small explicit PyTorch loop using Transformers and PEFT |
 | Model | Fixed revision of `Qwen/Qwen2.5-0.5B`; downloaded before the experiment |
@@ -225,34 +229,34 @@ The preserved research candidate is ordinary LoRA on Qwen2.5-0.5B, one GPU, one 
 | Data | Small fixed local set of prompt/answer examples, tokenized before launch; record its hash and batch order |
 | Work per update | Batch size 1, short fixed sequence length, initially no gradient accumulation |
 | Execution | Eager attention, no `torch.compile`, no extra kernel packages, no remote tracking |
-| Boundary | After update 20: clear gradients, finish GPU work, record state, publish readiness, wait for release |
-| Comparison | Finish at update 25; same host, GPU, model revision, data and package versions |
+| Boundary | After update 2: complete optimizer/schedule steps, clear gradients, synchronize GPU work, record state, publish readiness, wait for release |
+| Comparison | Finish at update 4; same host, GPU, model revision, data and package versions |
 
 LoRA target selection is explicit to make the trainable state easy to inspect, not a recommendation for best model quality. PEFT documents the relevant configuration and parameter counting. [PEFT LoRA reference](https://huggingface.co/docs/peft/package_reference/lora).
 
-Capacity arithmetic supports testing this small case but is not a measured training peak. Approximately 0.49 billion FP32 parameters occupy about **1.96 GB** before activations, allocator cache, and runtime overhead. For rank 8 on the published 24-layer Qwen configuration's `q_proj` and `v_proj`, the dimensions imply about **540,672 trainable adapter parameters**: roughly 2.16 MB of FP32 adapter weights and 4.33 MB for Adam's two moment tensors. Confirm those counts on the instantiated model. The live host reported 23,034 MiB of GPU memory and a 124 GiB container RAM limit; PEFT was not installed at inspection. [Qwen configuration](https://huggingface.co/Qwen/Qwen2.5-0.5B/raw/main/config.json).
+Approximately 0.49 billion FP32 parameters occupy about **1.96 GB** before activations, allocator cache, and runtime overhead. The instantiated rank-8 query/value adapters have **540,672 trainable parameters**: roughly 2.16 MB of FP32 weights and 4.33 MB for Adam's two moment tensors. The isolated EC2 timing trials peaked at **1.971 GiB allocated** and **2.088 GiB reserved VRAM** on the A10G with 23,028 MiB total. Host RAM was about 30 GiB; PEFT 0.18.1 was installed in the locked virtualenv. These measurements supersede the earlier L4/container capacity assumptions for this workload. [Qwen configuration](https://huggingface.co/Qwen/Qwen2.5-0.5B/raw/main/config.json), [measured footprint](../experiments/results.md#footprint-environment-and-limits).
 
 ### Three runs answer three different questions
 
-1. **Uninterrupted reference:** train from the chosen initial state through update 25. Record state at updates 20 and 25.
-2. **Application restart:** train to update 20, save adapters plus complete training state, terminate the process, rebuild from the fixed base and saved state, then perform five more updates.
-3. **Whole-process restore:** train to update 20, capture CPU and GPU state, verify the original process has exited, restore it, then perform five more updates. Application checkpoint files must not be its restore input.
+1. **Uninterrupted reference:** establish two matching runs from the chosen initial state through update 4, with state recorded at each update.
+2. **Application restart:** train to update 2, save adapters plus complete training state, terminate the process, rebuild from the fixed base and saved state, then perform updates 3–4.
+3. **Whole-process restore:** train to update 2, capture CPU and GPU state, verify the original process has exited, restore it, then perform updates 3–4. Application checkpoint files must not be its restore input.
 
 Use exactly the same training loop for all three runs. Keep the base model cached on disk for both restore paths so a network download does not manufacture an apparent snapshot advantage. Any diagnostic tensor copies used for validation belong outside the measured checkpoint interval and should not inflate the captured process accidentally.
 
-The first correctness baseline may disable dropout. A small follow-up should enable it and verify random-state restoration; otherwise matching random-state hashes alone has not exercised stochastic continuation. Before interpreting final-step differences, establish that two uninterrupted runs match in this fixed environment. [PyTorch 2.11 reproducibility](https://docs.pytorch.org/docs/2.11/notes/randomness.html).
+Both dropout zero and 0.1 passed. The stochastic case explicitly entered training mode and verified execution of all 48 LoRA dropout modules on CUDA, plus advancement of the used CUDA random generator on each update. Effective training modes, adapter activation, trainable flags, and dropout settings were compared before any post-restore repair. Matching random-state hashes alone would not exercise stochastic continuation. Two uninterrupted references matched for each configuration. [Recorded stochastic evidence](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
 
 ### What counts as success
 
-Before the next update after restore, require exact equality of adapter tensors, optimizer tensors, update count, next batch position, and used random-generator states with the corresponding pre-save values. Verify the fixed base and configuration too. Then compare updates 21–25 with the uninterrupted reference, including losses and trainable state. A decreasing loss alone is insufficient.
+Before the next update after restore, require exact equality of adapter tensors, optimizer tensors, update count, next batch position, and used random-generator states with the corresponding pre-save values. Verify the fixed base and configuration too. Then compare updates 3–4 with the uninterrupted reference, including losses and trainable state. A decreasing loss alone is insufficient.
 
 For deterministic execution in the same environment, target exact continuation. If a numerical tolerance is necessary, retain values, choose the tolerance in advance, and explain the source of variation. Hashes prove equality, but cannot measure how close unequal tensors are.
 
-Also establish that the GPU was released during suspension and could be used by a separate tiny disposable workload. GPU-only suspend/resume is a useful intermediate check, but the final claim requires the original CPU process to exit and the saved process image to be restored.
+Also establish that the GPU is available after verified original-process exit and can be used by a separate tiny disposable workload. An earlier disappearance from monitoring can be temporary. GPU-only suspend/resume is a useful intermediate check, but the final claim requires the original CPU process to exit and the saved process image to be restored.
 
 ### What the repository has established
 
-The [experiment record](../experiments/results.md) reports driver **595.58.03**, a working NVIDIA-only GPU probe, CRIU startup permission failures, and subsequent DMTCP CPU/GPU restore experiments. DMTCP restored the GPU process after original exit with matching data; unresolved shared-memory warnings qualify that result. A later training experiment must verify optimizer state, random state, next batch, and subsequent updates.
+The [experiment record](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14) establishes exact four-update LoRA continuation on EC2 A10G/driver **570.172.08**, including optimizer state, randomness, data position, and repeated restoration. A normal warm CRIU diagnostic trial took **62.33–62.49 s**, and two captures took **104.11 s**, meeting the 2–3-minute development-trial target. Numerical/lifecycle acceptance passed; sharing ownership and retained interrupted-system-call warnings still qualify compatibility. The earlier L4/driver 595.58.03 probes remain separate historical evidence.
 
 Each integration must have one owner for CUDA restoration. CRIU's CUDA plugin restores and unlocks CUDA itself; unconditional manual restore/unlock afterward can encounter an already-running process. [Upstream restore hook](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505).
 
@@ -260,8 +264,8 @@ Each integration must have one owner for CUDA restoration. CRIU's CUDA plugin re
 
 | Stage | What it teaches | Effort judgment |
 | --- | --- | --- |
-| Existing tensor process | Whether this host can restore a complete PyTorch CUDA process | Completed with shared-memory qualification |
-| Small ordinary LoRA | Whether real pretrained-model training continues correctly | Highest-value next extension |
+| Existing tensor process | Whether the tested host can restore a complete PyTorch CUDA process | Completed; EC2 CRIU and historical L4 DMTCP evidence are separate |
+| Small ordinary LoRA | Whether real pretrained-model training continues correctly | Completed on EC2 with qualified compatibility |
 | BF16, then four-bit base with non-paged optimizer | Precision and quantization compatibility, separately | Bounded follow-ups |
 | TRL SFTTrainer | Behavior in a common training framework | Useful once the explicit loop works |
 | Larger model or full fine-tuning | How state size changes the comparison | Only after correctness and headroom are established |
@@ -271,7 +275,7 @@ These are relative effort judgments, not delivery estimates. Kernel permissions 
 
 ## 8. Measure the return, not just the snapshot
 
-Record separate timestamps for **request to GPU release**, **request to completed image**, and **restore request to the next completed optimizer update**. If the image has not been flushed or copied to storage that survives the relevant failure, do not call it durable. A fast in-memory snapshot solves a different failure case from a checkpoint on independent storage.
+Record separate timestamps for **completed image**, **verified original-process exit**, **GPU availability observed after exit**, **filesystem sync**, and **the next completed optimizer update after restore**, relative to the relevant capture/restore request. Preserve GPU polling uncertainty and keep job B separate from headline timing. The implementation also converts restored trainer timestamps from CRIU's time namespace before comparing them with the controller clock. If the image has not been flushed or copied to storage that survives the relevant failure, do not call it durable. A fast in-memory snapshot solves a different failure case from a checkpoint on independent storage.
 
 Also record image size, host-memory peak, GPU allocated/reserved memory at the boundary, uninterrupted step time, and any failures. For a later timing comparison, repeat a few times under the same cache and storage conditions and report the spread. Do not infer an L4 result from an H100 or B200 paper.
 
@@ -288,17 +292,17 @@ The terms must use the same completion and storage criteria. Periodic save overh
 
 **Choose an application checkpoint when** training state is explicit, adapter saves are small, startup is tolerable, and portability matters. **Choose a process snapshot when** preserving a complex live environment or avoiding expensive reconstruction is worth its state-transfer cost and tighter compatibility requirements. Often the practical design uses process snapshots for planned pause/resume and keeps application checkpoints as a separate recovery/export path.
 
-The experiment should establish a precise result: **“We restored one supported single-GPU LoRA process and verified its next updates. We measured its cost against a full training-state checkpoint and identified where the approach stops being attractive.”** This would show what snapshotting preserves, what it costs, and where it helps.
+The measured result is narrow: **one tested single-GPU LoRA process restored and matched its subsequent updates, with compatibility qualifications.** CRIU resumed faster here but needed about 3.70 GB of saved state versus 6.71 MB for the application checkpoint, and capture/sync took substantially longer. This does not establish a general speed advantage or recovery after host loss.
 
 ## 9. Remaining uncertainties
 
-Public evidence supports the feasibility of GPU-aware training checkpoint/restore and several commercial uses. The local DMTCP probe strengthens that case for the current host, but it does not settle compatibility or cost for a complete fine-tuning process. The B200 fine-tuning paper does not provide a sufficiently explicit LoRA/QLoRA configuration; Cedana's cited driver table needs current confirmation; hosted startup features do not establish an arbitrary mid-training API.
+Public evidence supports the feasibility of GPU-aware training checkpoint/restore and several commercial uses. The local EC2 experiment measures continuation and cost for one isolated ordinary-LoRA configuration, while the historical DMTCP probe remains qualified tensor evidence. Neither establishes universal compatibility. The B200 fine-tuning paper does not provide a sufficiently explicit LoRA/QLoRA configuration; Cedana's cited driver table needs current confirmation; hosted startup features do not establish an arbitrary mid-training API.
 
 Migration is a separate gate from same-host restoration. NVIDIA's 595.91.07 release notes contain a restore-related device-information fix. That makes replacement-host compatibility something to validate explicitly; it is not evidence that the successful same-host experiment on 595.58.03 failed. [CUDA checkpoint API](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html), [595.91.07 fixed issues](https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-595-91-07/index.html#fixed-issues).
 
-The remaining checks are concrete: identify whether the warned shared mappings require sharing after restore; install and pin a compatible PEFT stack; measure the instantiated model's GPU and host-memory peaks against the 23,034 MiB L4 and 124 GiB container limit; verify deterministic uninterrupted runs; then compare application restart and whole-process restoration through subsequent optimizer updates. Replacement-host durability, repeated checkpoint cycles, and real interruption handling remain separate questions.
+The isolated PEFT stack, measured memory headroom, matching uninterrupted references, application/process comparison, and repeated checkpoint cycles are complete for the EC2 workload. Remaining checks include shared-memory ownership, replacement-host compatibility, storage survival, and real interruption handling. QLoRA, other precision modes, larger workloads, and inference cold-start comparisons remain untested.
 
-The recommended decision is therefore to measure a narrow supported case first. The most promising later optimization for LoRA is avoiding repeated capture of an unchanged base model. Proving that safely requires more than ignoring tensors marked frozen, because the snapshot layer must still restore addresses and resource relationships correctly.
+Avoiding repeated capture of an unchanged base model is a possible later optimization motivated by the measured image size. Proving that safely requires more than ignoring tensors marked frozen, because the snapshot layer must still restore addresses and resource relationships correctly.
 
 ## Sources and reading order
 

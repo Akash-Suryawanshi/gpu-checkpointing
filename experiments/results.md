@@ -1,10 +1,11 @@
 # Experiment results
 
-This page records what was actually observed. The current verdict is deliberately split across three mechanisms:
+This page records what was actually observed, separating the EC2 implementation from earlier container probes:
 
-- **CRIU process capture is blocked in this container.** CRIU 3.16.1 fails during startup feature detection before it captures the CPU counter.
-- **NVIDIA GPU-only checkpoint/restore passed.** A 64 MiB tensor survived and another job used the GPU while it was suspended, but the original CPU process stayed alive and no durable process image was created.
-- **DMTCP restored a complete PyTorch GPU process after the original exited.** Lifecycle, tensor, and subsequent GPU-compute checks passed. Four anonymous shared-memory warnings leave sharing semantics unresolved, so strict acceptance failed and fine-tuning compatibility remains unproven.
+- **EC2 A10G: isolated four-update LoRA continuation passed with CRIU and application restart.** Both dropout configurations and repeated CRIU restoration matched references. Three timing pairs measured capture/sync and restore/update medians of 32.20 s / 4.47 s for CRIU, versus 1.30 s / 7.95 s for application checkpoints. Compatibility remains qualified by sharing ownership and retained warnings. See the [full acceptance and timing results](#four-update-lora-acceptance-and-timing--2026-09-14).
+- **Earlier L4 container: CRIU process capture was blocked.** CRIU 3.16.1 failed during startup feature detection before it captured the CPU counter; this was not an EC2 host limitation.
+- **Earlier L4 container: NVIDIA GPU-only checkpoint/restore passed.** A 64 MiB tensor survived and another job used the GPU while it was suspended, but the original CPU process stayed alive and no durable process image was created.
+- **Earlier L4 container: DMTCP restored a complete PyTorch GPU process after the original exited.** Lifecycle, tensor, and subsequent GPU-compute checks passed. Four anonymous shared-memory warnings leave sharing semantics unresolved, so strict acceptance failed and DMTCP fine-tuning compatibility remains unproven. DMTCP was not benchmarked on EC2.
 
 No experiment changed container security settings or the NVIDIA driver. Curated DMTCP measurements are also available as [JSON](evidence/2026-09-14/dmtcp-summary.json). Raw process images and logs remain under ignored `runs/`; coordinator logs can contain inherited environment values and must not be published wholesale.
 
@@ -166,7 +167,7 @@ CRIU emitted one interrupted-system-call warning in the tensor dump and two in t
 
 All seven observed LoRA `/dev/zero (deleted)` ranges remained `rw-s` at the same addresses after restore, backed by new `/memfd:/dev/zero (deleted)` objects. This is stronger mapping evidence than the earlier DMTCP private-memory treatment, but does not independently establish driver-side or external sharing dependencies. No DMTCP-style shared-memory warning appeared in these CRIU logs; that does not resolve the separate historical DMTCP finding.
 
-The early LoRA continuation gate passes for this recorded environment. The complete application-checkpoint comparison, isolated environment, four-update acceptance, repeated restoration, replacement-host recovery, and spot interruption remain untested. DMTCP was not run on EC2, so these measurements do not establish a performance ranking between backends.
+At this preliminary milestone, the early LoRA continuation gate passed, while the isolated environment, complete application-checkpoint comparison, four-update acceptance, and repeated restoration were still pending. Those later gates passed in the [final acceptance](#four-update-lora-acceptance-and-timing--2026-09-14) below. Replacement-host recovery and spot interruption remain untested. DMTCP was not run on EC2, so these measurements do not establish a performance ranking between backends.
 
 ## Isolated LoRA implementation — 2026-09-14
 

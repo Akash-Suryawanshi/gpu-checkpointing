@@ -26,9 +26,10 @@ runs/finetuning/venv/bin/python experiments/finetuning/run.py application runs/f
   --reference runs/finetuning/reference-zero
 ```
 
-Each run directory must be new. Add `--dropout 0.1` to both commands to exercise
-CUDA randomness. The early gate uses `--until 2` for both commands and `--capture 1`
-for the CRIU trial. The default is four updates, with capture after two.
+Each run directory must be new. Add `--dropout 0.1` to the reference, CRIU, and
+application commands to compare CUDA randomness. The early gate uses `--until 2`
+for the reference and CRIU commands, plus `--capture 1` for the CRIU trial.
+The default is four updates, with capture after two.
 Use `--capture 2,3` for the repeated CRIU lifecycle. Images, PID files, and
 handshake markers all use separate generation numbers.
 

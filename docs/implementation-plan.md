@@ -14,7 +14,7 @@
 
 ## Implementation milestones
 
-- Environment/assets: isolated virtualenv installed from exact package pins; all 32 authored examples tokenized; a real two-update LoRA check passed. Safetensors 0.6.2 is pinned instead of the host's release candidate. Progressive mapping inspection and the shared-controller restore gate follow in the next milestone.
+- Environment/assets: isolated virtualenv installed from exact package pins; all 32 authored examples tokenized; a real two-update LoRA check passed. Safetensors 0.6.2 is pinned instead of the host's release candidate. Progressive mapping inspection and the shared-controller restore gate were completed in the following milestone.
 
 - Shared trainer/controller: the isolated active-dropout one-update restore passed in 59.21 seconds; the four-update zero-dropout restore passed in 62.75 seconds. Both matched verified reference pairs. Eight CPU contract tests pass. Mapping ownership and interrupted-system-call warnings remain qualified. [Milestone evidence](../experiments/evidence/2026-09-14/isolated-criu-summary.json).
 
@@ -183,7 +183,7 @@ Diagnostic collection must not consume training RNG or retain GPU/CPU tensor clo
 **Files:** `experiments/criu/session.py`, `train.py`, `run.py`.
 
 - [x] Put the tested CRIU lifecycle operations in `session.py`. Launch the fine-tuning interpreter normally, with regular-file output and disconnected stdin, then capture its PID using pinned CRIU with the explicit CUDA plugin path. Keep privileged CRIU invocation separate from the trainer.
-- [x] Use the following generation-specific handshake for capture at update 2. A future update-3 capture uses separate `3` markers so earlier release files cannot bypass its wait.
+- [x] Use the following generation-specific handshake for capture at update 2. The repeated trial's update-3 capture uses separate `3` markers so earlier release files cannot bypass its wait.
 
 ```text
 Trainer: complete update 2 → synchronize → write before-2 evidence
@@ -247,7 +247,7 @@ DMTCP remains a separate historical route with unresolved shared-memory warnings
 
 Out of this implementation: actual spot termination, replacement-host restore, multi-GPU, QLoRA/paged optimizers, compression/incremental GPU capture, a scheduler, and billing integration. A later spot-recovery phase must independently prove image/assets survival on durable storage, compatible replacement capacity, and the warning deadline.
 
-Review the workload, state contract, waiting sequence, and acceptance gates before implementation. After agreement, implement and review task by task; synchronize tested milestones through the existing GitHub/SSH workflow.
+The bounded implementation and measured milestones are complete on the feature branch for review. The unresolved sharing-compatibility item remains open; extensions require their own acceptance criteria and measurements.
 
 ## Incorporated review decisions
 
