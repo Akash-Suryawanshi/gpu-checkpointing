@@ -10,8 +10,7 @@ def run(trial):
     event(trial, "launched", pid=trial.pid)
     finish(trial)
 
-    # A new Python process must recreate the same state without a saved trainer.
-    # Its own directory keeps markers, losses, and fingerprints independent.
+    # Fresh process and directory: no saved trainer or evidence can be reused.
     repeat = output / "repeat"
     repeat.mkdir()
     launch(trial, repeat)
