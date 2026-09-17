@@ -1,8 +1,9 @@
 # Running the inference snapshot comparison
 
-**Status: planned interface.** The scripts are unfinished and do not yet implement
-all commands below. Use these commands after the acceptance gates in the
-[implementation plan](../../docs/inference-snapshot-plan.md) pass.
+**Local validation passed with pinned Qwen3-8B on A10G.** All four routes, three
+timing blocks, and separate capture/restore commands passed; see the
+[measured results](../results.md#inference-activation-and-gpu-reuse--2026-09-17).
+The [plan](../../docs/inference-snapshot-plan.md) retains the acceptance contract.
 
 ```text
 prepare -> CPU checks -> GPU diagnostics -> timing blocks -> static report
@@ -53,7 +54,7 @@ Then prepare the selected model on the data volume:
 ```bash
 PY="$PWD/runs/finetuning/venv/bin/python"
 TOOLS="$PWD/runs/tools"
-ASSETS="$BASE/assets-v1"
+ASSETS="$BASE/assets-v2"
 CAMPAIGN="$BASE/campaigns/$LABEL"
 export TMPDIR="$BASE/tmp" HF_HOME="$BASE/cache/huggingface"
 export XDG_CACHE_HOME="$BASE/cache" TORCH_HOME="$BASE/cache/torch"
@@ -67,9 +68,10 @@ nvidia-smi
   --model "$MODEL" --source "$SOURCE" --output "$ASSETS"
 ```
 
-Preparation must verify child processes receive the listed cache paths through
-the explicit environment allowlist. The unfinished old `assets` directory is not
-a completed preparation; do not overwrite it to hide an earlier failure.
+Preparation and child workers use the explicit cache-path allowlist. The recorded
+8B preparation passed at `assets-v2`; earlier partial directories remain as failure
+evidence. Use a new asset path after changing preparation inputs, and a new campaign
+after changing sources or environment.
 
 Run the entire diagnostic matrix for each model; never reuse 8B reference tokens
 or timings for the smaller-model campaign.

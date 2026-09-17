@@ -448,3 +448,63 @@ bounded workload on the same host/boot with matching dependencies and persistent
 local storage; it does not establish arbitrary resource-sharing compatibility.
 Ordered persistence is implemented and fault-tested, but power loss, volume
 deletion, replacement hosts, and spot recovery were not tested.
+
+## Inference activation and GPU reuse — 2026-09-17
+
+The pinned Qwen3-8B model completed all four routes on one A10G in BF16
+(16-bit floating point). [Curated validation](evidence/2026-09-17/inference-8b-validation.json)
+records source `6a7ace0`, five diagnostics, twelve scheduled timings, and a
+separate capture/restore demonstration; [individual measurements](evidence/2026-09-17/inference-8b-runs.csv)
+retain each block.
+
+```text
+resident: GPU model stays loaded -------------------------> request
+RAM:      GPU bytes -> live worker's RAM -> job B -> GPU --> request
+disk:     GPU + CPU state -> files -> original exits
+          -> job B -> new process from files -> verify ---> request
+```
+
+Arrows describe state movement and sequence. RAM recovery needs the same living
+CPU process; disk recovery succeeded after that process and the capture command
+had ended. All routes also require the pinned local model files.
+
+| Route | Median first-token seconds | Min–max seconds | Trials |
+| --- | ---: | ---: | ---: |
+| fresh | 11.1522 | 10.9967–11.4176 | 3 |
+| resident | 0.0762 | 0.0737–0.0776 | 3 |
+| ram | 4.0378 | 4.0332–4.0568 | 3 |
+| disk | 277.6203 | 274.0257–279.3674 | 3 |
+
+Primary time ends at the controller's first-token receipt. Fresh starts before
+launch, resident before the request, RAM before GPU restoration, and disk before
+its independent restore command, including validation. Full model audits occurred
+after response one in timing runs; the second request was a separate health check.
+
+Median RAM-parking host retention was 16.95 GiB, with no reported GPU allocation.
+Resident held 15.29 GiB of reserved GPU memory. Disk retained no original worker and
+added 16.61 GiB of snapshot files; the local model files remained required.
+
+Both released-state routes let a separate process allocate, touch, and check
+12 GiB before waking the model. This exceeded pre-release free GPU memory by
+at least 1 GiB; it proves more than the smaller availability probe alone.
+
+Saving took a median 10.92 seconds for RAM and 279.18 seconds for disk, outside the
+primary timer. Disk recovery's primary measurement includes file/dependency
+validation, CRIU reconstruction, and the pre-request metadata check; these costs
+were not subtracted.
+
+Admission validation reads model files before worker launch; their cache residency
+was uncontrolled. Five-millisecond request polling and durable
+file writes contribute overhead; sampled resource peaks can miss short spikes.
+
+Three timings per route do not establish tail latency, and same-host/boot recovery
+does not establish replacement-host or spot recovery. CRIU capture reported
+interrupted-system-call warnings, retained in the curated record and raw logs.
+
+The [runbook](inference/README.md) owns commands. Historical exploratory attempts
+remain separate: the first preparation lacked the direct loader's cuBLAS setting,
+and an earlier campaign was intentionally interrupted to fix helper cancellation.
+No failed timing slot was replaced.
+
+Subsequent cancellation and report fixes have
+separate regression checks; their container validation uses a new comparison key.

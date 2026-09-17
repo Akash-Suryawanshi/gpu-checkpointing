@@ -4,9 +4,10 @@
 whether inference survives the original process ending. Start on one A10G;
 complete the pipeline with a smaller model if 8B exceeds GPU or host-memory limits.
 
-This document specifies unfinished work, not new performance evidence. The draft
-inference scripts exist; the [runbook](../experiments/inference/README.md) describes
-the intended interface and commands to use after implementation.
+The local implementation passed with Qwen3-8B on A10G: five diagnostics, twelve
+scheduled timings, and separate disk capture/restore commands. This document keeps
+the acceptance contract; [results](../experiments/results.md#inference-activation-and-gpu-reuse--2026-09-17)
+own measurements and the [runbook](../experiments/inference/README.md) owns commands.
 
 ```text
 check capacity -> prepare model -> validate four routes -> measure and report
