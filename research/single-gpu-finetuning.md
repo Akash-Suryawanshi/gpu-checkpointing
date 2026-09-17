@@ -1,343 +1,325 @@
 # Single-GPU fine-tuning snapshots
 
-**The bounded single-GPU LoRA experiment now passes on EC2 with qualified compatibility.** The checkpoint mechanism stays broadly the same as the tensor probes; training adds optimizer history, data position, and stochastic continuation. The implemented comparison uses a small pretrained model, ordinary LoRA, and a non-paged optimizer to compare whole-process restoration with complete application checkpoints.
+**LoRA makes training state small, but a process snapshot still includes the
+resident base model.** That is the main tradeoff this POC measures. Exact LoRA
+continuation passed on EC2 with qualified compatibility; the
+[results](../experiments/results.md) own measurements, the
+[implementation contract](../docs/implementation-plan.md) owns acceptance criteria,
+and the [runbook](../experiments/finetuning/README.md) owns commands.
 
-**September 14 implementation results:** On EC2 A10G, CRIU 4.2.1 with its CUDA plugin restored the isolated LoRA trainer after original exit. Four-update continuation, active dropout, application restart, and repeated capture passed. Three warm timing pairs measured CRIU capture/sync and restore/update medians of 32.20 s and 4.47 s, versus 1.30 s and 7.95 s for application checkpoints. The earlier L4 container's CRIU permission blocker and qualified DMTCP tensor restoration are historical observations from a different environment. See the [measured results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
-
-Companies already implement GPU snapshots. NVIDIA supplies the driver mechanism; MemVerge and Cedana document workload checkpoint/restore; Modal, Beam, Google Cloud, and NVIDIA Dynamo expose related startup features. Their documented scope varies, especially between resuming training and starting an initialized inference worker. The company comparison below makes that distinction explicit.
-
-This report covers language-model supervised fine-tuning: learning from examples with desired outputs, on one NVIDIA GPU. It compares full fine-tuning, LoRA, and quantized LoRA; only the bounded ordinary-LoRA configuration has been validated here. Product documentation was checked on September 13, 2026; mechanism and training evidence was recorded on September 14, 2026. The September 16 documentation update aligns local status with those results without revalidating external product claims. Individual papers and version constraints are identified below.
+This survey covers supervised fine-tuning—learning from examples with desired
+outputs—on one NVIDIA GPU. Research/product sources were checked September 13,
+2026; feasibility sources September 14. Product claims below are dated vendor
+documentation, not independently tested support or current availability.
 
 ## 1. What changes from the mechanism probes
 
-The initial probes covered a deterministic CPU counter, NVIDIA-only suspension of a tensor process, and DMTCP restoration of that complete GPU process. The [implemented LoRA experiment](../experiments/finetuning/README.md) adds a pretrained language model, tokenized text, optimizer history, and data position, using CRIU on EC2. CUDA still sees allocations, kernels, and streams; it does not need a special “fine-tuning snapshot” operation. The driver prepares supported GPU state for capture; CRIU or DMTCP preserves the CPU process around it. [NVIDIA cuda-checkpoint](https://github.com/NVIDIA/cuda-checkpoint), [CRIU GPU integration](https://www.criu.org/GPU_Checkpointing), [DMTCP CUDA plugin](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda).
+Training adds optimizer history, learning-rate schedule, data position, and random
+state to the tensor probes. Adam's history influences the next weight update;
+restoring weights alone can therefore change training. Application checkpoints
+explicitly save this state; process snapshots also preserve execution machinery.
+[NVIDIA mechanism](https://github.com/NVIDIA/cuda-checkpoint),
+[CRIU integration](https://www.criu.org/GPU_Checkpointing),
+[Accelerate state saving](https://huggingface.co/docs/accelerate/usage_guides/checkpoint).
 
-```mermaid
-flowchart TB
-    A["Pretrained model + training examples"] --> B["Python training loop"]
-    B --> C["GPU: weights, gradients, optimizer tensors"]
-    B --> D["CPU: next example, counters, random state"]
-    C --> E["NVIDIA prepares GPU state in host memory"]
-    D --> F["CRIU or DMTCP saves the Linux process"]
-    E --> F
-    F --> G["Restore the process and GPU state"]
-    G --> H["Perform the next training update"]
-```
-
-The important change is the amount and meaning of the state. A model can produce sensible text after an incomplete restore while its training trajectory has already changed.
-
-| State to preserve | Why it matters after resume |
-| --- | --- |
-| Trainable weights | They contain the learning completed so far. |
-| Optimizer state | Adam keeps moving averages of gradients and squared gradients. Losing them changes subsequent updates. |
-| Learning-rate schedule and update count | They determine the size of the next update. |
-| Random-generator states | They determine dropout and other random choices. Preserve each generator actually used. |
-| Dataset order and next example | Restarting at the wrong position repeats or skips training examples. |
-| Partially accumulated gradients | Needed if the snapshot occurs before a complete optimizer update. Avoid this boundary initially. |
-| Precision-related state | FP16 training may use a gradient scaler; quantized weights have representation metadata. Include these when present. |
-| Python objects and CUDA resources | A process snapshot preserves execution machinery that an application restart normally rebuilds. |
-
-Framework support already exists for much of the explicit training state. Accelerate saves models, optimizers, random generators, and gradient scalers, and supports registering additional stateful objects. Dataset position still needs deliberate handling. [Accelerate checkpointing](https://huggingface.co/docs/accelerate/usage_guides/checkpoint).
-
-**One GPU does not automatically mean one process.** Data loading, experiment tracking, and compilation can introduce workers or external services. Our implemented baseline uses already-tokenized local examples, no data-loader worker processes, and local logs. PyTorch documents the distinction between loading data in the main process and using multiple workers. [PyTorch data loading](https://docs.pytorch.org/docs/stable/data.html).
+One GPU can still involve multiple processes through data loading, compilation,
+or tracking. Our baseline uses pre-tokenized local data and no worker processes.
+[PyTorch data loading](https://docs.pytorch.org/docs/stable/data.html).
 
 ### Choose a complete update as the pause point
 
-A training update is: compute predictions, compute the loss, run the backward pass, update weights, update the learning-rate schedule if applicable, and clear gradients. With gradient accumulation, several small batches contribute to one update. The checkpoint boundary should come after that whole update.
-
-```mermaid
-flowchart LR
-    A["Forward + backward"] --> B["Optimizer update"]
-    B --> C["Schedule + clear gradients"]
-    C --> D["Finish GPU work"]
-    D --> E["Record state and wait"]
+```text
+forward/backward → optimizer + schedule → clear gradients
+ → record completed count and next example → synchronize CUDA → ready and wait
 ```
 
-At the boundary, use an explicit readiness/release handshake, rather than a short sleep. The shell must see readiness; the training process must wait until restore is finished before proceeding. Drop references to temporary outputs where appropriate. A completed backward pass does not mean every allocated byte has been returned to the driver: PyTorch retains reusable memory in its caching allocator. Measure both allocated and reserved memory. [PyTorch 2.11 memory management](https://docs.pytorch.org/docs/2.11/notes/cuda.html#memory-management).
-
-This is **a cooperative pause point with transparent state capture**. It deliberately makes correctness easy to inspect. It does not establish that every arbitrary interruption point works.
+This cooperative boundary avoids partial gradients and makes restored state
+inspectable. It does not establish arbitrary-point suspension. Synchronization
+finishes queued GPU work; it does not empty PyTorch's reusable allocation cache.
+Measure both allocated and reserved VRAM.
+[CUDA memory management](https://docs.pytorch.org/docs/2.11/notes/cuda.html#memory-management).
 
 ## 2. Full fine-tuning, LoRA, and QLoRA
 
-**Full fine-tuning** changes the base model's weights. **LoRA** freezes those weights and learns small additional matrices, called adapters. The original model still participates in the computation and still occupies memory. [Hu et al., LoRA, 2021](https://arxiv.org/abs/2106.09685).
-
-**QLoRA** combines a low-bit representation of the frozen base model with trainable adapters. Its original design also introduced paged optimizers to handle memory pressure. Quantization and optimizer paging are distinct choices in an implementation. [Dettmers et al., QLoRA, 2023](https://arxiv.org/abs/2305.14314).
-
-| Method | What an application checkpoint can save | What a basic process snapshot must account for |
+| Method | What changes | Consequence for checkpointing |
 | --- | --- | --- |
-| Full fine-tuning | Updated model, optimizer, and other training state | The same learning state, plus the process and CUDA environment |
-| LoRA | Adapters and their optimizer state, other training state, and a reference to the fixed base model | The resident base model as well as adapters and process state |
-| QLoRA | Adapters, optimizer and other training state; exact base/quantization configuration | Quantized resident base, its metadata, adapters, runtime state, and any supported allocations |
+| Full fine-tuning | Base-model weights | Application saves include the large model and optimizer state. |
+| LoRA | Small adapter matrices; base stays frozen | Application saves can reference the fixed base; process images retain its resident state. |
+| QLoRA | Adapters over a quantized frozen base | Smaller base allocations, plus quantization metadata and optimizer compatibility checks. |
 
-PEFT's adapter export intentionally omits the base model. That is useful for a compact artifact, but an adapter export alone is not a full training-resume checkpoint: optimizer, schedule, data position, and random state need their own handling. [PEFT checkpoint format](https://huggingface.co/docs/peft/developer_guides/checkpoint).
+LoRA reduces trainable state, not the need to run the base model. QLoRA's low-bit
+weights and paged optimizer are separate choices.
+[LoRA paper](https://arxiv.org/abs/2106.09685),
+[QLoRA paper](https://arxiv.org/abs/2305.14314).
+An adapter export omits optimizer, schedule, data position, and RNG; it is not a
+complete training-resume checkpoint.
+[PEFT format](https://huggingface.co/docs/peft/developer_guides/checkpoint).
 
 ### The central tradeoff for LoRA
 
-Imagine an unchanged 7-billion-parameter base represented with two bytes per parameter. Its raw weights alone are approximately **14 GB**, before temporary memory or runtime overhead. Four bits per parameter would be approximately **3.5 GB**, before quantization metadata and higher-precision components. These are arithmetic illustrations, not observed memory use or model fit guarantees.
-
-An application knows that the base can be loaded again from a fixed model revision. A general snapshot mechanism sees live allocations; it cannot infer the same saving from `requires_grad=False` without additional support. Consequently, the portion we train may be small while the portion we snapshot remains large. **LoRA can make application checkpointing more attractive even while making the training job itself cheaper.** This is an analytical consequence of the different saved state, not a claim that snapshots always lose.
-
 ```mermaid
-flowchart TB
-    A["LoRA process in memory"] --> B["Large frozen base"]
-    A --> C["Small changing adapters + training state"]
-    B --> D["Full snapshot: preserve resident state"]
-    C --> D
-    C --> E["Application save: record changes + progress"]
-    F["Fixed base model on storage"] --> G["Application restart reloads base"]
-    E --> G
+flowchart LR
+    A[Resident base + adapters + training state] --> B[Process snapshot]
+    C[Adapters + training state] --> D[Application save]
+    D --> E[Reload fixed base on restart]
 ```
 
-For full fine-tuning, application checkpoints also become large because all model weights change and optimizer state grows. That narrows this particular size advantage. Actual pause and resume times still need measurement.
+For illustration, 7 billion parameters at two bytes each occupy 14 GB; four-bit
+weights occupy 3.5 GB before metadata and higher-precision components. These are
+arithmetic sizes, not measured memory or fit guarantees. A generic snapshot tool
+cannot infer that an allocation can be omitted just because `requires_grad=False`.
+LoRA therefore favors compact application saves; process restoration may still
+save expensive reconstruction. Full fine-tuning narrows this size difference.
 
 ## 3. Compatibility issues that matter first
 
 ### EC2 route and its qualification
 
-The implementation uses CRIU 4.2.1 at `9539417f3e3cfa4eb84c319cd71f4d52f1f08645` with its native CUDA plugin and pinned NVIDIA helper on EC2 A10G/driver 570.172.08. CPU, GPU tensor, and isolated LoRA restoration passed. The plugin alone owns CUDA transitions. Interrupted-system-call warnings remain recorded; preserved shared mapping addresses and flags do not independently prove driver-side sharing ownership. These are qualified same-host results, not replacement-host or spot recovery. See the [environment and evidence](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
+The tested EC2 A10G route uses CRIU's CUDA plugin as the sole owner of GPU
+lock/checkpoint/restore/unlock. Same-host CPU, tensor, and isolated LoRA restoration
+passed. Interrupted-system-call warnings and unresolved sharing ownership remain
+qualified; preserved mapping addresses/flags do not prove driver-side sharing.
+[Environment and evidence](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14),
+[plugin restore hook](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505).
 
 ### Historical DMTCP route on the L4 container
 
-DMTCP v4.2.0 introduced a native NVIDIA CUDA plugin in June 2026. The successful local lifecycle and numerical probe used maintenance commit `b175bb5ccadd2f02d11cf052f586d2d9ac62ad53` from September 7, 2026, which includes later CUDA helper-thread and PyTorch mapping fixes. The application must be launched through DMTCP; unlike CRIU, this is not external attachment to an arbitrary running process. [DMTCP release](https://github.com/dmtcp/dmtcp/releases/tag/v4.2.0), [pinned plugin](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp).
+DMTCP's native CUDA plugin requires launching the application through DMTCP. It
+is distinct from historical CRAC. The pinned maintenance revision restored a
+complete tensor process after original exit, but emitted four shared-memory
+warnings; no DMTCP LoRA or EC2 timing comparison was performed.
+[Release](https://github.com/dmtcp/dmtcp/releases/tag/v4.2.0),
+[pinned plugin](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda).
 
-The probe's process image restored after the original exited and passed tensor and subsequent GPU-operation checks. It also emitted four warnings for writable `/dev/zero (deleted)` shared mappings. DMTCP saves their bytes but restores them as private anonymous mappings, so an original sharing relationship can be lost. This matters only if the workload depends on that relationship, but its ownership has not yet been established. Treat the result as a successful lifecycle and data probe with unresolved compatibility, not an unqualified fine-tuning pass. [DMTCP shared-memory serialization](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/writeckpt.cpp#L479-L494).
-
-Kernel-backed anonymous mappings are a separate case. For example, an `io_uring` mapping depends on a kernel-managed asynchronous-I/O object; restoring its bytes does not recreate that object. The GPU probe did not contain such a mapping, but this warning should reject any later workload that does. [Pinned mapping diagnostics](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/plugin/ipc/file/fileconnlist.cpp#L451-L463).
-
-The maintenance branch contained the PyTorch `libgomp` mapping correction and the anonymous kernel-backed mapping diagnostic. Branch inclusion was checked separately from the status of the corresponding pull requests; a merged or closed badge is not the evidence that identifies the tested source. [DMTCP PR 1299](https://github.com/dmtcp/dmtcp/pull/1299), [DMTCP PR 1300](https://github.com/dmtcp/dmtcp/pull/1300).
-
-The tested runtime was PyTorch 2.11.0+cu130 on driver 595.58.03. System CUDA development files were 12.6, so the plugin build required isolated CUDA 13 runtime headers 13.0.96 and NVCC/CRT headers 13.0.88. This mismatch is a reproducibility constraint: `torch.version.cuda` and a Makefile version banner do not alone identify the headers used to compile a plugin.
+DMTCP stores `/dev/zero (deleted)` contents as private memory, potentially losing
+sharing. Separately, a kernel-backed mapping such as `io_uring` needs its kernel
+object, not just bytes; an unsupported required object blocks that workload.
+[Pinned serialization](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/writeckpt.cpp#L479-L494),
+[mapping diagnostics](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/plugin/ipc/file/fileconnlist.cpp#L451-L463).
+The CUDA runtime/header mismatch and tested revisions remain in the
+[historical results](../experiments/results.md).
 
 ### Paged optimizers are the most concrete QLoRA trap
 
-bitsandbytes documents paged optimizers as using CUDA unified memory, which lets memory be managed across the CPU and GPU. In audited version 0.49.2, its implementation calls `cudaMallocManaged` for sufficiently large paged buffers. The tested NVIDIA checkpoint revision lists UVM as unsupported. This creates a specific incompatibility to avoid in the first candidate experiment. [bitsandbytes optimizer explanation](https://huggingface.co/docs/bitsandbytes/explanations/optimizers), [version 0.49.2 optimizer path](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/bitsandbytes/optim/optimizer.py#L329-L337), [version 0.49.2 managed allocator](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/csrc/pythonInterface.cpp#L604-L610), [pinned NVIDIA limitations](https://github.com/NVIDIA/cuda-checkpoint/blob/00d5cce84c628088d6caa203fc4af40c1538b6f7/README.md).
+In bitsandbytes 0.49.2, sufficiently large paged optimizer buffers use
+`cudaMallocManaged`: memory managed across CPU and GPU, also called unified memory
+or UVM. The tested NVIDIA checkpoint revision excludes UVM. Inspect after Adam
+state is initialized; managed allocations can exist before visible paging, and
+small buffers may use the ordinary path.
+[Optimizer explanation](https://huggingface.co/docs/bitsandbytes/explanations/optimizers),
+[buffer selection](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/bitsandbytes/optim/optimizer.py#L329-L337),
+[allocator](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/csrc/pythonInterface.cpp#L604-L610),
+[pinned NVIDIA limits](https://github.com/NVIDIA/cuda-checkpoint/blob/00d5cce84c628088d6caa203fc4af40c1538b6f7/README.md).
 
-The code path is inspectable: `get_state_buffer()` chooses paged buffers when paging is enabled and a tensor meets its size threshold; the native allocator uses `cudaMallocManaged`. Smaller tensors can take the ordinary allocation path. Probe after optimizer state is initialized, not merely after loading the model. Managed allocation can exist before any visible paging under memory pressure.
-
-**Recommendation:** start with plain `torch.optim.AdamW` over the trainable adapter parameters. Later, add four-bit base weights while retaining a non-paged optimizer. A successful ordinary LoRA run does not prove bitsandbytes compatibility; a paged-optimizer failure does not prove all QLoRA is impossible.
+Start with ordinary AdamW; test four-bit weights with a non-paged optimizer
+separately. Ordinary LoRA success does not prove bitsandbytes compatibility, and a
+paged-optimizer failure does not exclude every QLoRA configuration.
 
 ### Other boundaries
 
-| Concern | First-experiment choice and reason |
-| --- | --- |
-| CUDA work still running | Wait at the completed update boundary. Driver checkpointing drains submitted work; it does not save a kernel halfway through execution. |
-| CPU keeps advancing | Hold an explicit release gate until the restored CUDA state is ready. CUDA suspension alone is not CPU process freezing. |
-| Host RAM | Leave room for the active CPU process plus staged GPU memory and checkpoint overhead; GPU fit alone is insufficient. |
-| Software and hardware | Restore on the same host and GPU with the same environment. Cross-host portability is a separate experiment. |
-| Compilation and optimized kernels | Start with eager execution; introduce compilation or additional kernel libraries one at a time after the baseline. |
-| External state | Keep data and logs local and controlled. Restoring memory cannot roll back an external upload or reset another service's clock. |
+Allow host RAM for staged GPU state as well as the CPU process. Keep CPU progress
+behind a release gate; CUDA suspension alone does not freeze Python. Start eager,
+without external services, because memory restore cannot undo external writes.
+These are experiment restrictions, not universal unsupported-feature claims.
+The pinned NVIDIA source lists exact IPC/driver limits; changing CPU capture tools
+does not add driver capabilities.
 
-The driver behavior above is described by NVIDIA; the experiment restrictions are our scope choices, not claims that all excluded features are fundamentally unsupported. The tested revision excludes specified IPC mechanisms, and legacy CUDA IPC support belongs to driver 610 rather than the installed 595 series. Changing the CPU capture tool does not add that driver capability. [Pinned NVIDIA feature and limitation list](https://github.com/NVIDIA/cuda-checkpoint/blob/00d5cce84c628088d6caa203fc4af40c1538b6f7/README.md).
-
-**“Gradient checkpointing” means something else.** It saves training memory by discarding selected intermediate results and recomputing them during the backward pass. It does not create a restartable process snapshot. We can add it later if memory pressure requires it. [PyTorch activation checkpointing](https://docs.pytorch.org/docs/stable/checkpoint.html).
+“Gradient checkpointing” instead discards intermediate activations and recomputes
+them during backward execution. It does not create a restartable process image.
+[PyTorch activation checkpointing](https://docs.pytorch.org/docs/stable/checkpoint.html).
 
 ## 4. Papers most relevant to this project
 
-These papers answer different questions. Training experiments establish more than a model-loading demo, but neither automatically establishes our precise LoRA or QLoRA configuration.
+The following measurements are author-reported for their stated environments;
+none validates our exact LoRA/QLoRA configuration.
 
 ### CRIUgpu — closest to our implementation path
 
-Stoyanov et al., February 2025, describe integrating vendor GPU capture with CRIU, including language-model training. Their single-H100 Llama 3.1 8B experiment reports **77.40 seconds to checkpoint, 38.83 seconds to restore, and a 55.89 GB unified snapshot**. The setup used an older driver and HDD storage; these figures are not predictions for our L4. The paper does not establish a tested LoRA/QLoRA recipe.
-
-Read its workflow, Table 2, and Table 4. Its practical lesson is that saving GPU state to host memory and writing a complete process snapshot are different costs. The implementation path leads to upstream CRIU's CUDA plugin, rather than a new fine-tuning framework. [CRIUgpu paper](https://arxiv.org/html/2502.16631v1), [upstream CUDA plugin](https://github.com/checkpoint-restore/criu/tree/criu-dev/plugins/cuda).
+Stoyanov et al., February 2025: integrate vendor GPU capture with CRIU. The
+single-H100 Llama 3.1 8B experiment reports **77.40 s capture, 38.83 s restore,
+55.89 GB image**, with an older driver and HDD storage. Tables 2/4 distinguish
+GPU-to-RAM staging from full snapshot I/O. These are not predictions for our A10G.
+[Paper](https://arxiv.org/html/2502.16631v1),
+[upstream plugin](https://github.com/checkpoint-restore/criu/tree/criu-dev/plugins/cuda).
 
 ### CRIU-LZ4 — direct fine-tuning evidence, with a useful negative result
 
-Stoyanov et al., EuroMLSys 2026, explicitly evaluate supervised fine-tuning on a single B200. Section 5.3 reports training snapshots shrinking by roughly **1.1–1.6×**, while checkpoint freeze time grows **2–3×** and restore time grows **1.5–1.7×**. Training state compresses less effectively than empty inference caches. The exact adapter/quantization recipe is not specified sufficiently to reproduce our proposed workload.
-
-This is a strong reason to measure compression rather than assume it helps. Current upstream `criu-dev` documentation includes LZ4 compression options; availability must be checked in the actual installed build. [CRIU-LZ4 paper, §5.3 and Figure 9](https://radostin.io/files/stoyanov-euromlsys-2026.pdf), [CRIU compression options](https://github.com/checkpoint-restore/criu/blob/criu-dev/Documentation/criu.txt).
+Stoyanov et al., EuroMLSys 2026, §5.3: B200 training images shrink **1.1–1.6×**,
+but freeze time grows **2–3×** and restore **1.5–1.7×**. Training state compresses
+less than empty inference caches; measure compression rather than assume a gain.
+The exact adapter/quantization recipe is insufficiently specified. Check compression
+support in the installed build.
+[Paper/Figure 9](https://radostin.io/files/stoyanov-euromlsys-2026.pdf),
+[CRIU options](https://github.com/checkpoint-restore/criu/blob/criu-dev/Documentation/criu.txt).
 
 ### GCR — the most useful performance paper to read next
 
-Zeng et al., FAST 2026, combine driver-managed control state with separately managed data copying. Their incremental design tracks modified memory, allowing unchanged buffers to be skipped. They report **72.1% lower checkpoint latency** against their NVIDIA baseline; the often-cited **86.6% size reduction concerns inference experiments**. Their implementation stores checkpoints in CPU memory, so these results are not durable disk-checkpoint timings.
-
-Read §§5, 6.1.3, and 6.2 together. The public artifact uses a tested two-A100 environment and specific framework versions. It is a research implementation, not evidence that our modern single-GPU LoRA stack works unchanged. [GCR paper](https://www.usenix.org/system/files/fast26-zeng.pdf), [FAST paper and artifact recognition](https://www.usenix.org/conference/fast26/presentation/zeng), [GCR source and evaluation](https://github.com/thustorage/GCR).
+Zeng et al., FAST 2026: separate driver control state from data copying and track
+modified memory to skip unchanged buffers. They report **72.1% lower checkpoint
+latency** against their NVIDIA baseline; **86.6% size reduction is an inference
+result**. Checkpoints remain in CPU memory, so these are not durable disk timings.
+The public artifact uses two A100s and specific frameworks.
+[Paper §§5/6](https://www.usenix.org/system/files/fast26-zeng.pdf),
+[artifact recognition](https://www.usenix.org/conference/fast26/presentation/zeng),
+[source](https://github.com/thustorage/GCR).
 
 ### PhoenixOS — copying while execution continues
 
-Wei et al., SOSP 2025, study overlapping checkpoint/restore with application execution. Their system infers which memory operations matter and validates those inferences. The public Apache-2.0 repository explicitly supports single-GPU checkpoint/restore and describes substantial build machinery and ongoing development.
-
-This is relevant once stopping to copy memory becomes the measured problem. It would add considerable systems work to our first demo. [PhoenixOS paper, September 2025 revision](https://arxiv.org/html/2405.12079v4), [PhoenixOS source and support notes](https://github.com/SJTU-IPADS/PhoenixOS).
+Wei et al., SOSP 2025: overlap checkpoint/restore with execution using validated
+inferences about memory operations. Public Apache-2.0 code supports single-GPU
+capture, with substantial build machinery and ongoing development. Relevant if
+copying becomes the measured bottleneck; not a small drop-in optimization.
+[Paper](https://arxiv.org/html/2405.12079v4),
+[source/support notes](https://github.com/SJTU-IPADS/PhoenixOS).
 
 ### Singularity — why a cloud provider builds this
 
-Shukla et al., Microsoft, February 2022, present a scheduling service that makes deep-learning jobs preemptible, migratable, and resizable through a device-proxy architecture. It connects checkpoint mechanisms to better fleet utilization and reliability.
-
-It helps explain how snapshotting can support GPU scheduling. The publication is not a downloadable, supported single-GPU fine-tuning package. Its 2022 description also does not establish the exact current scope of an Azure product. [Microsoft Research publication](https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/), [Singularity paper](https://arxiv.org/abs/2202.07848).
+Shukla et al., Microsoft, 2022: a device-proxy architecture supports training
+preemption, migration, and resizing for fleet scheduling. This is systems precedent,
+not evidence of a currently purchasable snapshot library.
+[Publication](https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/),
+[paper](https://arxiv.org/abs/2202.07848).
 
 ### CRAC — evidence that driver limitations are not universal laws
 
-Jain and Cooperman, SC 2020, describe a DMTCP-based design supporting CUDA streams and unified memory. It uses a different architecture from NVIDIA's driver-native utility. The public early-development repository warns of incomplete portability work. It is historical context, not a low-effort fix for today's QLoRA UVM restriction. [CRAC paper](https://arxiv.org/abs/2008.10596), [CRAC source and caveats](https://github.com/DMTCP-CRAC/CRAC-early-development).
-
-The original **LoRA** and **QLoRA** papers explain how training state becomes smaller; they do not claim transparent CPU/GPU process restoration. Keep those research questions separate. [LoRA](https://arxiv.org/abs/2106.09685), [QLoRA](https://arxiv.org/abs/2305.14314).
+Jain and Cooperman, SC 2020: a different DMTCP architecture supports CUDA streams
+and unified memory. Its early repository warns of incomplete portability work;
+it is historical context, not an easy fix for today's UVM restriction.
+[Paper](https://arxiv.org/abs/2008.10596),
+[source caveats](https://github.com/DMTCP-CRAC/CRAC-early-development).
 
 ## 5. Open-source tools and frameworks
 
-There are two layers to choose: the code that trains the model, and the code that captures the running process. A training framework with a `resume` option does not thereby preserve a CUDA process.
+Process tools capture execution; training frameworks explicitly rebuild it.
+A `resume` option alone does not preserve a CUDA process.
 
-| Tool | What it provides | Fit for this POC |
-| --- | --- | --- |
-| [cuda-checkpoint + CRIU CUDA plugin](https://www.criu.org/GPU_Checkpointing) | Supported GPU state capture combined with Linux process capture. The CLI/plugin are public; GPU internals remain in NVIDIA's driver. | **Implemented EC2 route:** isolated LoRA continuation and timings pass with qualified compatibility. The earlier container permission blocker is historical. |
-| [DMTCP native CUDA plugin, pinned maintenance revision](https://github.com/dmtcp/dmtcp/tree/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda) | NVIDIA driver checkpointing plus DMTCP process images; launch the application through DMTCP. Distinct from historical CRAC. | **Historical L4 route:** CPU/GPU tensor restoration observed with unresolved sharing qualifications. No DMTCP LoRA validation or EC2 timing comparison. |
-| [Transformers + PEFT](https://huggingface.co/docs/peft/developer_guides/checkpoint) | Pretrained models, adapters, and explicit model/adaptor saving. | **First choice for a readable training loop.** |
-| [TRL SFTTrainer](https://huggingface.co/docs/trl/sft_trainer) | A supervised fine-tuning trainer built on Transformers Trainer, including training resume. | Add after the explicit loop, to check a common framework path. |
-| [Accelerate](https://huggingface.co/docs/accelerate/usage_guides/checkpoint) | Application-state save/load and registration of custom state. | Useful reference or implementation for the application baseline. |
-| [torchtune](https://meta-pytorch.org/torchtune/stable/deep_dives/checkpointer.html) | Full and LoRA fine-tuning recipes with model and recipe-state checkpoints. | Another application-level comparator; the cited 0.6 guide describes epoch-end intermediate saves. |
-| [GCR](https://github.com/thustorage/GCR) / [PhoenixOS](https://github.com/SJTU-IPADS/PhoenixOS) | Public research implementations of more advanced GPU capture. | Read and reproduce later if measured pause costs justify the effort. |
-| [Cedana daemon](https://github.com/cedana/cedana) | AGPL-3.0 orchestration around checkpoint/restore. | Its GPU options include the community CUDA plugin and a separately proprietary Cedana plugin; do not treat the whole stack as open source. |
+| Tool | Relevant role |
+| --- | --- |
+| CRIU + NVIDIA helper | Implemented process route; constraints in §3 |
+| DMTCP CUDA plugin | Historical alternative requiring DMTCP launch |
+| [Transformers + PEFT](https://huggingface.co/docs/peft/developer_guides/checkpoint) | Current explicit training loop and adapters |
+| [TRL SFTTrainer](https://huggingface.co/docs/trl/sft_trainer) | Future common-framework comparison |
+| [Accelerate](https://huggingface.co/docs/accelerate/usage_guides/checkpoint) | Application-state save/load; custom-state registration |
+| [torchtune 0.6](https://meta-pytorch.org/torchtune/stable/deep_dives/checkpointer.html) | Model/recipe-state checkpoints; cited guide uses epoch-end saves |
+| GCR / PhoenixOS | Research optimization paths, discussed above |
+| [Cedana daemon](https://github.com/cedana/cedana) | AGPL-3.0 orchestration; its separate proprietary GPU plugin is not open source |
 
-TRL's resume interface restores model, optimizer, and scheduler state from a Trainer checkpoint. In Transformers, `save_only_model=True` omits state needed for full training resume. Compare against a proper training checkpoint, not merely `save_pretrained()` or a final adapter export. [TRL resume API](https://huggingface.co/docs/trl/sft_trainer#trl.SFTTrainer.train), [Transformers training arguments](https://huggingface.co/docs/transformers/main/en/main_classes/trainer).
-
-Code worth opening while implementing: [PEFT adapter serialization](https://github.com/huggingface/peft/blob/main/src/peft/utils/save_and_load.py), [TRL trainer](https://github.com/huggingface/trl/blob/main/trl/trainer/sft_trainer.py), and the [CRIU CUDA plugin](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c). Check out fixed revisions before reproducing an experiment; these links follow moving development branches.
+Use complete framework training checkpoints: Transformers `save_only_model=True`
+omits resume state. Pin revisions before reproduction; development links move.
+[Trainer arguments](https://huggingface.co/docs/transformers/main/en/main_classes/trainer),
+[PEFT serialization](https://github.com/huggingface/peft/blob/main/src/peft/utils/save_and_load.py),
+[TRL source](https://github.com/huggingface/trl/blob/main/trl/trainer/sft_trainer.py).
 
 ## 6. Companies already doing related work
 
-“No company implements this” is incorrect. The narrower question is which product documents the ability to resume our kind of training, under which constraints. Documentation is evidence of an offered capability; it is not independent validation of every supported workload or a count of production customers.
+These dated vendor claims establish related offerings, not our workload's
+correctness or production adoption.
 
-| Company / offering | Public evidence | Relevance to single-GPU fine-tuning |
-| --- | --- | --- |
-| **MemVerge** | GPU Cluster Manager documents pausing/resuming training workspaces. Memory Machine Batch documents single-GPU restore on the same GPU model and full GPU backups. [Workspace guide](https://docs.memverge.com/AI/GPU_Cluster_Manager/0.4.0/quickstart_guide/checkpoint-restore/), [Batch requirements](https://docs.memverge.com/MMBatch/latest/User%20Guide/Getting%20Started/prerequisites/) | One of the closest commercial use cases. The workspace quickstart contains a placeholder for training code, so it is not a reproducible LoRA correctness benchmark. |
-| **Cedana** | General GPU save/migrate/resume, with public usage documentation. A vendor benchmark includes training on an L4. [GPU guide](https://docs.cedana.ai/daemon/checkpoint-restore/cr-1), [vendor performance article](https://docs.cedana.ai/articles/performance-of-cedanas-gpu-interception) | Relevant commercial implementation. Proprietary GPU plugin requires access. The cited compatibility table stops at driver 570, so confirm newer-driver support before considering it for the current 595.58.03 host. |
-| **Modal** | GPU Memory Snapshots are documented as **alpha**, capturing initialized state before function execution. [Memory Snapshots](https://modal.com/docs/guide/memory-snapshots) | Strong evidence for GPU startup snapshots; the documented lifecycle is not an arbitrary mid-training save API. Modal explicitly warns that weight-loading-bound startup may not improve. |
-| **Google Cloud GKE** | Pod snapshots capture GPU state using `cuda-checkpoint`, with gVisor for the sandbox. Docs updated September 9, 2026 list single-GPU support and specific L4/A100/H100 machine types. [GKE Pod snapshots](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots) | Real managed GPU snapshot support. The documented motivation is fast initialization. Restore needs matching hardware/software and changes external network connections; exact training continuation still requires workload validation. |
-| **NVIDIA Dynamo** | Snapshot infrastructure combines CRIU and `cuda-checkpoint` to start initialized inference workers; snapshot-agent remains marked **preview**. [Snapshot guide](https://docs.nvidia.com/dynamo/v1.0.2/kubernetes-deployment/deployment-guide/snapshot), [current artifact status](https://docs.dynamo.nvidia.com/dynamo/dev/reference/release-artifacts) | Useful implementation reference for a future platform. The documented supported workers are inference workers, not a fine-tuning trainer. |
-| **Beam** | `checkpoint_enabled=True` snapshots a container after `on_start`, including GPU initialization. [Cold-start documentation](https://docs.beam.cloud/v2/topics/cold-start) | A shipped startup feature with a defined lifecycle. It does not establish saving arbitrary training progress. |
-| **Cerebrium** | July 1, 2026 engineering article describes CPU/GPU snapshots of warmed containers. [Engineering article](https://cerebrium.ai/blog/reducing-gpu-cold-starts-with-memory-snapshots-restoring-cuda-workloads-in-second) | Another commercial cold-start implementation. Its published performance evidence concerns serving workloads. |
-| **Microsoft Singularity** | Microsoft describes transparent training preemption and migration in its 2022 research publication. [Microsoft Research](https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/) | Strong systems precedent; public evidence here is a research/service description, not a currently purchasable standalone snapshot library. |
+| Offering | Documented scope and limit |
+| --- | --- |
+| [MemVerge](https://docs.memverge.com/AI/GPU_Cluster_Manager/0.4.0/quickstart_guide/checkpoint-restore/) | Training workspace pause/resume; quickstart leaves training code as a placeholder. [Batch requirements](https://docs.memverge.com/MMBatch/latest/User%20Guide/Getting%20Started/prerequisites/) specify single-GPU, same-model restore/full GPU backups. |
+| [Cedana](https://docs.cedana.ai/daemon/checkpoint-restore/cr-1) | GPU save/migrate/resume and a [vendor L4 training benchmark](https://docs.cedana.ai/articles/performance-of-cedanas-gpu-interception). Proprietary GPU option requires access; cited compatibility table stops at driver 570. |
+| [Modal](https://modal.com/docs/guide/memory-snapshots) | GPU snapshots were alpha, capturing initialized state before function execution. Not an arbitrary mid-training API; weight-loading-bound startup may not improve. |
+| [Google GKE](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots) | September 9, 2026 docs: single-GPU initialization snapshots using NVIDIA/gVisor, specified L4/A100/H100 types, matching hardware/software; external connections change. |
+| [NVIDIA Dynamo](https://docs.nvidia.com/dynamo/v1.0.2/kubernetes-deployment/deployment-guide/snapshot) | CRIU/NVIDIA snapshots for initialized inference workers; snapshot-agent marked [preview](https://docs.dynamo.nvidia.com/dynamo/dev/reference/release-artifacts) when checked. |
+| [Beam](https://docs.beam.cloud/v2/topics/cold-start) | `checkpoint_enabled=True` captures after `on_start`, including GPU initialization. |
+| [Cerebrium](https://cerebrium.ai/blog/reducing-gpu-cold-starts-with-memory-snapshots-restoring-cuda-workloads-in-second) | July 1, 2026 engineering article: warmed-container CPU/GPU snapshots for serving. |
+| Microsoft Singularity | Training preemption/migration research service; see §4. |
 
-NVIDIA Run:ai also documents preemptible training using application checkpoints saved periodically or around interruption. That shows the alternative a transparent snapshot competes with; it does not establish the absence of other Run:ai mechanisms. [Run:ai training checkpoint guidance](https://run-ai-docs.nvidia.com/self-hosted/workloads-in-nvidia-run-ai/using-training/checkpointing-preemptible-workloads).
+[Run:ai](https://run-ai-docs.nvidia.com/self-hosted/workloads-in-nvidia-run-ai/using-training/checkpointing-preemptible-workloads)
+also documents preemptible training with application checkpoints—the baseline
+transparent snapshots must compete with.
 
 ### Why startup snapshots can be an easier product
 
-An initialized inference image can serve as a template for many future workers. The expensive snapshot creation is paid once and reused. Each useful training checkpoint represents new learning; repeated saves contain new state, and many will never need restoration. This is an economic difference, even when both features share underlying technology.
-
-Startup also gives a controlled capture point. Arbitrary training suspension has to handle the current data position, pending updates, attached services, and library behavior. Inference engines can sometimes discard empty caches before saving; optimizer history cannot simply be discarded while claiming exact training continuation. These are reasons to offer constrained products and explicit support matrices, rather than a universal promise.
+An initialized inference image can start many workers, amortizing one capture.
+Training checkpoints contain new progress and must be saved repeatedly; many are
+never restored. Startup also offers a controlled boundary. Exact training resume
+must preserve data position and optimizer history, which cannot simply be dropped.
 
 ## 7. Implemented bounded fine-tuning experiment
 
-The implementation uses ordinary LoRA on Qwen2.5-0.5B, one GPU, one training process, and a default save after update 2 of 4. A separate trial captures after updates 2 and 3. The [implementation plan](../docs/implementation-plan.md) defines the complete state contract and acceptance gates; this section summarizes the final workload. Its published base model has approximately 0.49 billion parameters, keeping the question focused on restoration rather than GPU capacity or model quality. [Qwen model card](https://huggingface.co/Qwen/Qwen2.5-0.5B).
-
 ### Validated configuration
 
-| Choice | Implemented baseline |
-| --- | --- |
-| Training code | Small explicit PyTorch loop using Transformers and PEFT |
-| Model | Fixed revision of `Qwen/Qwen2.5-0.5B`; downloaded before the experiment |
-| Method | LoRA rank 8, explicit query/value projection targets, no additional trainable base modules |
-| Precision | FP32 for this small correctness baseline; BF16 is a later controlled change |
-| Optimizer | Non-paged `torch.optim.AdamW`, trainable parameters only |
-| Data | Small fixed local set of prompt/answer examples, tokenized before launch; record its hash and batch order |
-| Work per update | Batch size 1, short fixed sequence length, initially no gradient accumulation |
-| Execution | Eager attention, no `torch.compile`, no extra kernel packages, no remote tracking |
-| Boundary | After update 2: complete optimizer/schedule steps, clear gradients, synchronize GPU work, record state, publish readiness, wait for release |
-| Comparison | Finish at update 4; same host, GPU, model revision, data and package versions |
-
-LoRA target selection is explicit to make the trainable state easy to inspect, not a recommendation for best model quality. PEFT documents the relevant configuration and parameter counting. [PEFT LoRA reference](https://huggingface.co/docs/peft/package_reference/lora).
-
-Approximately 0.49 billion FP32 parameters occupy about **1.96 GB** before activations, allocator cache, and runtime overhead. The instantiated rank-8 query/value adapters have **540,672 trainable parameters**: roughly 2.16 MB of FP32 weights and 4.33 MB for Adam's two moment tensors. The isolated EC2 timing trials peaked at **1.971 GiB allocated** and **2.088 GiB reserved VRAM** on the A10G with 23,028 MiB total. Host RAM was about 30 GiB; PEFT 0.18.1 was installed in the locked virtualenv. These measurements supersede the earlier L4/container capacity assumptions for this workload. [Qwen configuration](https://huggingface.co/Qwen/Qwen2.5-0.5B/raw/main/config.json), [measured footprint](../experiments/results.md#footprint-environment-and-limits).
+Qwen2.5-0.5B, FP32 rank-8 LoRA, non-paged AdamW, batch 1, at most 128 tokens,
+four updates, capture after two. A repeated trial also captures after three.
+[Full workload contract](../docs/implementation-plan.md#1-chosen-workload).
 
 ### Three runs answer three different questions
 
-1. **Uninterrupted reference:** establish two matching runs from the chosen initial state through update 4, with state recorded at each update.
-2. **Application restart:** train to update 2, save adapters plus complete training state, terminate the process, rebuild from the fixed base and saved state, then perform updates 3–4.
-3. **Whole-process restore:** train to update 2, capture CPU and GPU state, verify the original process has exited, restore it, then perform updates 3–4. Application checkpoint files must not be its restore input.
-
-Use exactly the same training loop for all three runs. Keep the base model cached on disk for both restore paths so a network download does not manufacture an apparent snapshot advantage. Any diagnostic tensor copies used for validation belong outside the measured checkpoint interval and should not inflate the captured process accidentally.
-
-Both dropout zero and 0.1 passed. The stochastic case explicitly entered training mode and verified execution of all 48 LoRA dropout modules on CUDA, plus advancement of the used CUDA random generator on each update. Effective training modes, adapter activation, trainable flags, and dropout settings were compared before any post-restore repair. Matching random-state hashes alone would not exercise stochastic continuation. Two uninterrupted references matched for each configuration. [Recorded stochastic evidence](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
+Two uninterrupted references establish repeatability. Application restart saves
+explicit training state and rebuilds the trainer. CRIU restores the process image
+after verified original exit. All use the same loop and cached base assets;
+application saves cannot feed the CRIU route.
 
 ### What counts as success
 
-Before the next update after restore, require exact equality of adapter tensors, optimizer tensors, update count, next batch position, and used random-generator states with the corresponding pre-save values. Verify the fixed base and configuration too. Then compare updates 3–4 with the uninterrupted reference, including losses and trainable state. A decreasing loss alone is insufficient.
-
-For deterministic execution in the same environment, target exact continuation. If a numerical tolerance is necessary, retain values, choose the tolerance in advance, and explain the source of variation. Hashes prove equality, but cannot measure how close unequal tensors are.
-
-Also establish that the GPU is available after verified original-process exit and can be used by a separate tiny disposable workload. An earlier disappearance from monitoring can be temporary. GPU-only suspend/resume is a useful intermediate check, but the final claim requires the original CPU process to exit and the saved process image to be restored.
+Exact named state before the next update, then matching losses and updates.
+Include frozen-base identity, Adam, schedule, cursor, RNG, modes, and adapters.
+For dropout 0.1, prove actual CUDA dropout execution and generator advancement;
+inspect restored behavior before changing it. Verify post-exit GPU availability
+with an independent job B. [Acceptance gates](../docs/implementation-plan.md#4-experiment-sequence-and-gates).
 
 ### What the repository has established
 
-The [experiment record](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14) establishes exact four-update LoRA continuation on EC2 A10G/driver **570.172.08**, including optimizer state, randomness, data position, and repeated restoration. A normal warm CRIU diagnostic trial took **62.33–62.49 s**, and two captures took **104.11 s**, meeting the 2–3-minute development-trial target. Numerical/lifecycle acceptance passed; sharing ownership and retained interrupted-system-call warnings still qualify compatibility. The earlier L4/driver 595.58.03 probes remain separate historical evidence.
-
-Each integration must have one owner for CUDA restoration. CRIU's CUDA plugin restores and unlocks CUDA itself; unconditional manual restore/unlock afterward can encounter an already-running process. [Upstream restore hook](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505).
+Ordinary LoRA continuation, application restart, active dropout, and repeated
+CRIU restoration passed on EC2 A10G/driver 570.172.08. Sharing qualifications
+remain. See [dated results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14)
+for image sizes, timings, and memory; earlier L4 results are separate evidence.
 
 ### Add one source of complexity at a time
 
-| Stage | What it teaches | Effort judgment |
-| --- | --- | --- |
-| Existing tensor process | Whether the tested host can restore a complete PyTorch CUDA process | Completed; EC2 CRIU and historical L4 DMTCP evidence are separate |
-| Small ordinary LoRA | Whether real pretrained-model training continues correctly | Completed on EC2 with qualified compatibility |
-| BF16, then four-bit base with non-paged optimizer | Precision and quantization compatibility, separately | Bounded follow-ups |
-| TRL SFTTrainer | Behavior in a common training framework | Useful once the explicit loop works |
-| Larger model or full fine-tuning | How state size changes the comparison | Only after correctness and headroom are established |
-| Compression or incremental capture | Whether a measured bottleneck can be reduced | Separate optimization work; incremental capture is substantially more involved |
-
-These are relative effort judgments, not delivery estimates. Kernel permissions and driver/library interactions can dominate setup time. A reproducible blocker is a valid feasibility finding, but it is not a successful restore demonstration.
+Possible follow-ups: BF16, then four-bit weights with a non-paged optimizer;
+TRL; larger/full fine-tuning; compression or incremental capture. Each needs its
+own compatibility and continuation checks. These are options, not delivery estimates.
 
 ## 8. Measure the return, not just the snapshot
 
-Record separate timestamps for **completed image**, **verified original-process exit**, **GPU availability observed after exit**, **filesystem sync**, and **the next completed optimizer update after restore**, relative to the relevant capture/restore request. Preserve GPU polling uncertainty and keep job B separate from headline timing. The implementation also converts restored trainer timestamps from CRIU's time namespace before comparing them with the controller clock. If the image has not been flushed or copied to storage that survives the relevant failure, do not call it durable. A fast in-memory snapshot solves a different failure case from a checkpoint on independent storage.
-
-Also record image size, host-memory peak, GPU allocated/reserved memory at the boundary, uninterrupted step time, and any failures. For a later timing comparison, repeat a few times under the same cache and storage conditions and report the spread. Do not infer an L4 result from an H100 or B200 paper.
-
-For a planned pause, both methods can stop after the same update, so neither needs to redo useful work. Compare the combined save and restart costs, plus the engineering cost of preserving the whole process. For an unexpected failure, only an already-saved checkpoint helps; one cannot capture a dead GPU after the event.
-
-An illustrative event-cost comparison is:
+Use equal completion/storage criteria for both routes. Separate image completion,
+original exit, post-exit GPU availability, filesystem sync, and the next update;
+include clock-offset correction and repeat timings under stated cache conditions.
+The [measurement contract](../docs/implementation-plan.md#task-6-measure-and-report)
+specifies details. An in-RAM image solves a different failure case from independent
+storage; a hash alone does not establish persistence.
 
 ```text
-Process snapshot cost = save time + restore-to-next-update time
-Application restart cost = save time + rebuild-to-next-update time + work repeated
+Process cost     = save + restore-to-next-update + work repeated
+Application cost = save + rebuild-to-next-update + work repeated
 ```
 
-The terms must use the same completion and storage criteria. Periodic save overhead also matters even when no failure happens. If failures are equally likely throughout a checkpoint interval, average lost work is roughly half that interval; this is a simplifying assumption, not a guarantee.
+At the same cooperative boundary, neither repeats completed work. After unexpected
+failure, only an already-saved checkpoint helps. Periodic-save overhead also
+matters; with uniformly distributed failures, expected lost work is approximately
+half the save interval. That is an assumption, not a measured customer outcome.
 
-**Choose an application checkpoint when** training state is explicit, adapter saves are small, startup is tolerable, and portability matters. **Choose a process snapshot when** preserving a complex live environment or avoiding expensive reconstruction is worth its state-transfer cost and tighter compatibility requirements. Often the practical design uses process snapshots for planned pause/resume and keeps application checkpoints as a separate recovery/export path.
-
-The measured result is narrow: **one tested single-GPU LoRA process restored and matched its subsequent updates, with compatibility qualifications.** CRIU resumed faster here but needed about 3.70 GB of saved state versus 6.71 MB for the application checkpoint, and capture/sync took substantially longer. This does not establish a general speed advantage or recovery after host loss.
+Prefer application saves when small state, portable artifacts, and tolerable
+startup suffice. Process snapshots are useful when avoided reconstruction or
+preserved execution state justifies larger transfers and tighter compatibility.
+The measured LoRA snapshot restored faster but captured much more data; this is
+not a general speed advantage or a host-loss recovery result.
 
 ## 9. Remaining uncertainties
 
-Public evidence supports the feasibility of GPU-aware training checkpoint/restore and several commercial uses. The local EC2 experiment measures continuation and cost for one isolated ordinary-LoRA configuration, while the historical DMTCP probe remains qualified tensor evidence. Neither establishes universal compatibility. The B200 fine-tuning paper does not provide a sufficiently explicit LoRA/QLoRA configuration; Cedana's cited driver table needs current confirmation; hosted startup features do not establish an arbitrary mid-training API.
+Open questions: sharing ownership, replacement-host compatibility, storage survival,
+real warning-triggered recovery, other precision/quantization modes, and inference
+startup. NVIDIA's 595.91.07 release notes include a restore-related device-information
+fix; migration must be tested independently of same-host success.
+[API requirements](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html),
+[release notes](https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-595-91-07/index.html#fixed-issues).
 
-Migration is a separate gate from same-host restoration. NVIDIA's 595.91.07 release notes contain a restore-related device-information fix. That makes replacement-host compatibility something to validate explicitly; it is not evidence that the successful same-host experiment on 595.58.03 failed. [CUDA checkpoint API](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html), [595.91.07 fixed issues](https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-595-91-07/index.html#fixed-issues).
-
-The isolated PEFT stack, measured memory headroom, matching uninterrupted references, application/process comparison, and repeated checkpoint cycles are complete for the EC2 workload. Remaining checks include shared-memory ownership, replacement-host compatibility, storage survival, and real interruption handling. QLoRA, other precision modes, larger workloads, and inference cold-start comparisons remain untested.
-
-Avoiding repeated capture of an unchanged base model is a possible later optimization motivated by the measured image size. Proving that safely requires more than ignoring tensors marked frozen, because the snapshot layer must still restore addresses and resource relationships correctly.
+Skipping unchanged base weights is a possible optimization, but must preserve
+addresses and resource relationships; ignoring tensors marked frozen is insufficient.
+The [independent lifecycle plan](../docs/independent-lifecycle-plan.md) is proposed,
+not yet implemented AWS recovery.
 
 ## Sources and reading order
 
-Research and product sources were consulted on September 13, 2026; DMTCP, NVIDIA, PyTorch, and bitsandbytes feasibility sources were checked on September 14, 2026. “Living documentation” means no stable publication date was established; pin a release or commit before reproducing an implementation. Performance numbers above are author-reported and tied to the stated experiment.
+<a id="start-with-these-papers"></a>
+<a id="implementation-references"></a>
+<a id="product-evidence"></a>
 
-### Start with these papers
-
-1. Stoyanov et al. **CRIUgpu: Transparent Checkpointing of GPU-Accelerated Workloads.** arXiv v1, February 23, 2025. [Paper](https://arxiv.org/html/2502.16631v1). Closest architecture and training measurements.
-2. Zeng et al. **GPU Checkpoint/Restore Made Fast and Lightweight.** FAST, February 24–26, 2026. [Paper](https://www.usenix.org/system/files/fast26-zeng.pdf), [artifact](https://github.com/thustorage/GCR). Separate CPU-memory results and inference increments from durable training saves.
-3. Stoyanov et al. **Towards On-the-Fly Snapshot Memory Compression for Low-Latency Elastic Inference Serving Systems.** EuroMLSys, April 27–30, 2026. [Paper](https://radostin.io/files/stoyanov-euromlsys-2026.pdf). Section 5.3 supplies the training counterexample to compression optimism.
-4. Wei et al. **PhoenixOS: Concurrent OS-level GPU Checkpoint and Restore with Validated Speculation.** SOSP 2025; cited arXiv revision September 1, 2025. [Paper](https://arxiv.org/html/2405.12079v4), [code](https://github.com/SJTU-IPADS/PhoenixOS).
-5. Shukla et al. **Singularity: Planet-Scale, Preemptive and Elastic Scheduling of AI Workloads.** Microsoft, February 2022. [Paper](https://arxiv.org/abs/2202.07848), [publisher page](https://www.microsoft.com/en-us/research/publication/singularity-planet-scale-preemptive-and-elastic-scheduling-of-ai-workloads/).
-6. Jain and Cooperman. **CRAC: Checkpoint-Restart Architecture for CUDA with Streams and UVM.** SC 2020. [Paper](https://arxiv.org/abs/2008.10596), [early code](https://github.com/DMTCP-CRAC/CRAC-early-development).
-7. Hu et al. **LoRA: Low-Rank Adaptation of Large Language Models.** arXiv, June 2021. [Paper](https://arxiv.org/abs/2106.09685).
-8. Dettmers et al. **QLoRA: Efficient Finetuning of Quantized LLMs.** arXiv, May 2023. [Paper](https://arxiv.org/abs/2305.14314).
-
-### Implementation references
-
-- NVIDIA. **cuda-checkpoint**, [README at tested revision `00d5cce`](https://github.com/NVIDIA/cuda-checkpoint/blob/00d5cce84c628088d6caa203fc4af40c1538b6f7/README.md); [current API requirements](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html); [595.91.07 fixed issues](https://docs.nvidia.com/datacenter/tesla/tesla-release-notes-595-91-07/index.html#fixed-issues), August 3, 2026.
-- DMTCP maintainers. [PR 1299](https://github.com/dmtcp/dmtcp/pull/1299) and [PR 1300](https://github.com/dmtcp/dmtcp/pull/1300), September 2026; branch inclusion was checked separately from pull-request status.
-- CRIU maintainers. **GPU Checkpointing**, CUDA plugin, and current command documentation. [Guide](https://www.criu.org/GPU_Checkpointing), [plugin](https://github.com/checkpoint-restore/criu/tree/criu-dev/plugins/cuda), [CLI and compression options](https://github.com/checkpoint-restore/criu/blob/criu-dev/Documentation/criu.txt).
-- Hugging Face / bitsandbytes maintainers. **Paged optimizers** and audited version 0.49.2 allocation implementation. [Explanation](https://huggingface.co/docs/bitsandbytes/explanations/optimizers), [optimizer path](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/bitsandbytes/optim/optimizer.py#L329-L337), [managed allocator](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/0.49.2/csrc/pythonInterface.cpp#L604-L610).
-- Hugging Face. **PEFT checkpoint format and LoRA reference**, living documentation. [Format](https://huggingface.co/docs/peft/developer_guides/checkpoint), [LoRA](https://huggingface.co/docs/peft/package_reference/lora).
-- Hugging Face. **Transformers Trainer, TRL SFTTrainer, and Accelerate checkpointing**, living documentation. [Trainer](https://huggingface.co/docs/transformers/main/en/main_classes/trainer), [SFTTrainer](https://huggingface.co/docs/trl/sft_trainer), [Accelerate](https://huggingface.co/docs/accelerate/usage_guides/checkpoint).
-- PyTorch / Meta. **Checkpointing in torchtune**, cited stable documentation version 0.6. [Guide](https://meta-pytorch.org/torchtune/stable/deep_dives/checkpointer.html).
-- PyTorch contributors. **CUDA memory management and reproducibility**, version 2.11. [CUDA](https://docs.pytorch.org/docs/2.11/notes/cuda.html#memory-management), [reproducibility](https://docs.pytorch.org/docs/2.11/notes/randomness.html). Also [data loading](https://docs.pytorch.org/docs/stable/data.html) and [activation checkpointing](https://docs.pytorch.org/docs/stable/checkpoint.html), living documentation.
-- Qwen Team. **Qwen2.5-0.5B model card**, model family released September 2024. [Model](https://huggingface.co/Qwen/Qwen2.5-0.5B).
-
-### Product evidence
-
-- MemVerge. **Working with Snapshots**, GPU Cluster Manager 0.4.0, and **Memory Machine Batch prerequisites**, living documentation. [Training workspace](https://docs.memverge.com/AI/GPU_Cluster_Manager/0.4.0/quickstart_guide/checkpoint-restore/), [Batch limits](https://docs.memverge.com/MMBatch/latest/User%20Guide/Getting%20Started/prerequisites/).
-- Cedana. **Checkpoint/restore with GPUs**, **Performance of Cedana's GPU Interception**, and daemon source, living documentation. [GPU support](https://docs.cedana.ai/daemon/checkpoint-restore/cr-1), [performance](https://docs.cedana.ai/articles/performance-of-cedanas-gpu-interception), [source](https://github.com/cedana/cedana).
-- Modal. **Memory Snapshots**, living documentation; GPU feature marked alpha at access. [Guide](https://modal.com/docs/guide/memory-snapshots).
-- Google Cloud. **About GKE Pod snapshots**, updated September 9, 2026. [Guide](https://docs.cloud.google.com/kubernetes-engine/docs/concepts/pod-snapshots).
-- NVIDIA Dynamo. **Snapshot**, cited version 1.0.2 guide, and current **Release Artifacts**. [Guide](https://docs.nvidia.com/dynamo/v1.0.2/kubernetes-deployment/deployment-guide/snapshot), [status](https://docs.dynamo.nvidia.com/dynamo/dev/reference/release-artifacts).
-- Beam. **Cold Start Performance**, living documentation. [Guide](https://docs.beam.cloud/v2/topics/cold-start).
-- Hamdulay, Yaseen / Cerebrium. **Reducing GPU Cold Starts with Memory Snapshots: Restoring CUDA Workloads in Seconds.** July 1, 2026. [Article](https://cerebrium.ai/blog/reducing-gpu-cold-starts-with-memory-snapshots-restoring-cuda-workloads-in-second).
-- NVIDIA Run:ai. **Checkpointing Preemptible Training Workloads**, living documentation. [Guide](https://run-ai-docs.nvidia.com/self-hosted/workloads-in-nvidia-run-ai/using-training/checkpointing-preemptible-workloads).
+Primary links sit beside their claims. Read CRIUgpu for the architecture, GCR for
+incremental copying, and CRIU-LZ4 before assuming compression helps; then PhoenixOS
+for concurrency. Sections 3/5 cover implementation sources and §6 dated products.
+Pin versions before reproducing work; author-reported performance is not a local
+benchmark.

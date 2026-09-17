@@ -1,267 +1,250 @@
 # Single-GPU Fine-Tuning Checkpoint Implementation Plan
 
-**Next proposed change:** the [independent lifecycle plan](independent-lifecycle-plan.md) separates externally triggered training, capture, and restore. It awaits review; the implemented milestones and historical evidence below describe the current controller.
+**Implemented, with qualified same-host compatibility.** This document defines the
+current experiment's contracts. The proposed [independent lifecycle
+plan](independent-lifecycle-plan.md) awaits approval and belongs on a later branch.
+Use the [runbook](../experiments/finetuning/README.md) for commands and
+[results](../experiments/results.md) for dated measurements.
 
-**Status:** Implemented and validated for this bounded same-host configuration, with qualified compatibility. All numerical/lifecycle gates and three timing pairs pass; sharing ownership remains unresolved. [Results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
-
-**Goal:** End a real LoRA training process after update 2, reconstruct it from a CPU/GPU process image, and verify that its state and updates 3–4 match an uninterrupted run. Compare the cost with a complete application checkpoint.
-
-**Architecture:** One explicit training loop supports reference, application restart, and CRIU restore. The trainer owns training state and observable waiting points; an external controller owns process capture, restoration, lifecycle evidence, and comparison. CRIU's pinned CUDA plugin owns NVIDIA transitions.
-
-**Backend status:** Select CRIU after the September 14 EC2 probes passed CPU restore, full GPU tensor restore, and one-update LoRA restore with matching stochastic continuation. The LoRA trial took 63.69 seconds including sync, job B, and diagnostics. Warnings and the preliminary environment remain qualified. [EC2 results](../experiments/results.md#ec2-criu-validation--2026-09-14).
-
-**Tech Stack:** Ubuntu/Linux on EC2 with NVIDIA A10G; Python/PyTorch; Transformers and PEFT; CRIU 4.2.1 at `9539417f3e3cfa4eb84c319cd71f4d52f1f08645` with its CUDA plugin; NVIDIA cuda-checkpoint at `00d5cce84c628088d6caa203fc4af40c1538b6f7`; JSON evidence and local files. Verify live versions at setup; the probe used driver 570.172.08. No distributed trainer or new checkpoint framework.
-
-**References:** [Fine-tuning research](../research/single-gpu-finetuning.md), [measured mechanism results](../experiments/results.md), and the review decisions in this document. Repository baseline: `aecdf2cbd72bb60e7216e31639aaac3dd904d1c6`.
+The experiment ends a LoRA trainer after update 2, restores its CPU/GPU process
+image, and compares state and updates 3–4 with uninterrupted training and a complete
+application checkpoint. One trainer loop serves all routes; the controller owns
+capture and verification. CRIU's CUDA plugin alone owns NVIDIA transitions.
 
 ## Implementation milestones
 
-- Environment/assets: isolated virtualenv installed from exact package pins; all 32 authored examples tokenized; a real two-update LoRA check passed. Safetensors 0.6.2 is pinned instead of the host's release candidate. Progressive mapping inspection and the shared-controller restore gate were completed in the following milestone.
-
-- Shared trainer/controller: the isolated active-dropout one-update restore passed in 59.21 seconds; the four-update zero-dropout restore passed in 62.75 seconds. Both matched verified reference pairs. Eight CPU contract tests pass. Mapping ownership and interrupted-system-call warnings remain qualified. [Milestone evidence](../experiments/evidence/2026-09-14/isolated-criu-summary.json).
-
-- Application restart: the four-update zero-dropout comparison passes with complete saved state and a fresh process. Nine CPU tests pass, including preservation of a previous save after an injected write failure. [Evidence](../experiments/evidence/2026-09-14/application-summary.json).
-
-- Stochastic continuation: full application and CRIU comparisons pass with active CUDA dropout. Repeated capture at updates 2 and 3 passes in 104.83 seconds after correcting PID-file reuse. Ten CPU tests pass. [Evidence](../experiments/evidence/2026-09-14/stochastic-summary.json).
-
-- Measurement/reporting: three timing pairs pass; medians are 1.30 s save/sync and 7.95 s resume/update for application restart, versus 32.20 s and 4.47 s for CRIU. Corrected CRIU time-namespace clock alignment; thirteen CPU tests pass. Raw measurements and the superseded calculation are retained. [Final evidence](../experiments/evidence/2026-09-14/finetuning-summary.json).
-
-- Readability and teaching plan (September 17): each comparison has a dedicated pipeline file, with non-obvious operations explained in docstrings and grouped comments. Fourteen CPU checks and nine fresh GPU cases pass after the refactor and exited-child cleanup fix. One timing check per route validates execution; the September 14 three-pair benchmark remains the dated performance evidence. [Validation](../experiments/results.md#readability-refactor-validation--2026-09-17), [remaining OS teaching work](readability-plan.md).
+Environment setup, one-update restoration, application restart, active dropout,
+repeated restoration, and paired timing all passed on EC2. The September 17
+readability refactor passed fourteen CPU checks and nine fresh GPU cases.
+[Validation record](../experiments/results.md#readability-refactor-validation--2026-09-17).
+Sharing ownership and interrupted-system-call warnings still qualify compatibility.
 
 ## Global constraints
 
-- This phase is same-host, same-GPU restoration. Real spot interruption and replacement-host recovery require a later experiment.
-- Complete means all state required for this LoRA configuration, not updating all base-model parameters.
-- No application checkpoint is an input to the process-restore route. Diagnostic evidence is never a hidden restore source.
-- Preserve matching software, model revision, data, seeds, precision, and training behavior across routes.
-- No managed-memory/paged optimizer, CUDA IPC, data-loader subprocesses, remote tracking, `torch.compile`, or additional attention kernel packages in the baseline.
-- Keep unresolved shared-memory and unsupported-resource diagnostics visible. Numerical success and compatibility acceptance are separate verdicts.
-- Use fresh private run directories, minimal child environments, targeted process cleanup, and images/logs under ignored `runs/`.
-- Do not change container security policy, host driver, or provider lifecycle as part of this plan.
-- Keep implementation code minimal, clean, and understandable. Readability and the required evidence take priority over a line-count target.
+- Same host/GPU, matching packages, model/data, precision, seeds, and behavior.
+- Process restore uses its images; application saves and diagnostic records are
+  never hidden training-state inputs.
+- No paged optimizer/managed memory, CUDA IPC, data-loader subprocesses,
+  `torch.compile`, additional attention kernels, or remote tracking.
+- Keep private run directories, minimal child environments, bounded waits, and
+  cleanup restricted to identified experiment processes. Images/raw logs stay in
+  ignored `runs/`; commit curated evidence only.
+- Keep lifecycle, numerical, and compatibility verdicts separate. Do not suppress
+  unsupported-resource warnings or change host security/driver settings to pass.
 
 ## 1. Chosen workload
 
-| Item | Initial setting and reason |
+| Setting | Contract |
 | --- | --- |
-| Model | `Qwen/Qwen2.5-0.5B`; resolve and record an immutable model/tokenizer commit before downloading |
-| Adaptation | Ordinary LoRA; `r=8`, `lora_alpha=16`, `target_modules=["q_proj", "v_proj"]`, `bias="none"`, no extra trainable base modules |
-| Precision | FP32 weights/computation; no autocast or gradient scaler in this configuration |
-| Optimizer | AdamW over trainable parameters only; learning rate `0.001`, betas `(0.9, 0.999)`, epsilon `1e-8`, weight decay `0`, `foreach=False`, `fused=False` |
-| Schedule | Linear learning-rate decay over 4 completed updates; preserve its counter, settings, and effective next learning rate |
-| Data | 32 small project-authored prompt/answer pairs; batch size 1; maximum 128 tokens; fixed recorded order |
-| Loss | Causal language-model loss on answer tokens; prompt and padding labels are `-100`; reject examples with no answer labels left after truncation |
-| Execution | Eager attention; `use_cache=False`; no gradient accumulation; clear gradients with `set_to_none=True` after each update |
-| Randomness | Fixed seed 2026; dropout zero for first comparison; LoRA dropout 0.1 in a required follow-up |
-| Lifecycle | 4 updates; capture after 2; a repeated-lifecycle run also captures after 3 |
+| Model | `Qwen/Qwen2.5-0.5B`; immutable model/tokenizer revision and file hashes |
+| LoRA | Rank 8, alpha 16, `q_proj`/`v_proj`, `bias="none"`; no trainable base modules |
+| Precision | FP32; no autocast or gradient scaler |
+| AdamW | Trainable parameters only; LR 0.001, betas (0.9, 0.999), epsilon 1e-8, decay 0, `foreach=False`, `fused=False` |
+| Schedule | Linear decay over four completed updates; preserve counter and next LR |
+| Data | 32 authored prompt/answer pairs; batch 1, at most 128 tokens, fixed order |
+| Loss | Answer tokens only; prompt/padding labels −100; reject empty answer labels |
+| Execution | Eager attention, `use_cache=False`, no accumulation; clear gradients with `set_to_none=True` |
+| Randomness | Seed 2026; separate dropout 0 and 0.1 comparisons |
+| Lifecycle | Four updates, capture after two; repeated case also captures after three |
 
-These are correctness-demo settings, not a model-quality recipe. Assert that adapter weights actually change, optimizer states exist, and losses/gradients remain finite.
-
-The published model has about 0.49 billion parameters: FP32 base weights are roughly 1.96 GB before working memory. For its published dimensions, the specified LoRA targets imply 540,672 trainable parameters: 2.16 MB of FP32 adapter weights plus 4.33 MB for Adam's two moments. Verify actual counts after construction. A process snapshot also includes the resident base and runtime; those 6.49 MB are not its expected size. [Qwen configuration](https://huggingface.co/Qwen/Qwen2.5-0.5B/raw/main/config.json), [PEFT LoRA configuration](https://huggingface.co/docs/peft/package_reference/lora).
+Assert finite losses/gradients, initialized Adam state, and changed adapter weights.
+The configured model has 540,672 trainable parameters: about 2.16 MB of FP32
+adapters and 4.33 MB of Adam moments. A process image also contains the resident
+base/runtime. These settings test restoration, not model quality.
+[Qwen configuration](https://huggingface.co/Qwen/Qwen2.5-0.5B/raw/main/config.json),
+[PEFT LoRA](https://huggingface.co/docs/peft/package_reference/lora).
 
 ### Fast development cycle
 
-Target **2–3 minutes for one warm, offline process-snapshot trial**, including launch, training, capture/sync, verified original exit, job B, restore, state inspection, continuation, and cleanup. Installation, initial asset download, reference creation, and the full acceptance matrix are outside this target. Measure the first trial before treating the target as achievable: loading, hashing, image I/O, and restore may dominate. Keep the existing 0.5B model, FP32, batch size 1, and 128-token maximum initially.
+Target **2–3 minutes per warm, offline process trial**, including capture/sync,
+original exit, job B, restore, inspection, continuation, and cleanup. Exclude
+installation, downloads, reference generation, and the full acceptance matrix.
+Count optimizer updates, not epochs: two epochs over 32 examples would take 64
+updates at batch 1.
 
-| Stage | Workload |
-| --- | --- |
-| First GPU acceptance milestone | Complete update 1 → capture → verify original exit → job B → restore → compare boundary state and update 2 |
-| Normal development trial | Complete update 2 → capture → verify original exit → job B → restore → compare boundary state and updates 3–4 |
-| Repeated restoration | Capture after updates 2 and 3 using separate generations; finish update 4 |
-| Milestone acceptance | Both dropout configurations, application restart comparison, repeated restoration, and timing repetitions |
-
-Count optimizer updates, not epochs: two full epochs over 32 examples at batch size 1 would require 64 updates. Four updates bound the snapshot-continuation test; they do not establish model quality or long-run compatibility. Use the same four-update learning-rate schedule across all routes, including the early probe that stops after update 2.
-
-Reuse a verified uninterrupted reference only when relevant code, model/tokenizer/data hashes, package versions, GPU/driver, seeds, and numerical/training configuration match its manifest. Keep separate references for dropout zero and 0.1. Relevant changes invalidate reuse and require matching uninterrupted runs again. Run one process-restore case per development iteration; run the complete acceptance matrix at milestones. Reference evidence is an external comparison input, never a source for process restoration.
+Start with capture after update 1 and comparison of update 2, using the same
+four-update schedule. Use four updates for routine trials and the full matrix at
+milestones. Reuse references only when source, assets, packages, GPU/driver, and
+training settings match their manifest; otherwise regenerate both references.
 
 ## 2. Files and responsibilities
 
-```text
-experiments/finetuning/
-  prepare.py             Freeze assets and environment; tokenize the fixture
-  train.py               One training loop and the checkpoint waiting points
-  state.py               Named state records, fingerprints, application save/load
-  run.py                 Validate inputs, select a pipeline, write its verdict
-  reference_pipeline.py  Run two independently initialized references
-  application_pipeline.py Save training state and launch a fresh trainer
-  criu_pipeline.py       Capture and restore the existing trainer process
-  pipeline.py            Shared lifecycle steps and current-process ownership
-  job_b.py               Tiny independent GPU workload during the handoff
-  metrics.py             Sample memory and derive latency from explicit events
-  report.py              Curate run evidence and paired timing statistics
-  config.json            Explicit workload settings from section 1
-  examples.jsonl         The 32 small prompt/answer examples
-  requirements.lock      Exact validated Python package versions, generated at setup
-experiments/criu/
-  build.sh               Build pinned tools using locally extracted dependencies
-  session.py             Bounded CRIU dump/restore and process lifecycle operations
-tests/
-  test_finetuning_state.py
-```
+| Files in `experiments/finetuning/` | Responsibility |
+| --- | --- |
+| `prepare.py`, configuration/data/lock files | Pin environment/assets and tokenize examples |
+| `train.py`, `state.py` | Training, observable state, application save/load |
+| `run.py` | Validate inputs, select experiment, write verdict |
+| `reference_pipeline.py` | Two independently initialized references |
+| `application_pipeline.py` | Save state, then start a fresh trainer |
+| `criu_pipeline.py` | Capture and restore the existing process |
+| `pipeline.py` | Shared lifecycle steps and process ownership |
+| `job_b.py`, `metrics.py`, `report.py` | GPU handoff check, measurement, curated reports |
 
-Modify `experiments/results.md` with new evidence after execution; add one README link when the experiment is available. Keep the two concept chapters focused on explanation. Downloaded model files, tokenized data, full state evidence, images, and raw logs remain in `runs/`; commit only curated summaries.
-
-Reuse the small lifecycle operations established by the existing CPU checkpoint script and the EC2 CRIU probe. Keep normal trainer launch, explicit interpreter/plugin paths, minimal environments, successful dump completion, verified process exit, and warning collection. Use host privileges only where CRIU requires them. Reap the original before restore: CRIU can reuse the same numeric PID, so compare lifecycle generations rather than requiring different PID numbers. Account for root-owned CRIU output files and reap the detached restored process. Keep the historical DMTCP probe separate. No generic backend interface is needed.
+`experiments/criu/session.py` owns privileged CRIU/process operations; `build.sh`
+pins the tools. The current controller launches and collects the trainer's exit
+status. Independent workers require the different ownership protocol in the
+[proposed contract](independent-lifecycle-details.md#control-and-process-ownership).
 
 ### Implementation style
 
-- Use one explicit training loop and small, plainly named functions for state inspection and process lifecycle. Keep the update and capture/restore sequence readable in execution order.
-- Keep modules focused on the responsibilities above. Extract helpers for actual reuse or a clear responsibility; avoid speculative abstractions, class hierarchies, and a generic checkpoint-backend interface.
-- Give each comparison pipeline its own file. Explain non-obvious blocks for a CS student without assumed OS knowledge; follow the [teaching plan](readability-plan.md) for the longer prerequisites and diagrams.
-- Implement the pinned CRIU route and the required application-checkpoint comparison. Add configuration only for the planned experiments; do not build automatic backend selection, a dashboard, or a training framework.
-- Use explicit inputs, straightforward control flow, and errors that identify the failed phase or state field. Comments should explain checkpoint invariants and tool-specific behavior.
-- Preserve synchronization, bounded waits, image completion, verified exit, restore inspection, and targeted cleanup. These checks are necessary evidence even in a small POC. Review each milestone for unnecessary code before extending it.
+Keep one explicit training loop and a readable execution sequence per pipeline.
+Extract substantive shared operations; avoid generic backend interfaces or class
+hierarchies. Explain non-obvious blocks with docstrings/grouped comments, linking
+the [learning chapters](../README.md) for OS fundamentals. Preserve necessary
+synchronization and verification even when reducing code.
 
 ## 3. State contract
 
-`state.py` produces a named record with `schema_version`, `update`, `next_example_index`, `example_order`, `model_identity`, `config`, `adapters`, `optimizer`, `schedule`, `rng`, and `training_behavior`. Record optimizer state by stable parameter name, including step counters, moment tensors, parameter-group order, and hyperparameters. Hash tensor dtype, shape, and canonical contiguous bytes in deterministic name order.
+Record `schema_version`, `update`, `next_example_index`, `example_order`,
+`model_identity`, `config`, `adapters`, `optimizer`, `schedule`, `rng`, and
+`training_behavior`.
 
-- `model_identity`: model/tokenizer revision, downloaded-file hashes, LoRA settings, and data/tokenization hashes. Verify frozen resident base tensors at validation boundaries as well as the source files.
-- `rng`: Python random state, PyTorch CPU state, and the CUDA generator states actually used. No unused NumPy state is claimed.
-- `schedule`: completed count, schedule settings, and effective next learning rate.
-- `training_behavior`: effective named module modes, active/enabled adapters, parameter trainable flags, and dropout probabilities. Explicitly call `model.train()` after adapter construction. Inspect and compare these values after process restore before any calls that could repair them. Application restart must reconstruct and verify them as part of loading.
-- At the completed-update boundary, all parameter gradients must be `None`; no partially accumulated gradients or scaler state exist in this FP32 baseline.
+- **Identity/tensors:** pinned assets and hashes, LoRA/data configuration, and
+  resident frozen-base verification. Hash tensor dtype, shape, and contiguous
+  bytes in stable name order.
+- **Optimizer/schedule:** state by parameter name, moments, step counters,
+  parameter-group order/hyperparameters, schedule counter/settings, and next LR.
+- **RNG:** Python, PyTorch CPU, and actually used CUDA generators. No unused
+  NumPy state is claimed.
+- **Behavior:** named module modes, active/enabled adapters, trainable flags, and
+  dropout probabilities. Call `model.train()` after adapter construction; inspect
+  restored values **before any repair**.
 
 ### Completed-update boundary (review clarification)
 
-The checkpoint boundary comes **after the whole training update**, before any work for the next example. For update 2, finish forward and backward computation, `optimizer.step()`, `scheduler.step()`, gradient clearing, and temporary-output cleanup; then commit `update = 2` and the next-example cursor. Synchronize CUDA before publishing checkpoint readiness. The saved adapter weights, optimizer history, schedule, random states, and CPU counters must all describe this same boundary.
-
-A pause request arriving during an update only sets a pending request. The trainer completes the update and reaches the cooperative waiting point before the controller captures it. No next-example fetching or random-number consumption is allowed between readiness and capture. If gradient accumulation or mixed precision is introduced later, this boundary must additionally include all accumulated microbatches and scaler bookkeeping; neither feature is enabled in the baseline.
-
 ```text
-Forward → backward → optimizer → scheduler → clear gradients / temporaries
-        → commit completed count and next-example cursor → synchronize GPU
-        → publish ready and wait → capture CPU/GPU process
+forward/backward → optimizer → scheduler → clear gradients/temporary outputs
+ → commit update + next-example cursor → synchronize CUDA → publish ready → wait
 ```
 
-An application save contains the changing state and fixed-base identity, not another copy of frozen base weights. Loading constructs the pinned model, adapters, optimizer, and scheduler, then loads saved training state and restores RNG states **last**, after setup that could consume random numbers. Verify state before update 3. An adapter export by itself is insufficient. [PEFT checkpoint format](https://huggingface.co/docs/peft/developer_guides/checkpoint).
+All gradients must be `None`; readiness permits no next-input work or RNG use.
+The current trainer pauses at configured update numbers. External requests that
+wait for the next boundary belong to the proposed independent lifecycle change.
 
-Byte equality means named training-state tensor dtype, shape, and bytes plus associated counters, RNG, and behavior records, not identical whole process-image files. Matching boundary bytes must be followed by matching actual optimizer updates.
+Application saves contain changing state and fixed-base identity. Rebuild the
+pinned model/optimizer/scheduler, load state, then restore RNG **last**, after setup
+that could consume randomness. An adapter export alone is insufficient.
+[PEFT checkpoint format](https://huggingface.co/docs/peft/developer_guides/checkpoint).
 
-Diagnostic collection must not consume training RNG or retain GPU/CPU tensor clones inside the process being captured. Hash tensors in bounded chunks, release temporary copies, and retain only small summaries. Full diagnostic records live outside the process image and are read by the verifier, never by process restoration. Record the observer's remaining allocation/cache footprint; do not assume deleting a Python reference returns memory to the OS.
+Exact equality concerns named state and associated records, not whole image-file
+bytes. Follow it with matching real updates. Diagnostics must not consume training
+RNG or retain tensor clones inside the image: hash in bounded chunks, release
+copies, and record remaining allocation/cache overhead.
 
 ## 4. Experiment sequence and gates
 
 ### Task 1: Freeze the environment and inspect compatibility
 
-**Files:** `prepare.py`, `config.json`, `examples.jsonl`, `requirements.lock`; experiment manifest under `runs/`.
+Pin the isolated packages, model/tokenizer/data, CRIU plugin, and NVIDIA helper.
+Record live GPU/driver, CUDA/Python versions, host/cgroup RAM limits, and disk
+capacity; run jobs offline. Inspect mappings after Python, PyTorch, CUDA, model,
+and Adam initialization. See [setup](../experiments/finetuning/README.md) and the
+[recorded environment](../experiments/results.md#footprint-environment-and-limits).
 
-- [x] Recheck live GPU, driver, Python, PyTorch/CUDA, CRIU SHA/plugin, NVIDIA helper version, cgroup RAM limits, available disk, and process mappings. The EC2 probe observed A10G 23,028 MiB and about 30 GiB host RAM with no cgroup memory cap; recheck instead of carrying over either these values or the earlier L4 host values.
-- [x] Create an isolated training environment. Start from the EC2 probe combination of PyTorch 2.8.0+cu128, Transformers 5.0.0, and PEFT 0.18.1; validate imports and an actual forward/backward/update, then lock exact packages before comparative runs. Do not upgrade the working server environment in place.
-- [x] Download the resolved model/tokenizer revision once, prepare and hash local tokens, and run measured jobs offline against those same assets. Record the resolved package/model versions in the manifest rather than using moving `main` revisions at runtime.
-- [x] Inspect mappings in progressively initialized processes: Python, PyTorch import, CUDA initialization, loaded model, and initialized Adam state. Relate `/dev/zero (deleted)` warnings to the stage that introduces them and inspect aliases/backing identities.
-- [ ] If sharing is required, demonstrate preservation with a focused reproducer or fix the configuration/tool support and revalidate. An absence of visible aliases in one process does not prove the driver needs none. Unknown ownership remains an explicit qualification; do not suppress the warning. Record an unsupported kernel-object mapping as a blocker for that workload.
-
-**Gate:** A pinned environment performs real adapter updates with adequate measured memory headroom. Compatibility warnings have a documented status. Qualified diagnostic work can proceed, but unqualified acceptance cannot pass while required sharing remains unresolved.
+**Gate:** real finite adapter updates with measured headroom. Required sharing
+must be demonstrated or fixed before unqualified acceptance; unknown ownership
+remains qualified, and an unsupported required kernel object blocks the workload.
 
 ### Task 1a: First GPU acceptance milestone — one-update LoRA restore
 
-**Preliminary evidence:** This gate passed with the host packages and two authored examples. Repeat it in the isolated locked environment and shared implementation below; do not mark the full plan complete from the exploratory probe.
-
-**Files:** Minimal `train.py`, `state.py`, `run.py`, and shared `experiments/criu/session.py` operations needed for this probe.
-
-- [x] Build the real LoRA update, state inspection, and bounded lifecycle needed for this gate before the complete comparison/reporting machinery. Use the pinned isolated environment, shared training-update function, and four-update schedule.
-- [x] Establish matching two-update uninterrupted references. In the process route, complete update 1 with initialized Adam moments/counters, cleared gradients, and CUDA synchronization. Capture using Task 4's successful-dump and generation-specific handshake rules; reap and verify original exit, sync, and run job B.
-- [x] Restore from the process image alone. Compare the full state contract before changing restored settings or allowing update 2; compare update 2 loss and state against the reference. Retain mapping diagnostics and separate lifecycle, numerical, and compatibility verdicts.
-
-**Gate:** The real LoRA process survives original exit and performs the matching next optimizer update. Investigate failure before building the complete comparison. Numerical success permits qualified diagnostic work; unresolved required sharing still prevents unqualified compatibility acceptance.
+Use the isolated trainer and two matching references. After update 1 initializes
+Adam, capture, verify original exit, sync, run job B, and restore from images only.
+Compare untouched restored state and update 2. **Gate:** matching continuation;
+retain separate compatibility qualifications before expanding the experiment.
 
 ### Task 2: Build and verify ordinary training
 
-**Files:** `train.py`, `state.py`, `prepare.py`.
-
-- [x] Implement the exact setup and state contract above. Put all three execution modes through the same training-update function.
-- [x] Run 4 updates twice without interruption. Compare initial state, update-2 state, losses and state for updates 3–4, and final state.
-- [x] Enable deterministic algorithm checks, use the same numerical settings for all routes, and record any required CUDA determinism configuration in every child environment. A fixed seed alone is insufficient. [PyTorch reproducibility](https://docs.pytorch.org/docs/2.11/notes/randomness.html).
-- [x] If references disagree, identify the operation or configuration before interpreting any restore difference. Do not choose a tolerance after seeing a failure; the first baseline targets exact equality.
-
-**Gate:** Two ordinary runs match, adapters changed, Adam moments were populated, and the data cursor identifies the next example consistently.
+Run four updates twice with deterministic-algorithm checks and identical CUDA
+configuration. Compare initial/boundary/final state and continuation losses.
+**Gate:** exact reference agreement, changed adapters, populated Adam moments,
+and the correct next example. Diagnose disagreement before comparing restore;
+do not choose a tolerance after failure.
+[PyTorch reproducibility](https://docs.pytorch.org/docs/2.11/notes/randomness.html).
 
 ### Task 3: Implement the complete application-checkpoint comparison
 
-**Files:** `state.py`, `train.py`, `run.py`.
-
-- [x] At update 2, complete the optimizer and scheduler, clear gradients, release temporary outputs, synchronize CUDA, and record state.
-- [x] Serialize adapters plus the full state contract to a new candidate, flush it, and atomically publish the completed checkpoint on the selected filesystem. Preserve the previous completed save if a later save fails.
-- [x] End the original process and verify its real PID is gone. Start a fresh process with the same local assets and explicit interpreter; load state, compare it before update 3, then continue to 4.
-- [x] Compare every continuation update with the reference. Use cached fixed-base assets for both application restart and process restore.
-
-**Gate:** Correct continuation from a real application save/restart. This is the baseline a process snapshot must be compared with.
+At update 2, write a new candidate containing the complete state contract, flush
+and atomically publish it without destroying an older valid save. End/reap the
+original, start a fresh trainer with cached assets, and inspect before update 3.
+**Gate:** updates 3–4 match the reference after a real save/restart.
 
 ### Task 4: Implement full CRIU fine-tuning restoration
 
-**Files:** `experiments/criu/session.py`, `train.py`, `run.py`.
-
-- [x] Put the tested CRIU lifecycle operations in `session.py`. Launch the fine-tuning interpreter normally, with regular-file output and disconnected stdin, then capture its PID using pinned CRIU with the explicit CUDA plugin path. Keep privileged CRIU invocation separate from the trainer.
-- [x] Use the following generation-specific handshake for capture at update 2. The repeated trial's update-3 capture uses separate `3` markers so earlier release files cannot bypass its wait.
-
 ```text
-Trainer: complete update 2 → synchronize → write before-2 evidence
-         → publish ready-2 → wait for inspect-2
-Controller: default CRIU dump → require successful completion
-            → reap original / verify PID absent → observe GPU availability
-            → sync filesystem → run and finish job B
-            → CRIU restore → record restored PID → publish inspect-2
-Restored trainer: wait for CUDA restoration → write after-2 evidence
-                  → publish inspected-2 → wait for continue-2
+Trainer:    ready-2 → wait for inspect-2
+Controller: terminating dump → verify exit → observe GPU → sync → run job B
+            → restore → publish inspect-2
+Trainer:    write after-2 → inspected-2 → wait for continue-2
 Controller: compare before/after/reference → publish continue-2 only on pass
-Trainer: perform update 3, then continue through 4
+Trainer:    updates 3–4
 ```
 
-- [x] Let the CRIU CUDA plugin own lock/checkpoint/restore/unlock. Require evidence that it actually ran in dump and restore. Its restore hook coordinates the NVIDIA helper thread before application continuation; keep the trainer synchronization and inspection gate. Do not append manual NVIDIA restore/unlock commands.
-- [x] Use a fresh image directory and default terminating `criu dump`, without `--leave-running` or `--leave-stopped`. Require successful command completion and image inventory before accepting capture; file appearance alone is insufficient. Verify original exit and filesystem sync separately. Reject failed or partial dumps. Do not reuse DMTCP final-name completion logic.
-- [x] Give each phase a bounded deadline. Initial defaults: 300 seconds to prepare the trainer, 120 seconds for capture or restore, 30 seconds for exit, and 60 seconds for job B. These are failure deadlines, not expected durations or a guarantee of the 2–3-minute target. On timeout or mismatch, retain evidence, reject the run, and stop only identified experiment processes and helpers. Never release the next training update after failed verification.
-- [x] Persist lifecycle, numerical, and compatibility verdicts separately even when the final acceptance is false. Do not lose successful tensor/state evidence merely because the later warning gate fails.
+Require successful CRIU completion, image inventory, and CUDA plugin evidence
+for dump and restore. Use regular-file output, disconnected stdin, explicit tool
+paths, and a fresh image directory. Do not use `--leave-running`/`--leave-stopped`
+or append manual NVIDIA restore/unlock. File visibility alone is not completion.
+The current `sync -f` barrier acknowledges filesystem writeback; it does not prove
+survival of volume deletion. The proposed [publication protocol](independent-lifecycle-details.md#exact-local-storage-protocol)
+adds independent snapshot completion records.
 
-**Gate:** Original process ended; GPU was available to job B; the process image alone reconstructed the trainer; state matched before update 3; updates 3–4 matched the reference. Remaining warnings keep the result qualified.
+Collect the original's exit status before restore; CRIU may reuse its numeric
+PID. Initial failure deadlines are 300 s for trainer preparation, 120 s per
+capture/restore, 30 s for exit, and 60 s for job B—not expected runtimes. On
+failure retain evidence, withhold continuation, and clean up only owned processes.
+
+**Gate:** verified original exit, successful job B, image-only restore, untouched
+boundary equality, and matching updates 3–4. Warnings retain their own verdict.
 
 ### Task 5: Exercise randomness and repeated restoration
 
-- [x] Repeat the reference/application/process comparison with LoRA dropout 0.1. Establish matching uninterrupted references for this configuration first. Require evidence that the enabled LoRA dropout path executes in training mode and that the used CUDA generator state changes across an actual update, including restored continuation. RNG advancement from an unrelated operation is insufficient. Compare effective behavior and RNG states before any post-restore modification; do not add diagnostic random draws.
-- [x] Run a separate process-restoration case with captures after updates 2 and 3. Use unique checkpoint directories and handshake markers, verify original exit each time, and compare through update 4.
-- The restored PID file must also be generation-specific: CRIU refuses to overwrite it. A repeated-lifecycle test caught this controller bug; the first successful restore alone could not expose it.
-- [x] Require clean process exit and no remaining experiment GPU work or helper process after the lifecycle tests. Retain old completed images until their replacements are verified.
+Repeat references/application/CRIU with dropout 0.1. Prove the LoRA dropout path
+executes in training mode and its used CUDA generator advances during actual
+updates, including continuation; unrelated random draws do not count.
 
-**Gate:** Active dropout and CUDA RNG consumption are demonstrated, stochastic continuation matches, and a second checkpoint cycle passes. State clearly which configurations passed and whether compatibility qualifications remain.
+Capture again after update 3 in a separate trial. Use fresh image directories,
+PID filenames, and readiness/inspection/release markers for each generation;
+CRIU refuses to overwrite a PID file. **Gate:** both cycles match through update
+4, with clean exit and no surviving experiment GPU work/helpers. Retain older
+images until replacements are verified.
 
 ### Task 6: Measure and report
 
-**Files:** `run.py`, `experiments/results.md`, curated evidence JSON.
+Keep detailed correctness hashing/inspection outside headline timings. Measure:
 
-- [x] Separate correctness runs from timing runs. Detailed hashes and inspection waits are excluded from headline latency; use a timing variant with the same model/data/boundary and smaller evidence after the measured endpoint. Measure each variant's memory footprint.
-- [x] For both save methods, time from capture request to completed filesystem sync and from restore request to the next completed update. Include model/runtime rebuilding for application restart, including necessary CPU-to-GPU copies.
-- [x] Record separate monotonic timestamps for capture request, successful dump completion, verified original-process exit, completed filesystem sync, and observed GPU availability after exit. Report request-to-post-exit GPU availability with polling uncertainty. Any earlier disappearance is a staging event, not completed handoff. The default CRIU dump terminates the original; still require verified exit and a subsequent GPU observation. Retain successful job B as functional evidence. Include interpreter and checkpoint-tool launch in end-to-end costs where required; record job B separately rather than charging its runtime as snapshot overhead.
-- [x] Report full warm development-trial wall time against the 2–3-minute target separately from headline snapshot latencies. Include correctness inspection and job B in this trial duration; identify loading, training, hashing, capture/sync, and restore costs before changing the workload to improve turnaround.
-- [x] Record image/file size, peak process RAM, cgroup memory, allocated/reserved VRAM, baseline update time, and controller/tool launch overhead. Do three paired timing repetitions after correctness, report individual values plus median/range, and state cache conditions and local-storage durability limits.
-- [x] Publish a short state-continuity table, lifecycle timeline, cost comparison, pinned environment, and any unresolved blockers. No raw process environment or process image is committed.
+- Capture request → completed filesystem sync, for both methods.
+- Restore request → next completed update, including application reconstruction.
+- Separate image completion, original exit, and post-exit GPU availability; record
+  polling uncertainty. Earlier GPU release may be temporary; job B proves use.
+- Full warm diagnostic duration, image bytes, peak RAM/cgroup memory, allocated/
+  reserved VRAM, baseline update time, and controller/tool launch costs.
 
-**Gate:** The report supports a narrow, reproducible conclusion; neither lower cost nor real spot recovery is assumed.
-
-CRIU restores the trainer into a time namespace. Convert its completed-update timestamps using the recorded namespace offset before comparing them with the controller clock; negative latency is an error. Controller lifecycle events already share one clock.
+Run three paired repetitions after correctness; publish individual values,
+median/range, cache conditions, warnings, and storage limits. Report job B
+separately. Convert restored trainer timestamps using CRIU's recorded time-namespace
+clock offset before comparing them with the controller; reject negative latency.
+**Gate:** reproducible measurements, without assuming lower cost or spot recovery.
 
 ## 5. Tests worth keeping
 
-Use the repository's existing `unittest` approach for the new state/lifecycle contracts:
-
-1. **Acceptance:** a local small tensor model with actual Adam state round-trips the application record, then performs the same next update; compare RNG, cursor, schedule, and moments as well as weights.
-2. **Non-obvious correctness:** a corruption matrix changes an optimizer moment, cursor, RNG, or schedule while leaving weights intact; each discrepancy is identified by field name.
-3. **Critical contract:** the controller cannot publish continuation before post-restore evidence matches, and capture generations cannot reuse old release markers. Include failed image completion/original-exit paths when extracting the session code.
-
-These tests complement, rather than replace, the real EC2 GPU acceptance runs. Retain all three existing CPU tests. Do not create a test for each constant, JSON key, or trivial wrapper.
+Keep focused CPU checks for actual Adam-state round-trip and the next update,
+field-specific corruption detection, blocked continuation on mismatch, generation
+isolation, and failed save/capture/exit handling. They complement real GPU runs;
+do not add checks for every constant or wrapper. Test docstrings identify their
+acceptance, critical-contract, regression, or non-obvious-correctness purpose.
 
 ## 6. Scope and review decision
 
-Use **CRIU with its native CUDA plugin** on this EC2 host. Host privilege probes, CPU restoration, full GPU tensor restoration, and preliminary LoRA continuation passed. Its normal-process launch and default terminating dump fit the bounded handoff experiment. The earlier container restriction is historical; the tool sandbox's restrictions must also be distinguished from the host execution context. [EC2 evidence](../experiments/results.md#ec2-criu-validation--2026-09-14).
+CRIU was selected because the EC2 CPU, tensor, and LoRA gates passed and its
+terminating dump fits this experiment. Historical DMTCP results do not establish
+an EC2 performance ranking. See [backend evidence](../experiments/results.md#ec2-criu-validation--2026-09-14).
 
-DMTCP remains a separate historical route with unresolved shared-memory warnings. It was not benchmarked on EC2, so backend selection is based on demonstrated suitability and the required lifecycle, not a measured speed ranking. The CRIU probe preserved the observed shared mapping flags/ranges but emitted interrupted-system-call warnings; retain those qualifications and do not infer untested external sharing guarantees. Implement one process-checkpoint backend and the required application-checkpoint comparison.
-
-Out of this implementation: actual spot termination, replacement-host restore, multi-GPU, QLoRA/paged optimizers, compression/incremental GPU capture, a scheduler, and billing integration. A later spot-recovery phase must independently prove image/assets survival on durable storage, compatible replacement capacity, and the warning deadline.
-
-The bounded implementation and measured milestones are complete on the feature branch for review. The unresolved sharing-compatibility item remains open; extensions require their own acceptance criteria and measurements.
+Actual spot termination, replacement-host restore, multi-GPU, QLoRA/paged
+optimizers, compression/incremental GPU capture, scheduling, and billing remain
+outside this implementation. Later recovery work must independently establish
+storage survival, compatible replacement capacity, and the warning deadline.
 
 ## Incorporated review decisions
 
-- Training behavior is part of the state contract; Task 5 requires active dropout and actual CUDA RNG consumption, inspected before any restore repair.
-- Task 6 distinguishes temporary capture-time GPU release from verified post-exit availability and retains job B as functional evidence.
-- Task 1a makes one-update LoRA restoration the first GPU acceptance milestone. Shared-memory warnings remain a separate compatibility qualification.
-- The default is four optimizer updates with capture after two; the repeated case captures after two and three. The 2–3-minute target applies to a warm development trial, not the complete acceptance matrix or a promised runtime.
+The retained requirements are active dropout/RNG evidence (state contract/Task 5), post-exit
+GPU handoff (Tasks 4/6), an early one-update gate (Task 1a), and short four-update
+trials. Numerical success does not resolve shared-memory compatibility.
