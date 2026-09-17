@@ -164,5 +164,5 @@ the entire filesystem.
 its own coordinator and plugins; it does not use CRIU's sequence under another
 name. [Version 4.2.0](https://github.com/dmtcp/dmtcp/releases/tag/v4.2.0) added a
 native NVIDIA CUDA plugin. The earlier container's CPU and GPU restores passed
-with unresolved shared-memory warnings. The EC2 LoRA POC uses CRIU; no EC2 DMTCP
+with unresolved shared-memory warnings. The EC2 LoRA experiment uses CRIU; no EC2 DMTCP
 performance comparison was made. See [tool pins and limitations](../research/single-gpu-finetuning.md).

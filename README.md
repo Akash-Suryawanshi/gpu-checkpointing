@@ -1,6 +1,6 @@
 # Learning CPU and GPU checkpointing
 
-This POC captures a running LoRA trainer as files, ends the original process,
+This experiment captures a running LoRA trainer as files, ends the original process,
 and restores it to continue training. The scope is one Linux host, one process,
 and one NVIDIA GPU. The docs assume basic programming; OS concepts are introduced
 where needed.
@@ -35,6 +35,7 @@ files or services.
 | [Results](experiments/results.md) | Dated evidence, measurements, and qualifications. |
 | [Workload contract](docs/implementation-plan.md) | Implemented configuration and acceptance requirements. |
 | [Next lifecycle plan](docs/independent-lifecycle-plan.md) | Proposed independent trainer, capture, and restore commands. |
+| [Inference snapshot plan](docs/inference-snapshot-plan.md) | Planned inference comparisons, implementation gates, and scaling. |
 
 The [research note](research/single-gpu-finetuning.md) compares approaches; the
 [teaching plan](docs/readability-plan.md) tracks remaining explanatory work.

@@ -1,7 +1,6 @@
 # Learning GPU snapshotting
 
-A bounded POC for understanding GPU snapshots and their trade-offs; no production
-platform is being built.
+Experiments for learning GPU snapshots and their trade-offs.
 
 ## Learning audience
 
@@ -122,7 +121,7 @@ merges; do not merge on their behalf.
 
 ### 2026-09-17 - Restored trainers cannot publish host-clock PID start ticks
 **Finding**: The first independent two-generation trial read start ticks `78305919` inside the restored trainer and `78308751` in its host worker for the same PID. `experiments/finetuning/restore.py:43` now refreshes registration from the host worker; `control.py:144` adopts that record instead of replacing it with the trainer's time-namespace view.
-**Impact**: Process identity comparisons and subsequent acknowledgements must use one observer clock domain; converting event timestamps alone is insufficient.
+**Impact**: Process identity comparisons and acknowledgements must use one observer clock domain. Failure cleanup must also read the refreshed `job.json` when restore exits after release but before writing its final result.
 
 ### 2026-09-17 - Pause expiry must be serialized with dump arming
 **Finding**: A deadline test showed `experiments/finetuning/control.py:144` could resume an acknowledged trainer while its capture worker still held the operation lock. Expiry now rechecks the unarmed phase under that lock; workers also wait with their deadline when initial registration briefly owns it.

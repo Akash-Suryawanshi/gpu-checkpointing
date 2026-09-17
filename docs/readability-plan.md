@@ -1,6 +1,6 @@
 # Plan: concise explanations without assumed OS knowledge
 
-<a id="plan-make-the-poc-readable-without-an-os-course"></a>
+<a id="plan-make-the-experiment-readable-without-an-os-course"></a>
 
 Write for a CS student who knows basic Python. Define an unfamiliar concept once
 where it is needed, then link back. Keep technical identifiers precise; shorten

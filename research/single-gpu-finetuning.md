@@ -1,7 +1,7 @@
 # Single-GPU fine-tuning snapshots
 
 **LoRA makes training state small, but a process snapshot still includes the
-resident base model.** That is the main tradeoff this POC measures. Exact LoRA
+resident base model.** That is the main tradeoff this experiment measures. Exact LoRA
 continuation passed on EC2 with qualified compatibility; the
 [results](../experiments/results.md) own measurements, the
 [implementation contract](../docs/implementation-plan.md) owns acceptance criteria,
