@@ -374,6 +374,20 @@ scripts passed syntax checks, and relative document targets were checked at that
 milestone. Those checks do not establish teaching completeness. Interrupted-call
 warnings and unresolved sharing ownership still qualify same-host compatibility.
 
+## Code simplification validation — 2026-09-17
+
+The code-only pass (`eeb22a3`) shares restore bookkeeping and hash/JSON utilities,
+and removes one single-use helper. Original explanatory comments/docstrings are
+retained; see the [pipeline flow](finetuning/README.md#read-one-pipeline-from-start-to-finish).
+
+Fresh references and all nine cases in the matrix above passed again, along with
+14 CPU checks. Report output matched the baseline except for analysis-source
+hashes; [curated evidence](evidence/2026-09-17/code-simplification-summary.json)
+records the exact sources and cleanup audit.
+
+The single timing checks validate execution paths, not a new benchmark.
+Same-host compatibility remains qualified.
+
 ## Environment history
 
 The September 12 L4 host had driver **580.126.20**, CUDA 13.0, and no CRIU/NVIDIA
