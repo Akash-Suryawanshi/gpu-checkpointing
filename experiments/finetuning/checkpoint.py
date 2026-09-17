@@ -72,7 +72,7 @@ def capture(args):
             emit("gpu_observed_after_exit")
             manifest = {"schema": control.SCHEMA, "capture_id": capture_id, "job": job,
                         "run": str(run), "request": request, "update": ready["update"],
-                        "dependencies": deps, "storage": volume, "previous_storage": old_volume,
+                        "dependencies": deps, "pre_staging_memory": memory, "storage": volume, "previous_storage": old_volume,
                         "external_files": {name: control.file_hash(run / name)
                                            for name in ("updates.jsonl", "trainer.stderr")},
                         "dump_log_sha256": control.file_hash(attempt / "dump.log")}

@@ -53,3 +53,37 @@ class LifecycleTests(unittest.TestCase):
             helper.assert_not_called()
         self.assertEqual(park.job_size(18 * park.GIB, 22 * park.GIB), (256, "availability_only"))
         self.assertEqual(park.job_size(6 * park.GIB, 22 * park.GIB), (12288, "allocation_enabled_by_release"))
+
+    def test_release_failure_and_early_registration_cleanup_reap_only_owned_child(self):
+        """REGRESSION (inference release gap): missing result must not leak adopted workers."""
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        import lifecycle
+        import control
+        for registered in (True, False):
+            with self.subTest(registered=registered), tempfile.TemporaryDirectory() as folder:
+                run = Path(folder)
+                (run / "snapshot").mkdir()
+                (run / "control").mkdir()
+                (run / "attempts/a").mkdir(parents=True)
+                child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", str(run)])
+                identity = lifecycle.session.identity(child.pid)
+                job = {"job_id": "j", "run": str(run), "identity": identity if registered else {"pid": -1}}
+                control.write(run / "job.json", job)
+                control.write(run / "snapshot/manifest.json", {"run": str(run), "capture_id": "c", "job": job})
+                control.phase(run, "restored" if registered else "restoring", capture_id="c", attempt_id="a")
+                (run / "attempts/a/restored-a.pid").write_text(str(child.pid))
+                try:
+                    with patch.object(lifecycle.session, "matches", return_value=False), \
+                            patch.object(lifecycle.session, "kill_identified") as kill:
+                        with self.assertRaises(ValueError):
+                            lifecycle.cleanup(run)
+                        kill.assert_not_called()
+                    lifecycle.cleanup(run, process=child)
+                    self.assertFalse(Path(f"/proc/{child.pid}").exists())
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait()
