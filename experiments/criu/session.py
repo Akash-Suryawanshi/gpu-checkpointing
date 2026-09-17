@@ -208,7 +208,11 @@ def criu(action, run, generation, tools, env, pid=None, *, images=None, attempt=
     # --shell-job permits the job's session/group arrangement. --libdir selects
     # the CUDA plugin, while --no-default-config prevents host config overrides.
     args = ["sudo", "-n", "env", "-i", "PATH=" + env["PATH"],
-            "LD_LIBRARY_PATH=" + tools["libraries"], "timeout", "--kill-after=5", str(max(0.1, timeout - 5)),
+            "LD_LIBRARY_PATH=" + tools["libraries"], "timeout",
+            # Inference owns a dedicated helper group and kills it on cancellation.
+            # Keep timeout in that group; training retains its existing default.
+            *(["--foreground"] if os.environ.get("GPU_SNAPSHOT_HELPER_GROUP") == "1" else []),
+            "--kill-after=5", str(max(0.1, timeout - 5)),
             tools["criu"], "--no-default-config", action,
             "--images-dir", str(directory), "--libdir", tools["plugin"], "--shell-job",
             "--log-file", str(logfile), "-v4",

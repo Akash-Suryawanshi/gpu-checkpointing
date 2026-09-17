@@ -149,3 +149,26 @@ restore.restore(Namespace(snapshot=run / "snapshot", tools=run, timeout=5))
                 if lifecycle.session.matches(identity):
                     lifecycle.session.kill_identified(identity)
                     lifecycle.session.reap(identity["pid"], timeout=5)
+
+    def test_interrupt_kills_and_reaps_helper_descendants(self):
+        """REGRESSION (cancelled helper): interruption must not leave a command running."""
+        import sys
+        import tempfile
+        from pathlib import Path
+        import lifecycle
+        lifecycle.session.adopt_restored_children()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            marker = root / "child.pid"
+            script = "import subprocess,sys,time; from pathlib import Path; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); Path(sys.argv[1]).write_text(str(p.pid)); time.sleep(60)"
+            with self.assertRaises(KeyboardInterrupt):
+                with lifecycle.helper([sys.executable, "-c", script, marker], root / "helper.log",
+                                      os.environ, time.monotonic() + 5, privileged=False) as command:
+                    limit = time.monotonic() + 5
+                    while not marker.exists():
+                        park.control.remaining(limit)
+                        time.sleep(0.005)
+                    child = int(marker.read_text())
+                    raise KeyboardInterrupt()
+            self.assertFalse(Path(f"/proc/{command.pid}").exists())
+            self.assertFalse(Path(f"/proc/{child}").exists())

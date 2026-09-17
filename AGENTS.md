@@ -134,3 +134,7 @@ merges; do not merge on their behalf.
 ### 2026-09-17 - Inference and training scripts share short module names
 **Finding**: Both experiment directories contain `run.py` and `report.py`; the combined runbook import path can select the wrong module. `tests/test_finetuning_metrics.py:14` and `tests/test_inference_report.py:12` load their target scripts by absolute file location.
 **Impact**: Keep combined-suite imports explicit where script names overlap; changing path order alone can silently test the other controller.
+
+### 2026-09-17 - Cancel the whole inference helper group before reaping its leader
+**Finding**: `experiments/inference/lifecycle.py:22` uses `waitid(..., WNOWAIT)` to keep the helper PID reserved while stopping its process group. `experiments/criu/session.py` keeps GNU timeout in that group for inference; its default group creation would let privileged descendants escape group cleanup.
+**Impact**: A controller interruption must stop capture/restore commands before cleaning up model workers. Preserve the separate restored-worker identity checks, and report an unresolved helper or partial restore as failed cleanup.

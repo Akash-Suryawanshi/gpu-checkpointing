@@ -80,7 +80,11 @@ def trial(args):
             return observed
         def reuse(before):
             after = park.resources(deadline, original["pid"] if original and session.matches(original) else None)
+            park.admission(after, {"reserved_vram": 0, "rss_bytes": 0}, "reuse",
+                           original["pid"] if original else None)
             mib, claim = park.job_size(before["gpu_free"], after["gpu_free"])
+            print(f"GPU memory released: {(before['gpu_used'] - after['gpu_used']) / park.GIB:.2f} GiB; "
+                  f"host RSS retained: {after.get('rss_bytes', 0) / park.GIB:.2f} GiB", flush=True)
             control.write(output / "released-resources.json", after)
             emit("job_b_started", mib=mib, claim=claim)
             session.command([sys.executable, HERE.parent / "finetuning/job_b.py", "--mib", str(mib)],
@@ -98,7 +102,7 @@ def trial(args):
             original = session.identity(process.pid)
             sampler.pid = process.pid
             emit("worker_launched", identity=original)
-            print(f"{args.route}: worker {original['pid']}, waiting for idle", flush=True)
+            print(f"{args.route}: worker identity {json.dumps(original)}, waiting for idle", flush=True)
             wait("idle.json", original)
             memory = control.read(output / "memory.json")
             observed = admit("loaded", memory, original)
@@ -139,6 +143,7 @@ def trial(args):
                         expected.pop("fingerprints")
                     if restored != expected:
                         raise ValueError("RAM inspection differs")
+                    print("RAM: running; wake inspection matched", flush=True)
         if args.route == "disk":
             phase = "restore"
             memory = control.read(output / "snapshot/manifest.json")["pre_staging_memory"]
@@ -164,6 +169,7 @@ def trial(args):
                 raise ValueError("First token identity mismatch")
             received = time.monotonic_ns()
             emit("first_token_received", request_id=request["request_id"], received_ns=received)
+            print(f"request {index}: received first token {first['token']}", flush=True)
             response = wait(f"response-{index}.json", original)
             observations.append({"request": request, "first": first, "response": response, "start_ns": started,
                 "request_start_ns": request_start, "published_ns": published,
@@ -196,12 +202,15 @@ def trial(args):
                   "durations": measure.durations(observations, run["run_id"], control.read(output / "reference.json"))}
         control.write(output / "result.json", result)
         measure.validate_run(output)
+        print("Full audit and health response passed; worker reaped", flush=True)
         if args.discard_image_after_success:
             shutil.rmtree(output / "snapshot/images")
             control.write(output / "image-discarded.json", {"reason": "accepted disk timing after final hash check"})
         print(json.dumps(result["durations"]), flush=True)
     except BaseException as error:
         failure = {"status": "failed", "phase": phase, "reason": f"{type(error).__name__}: {error}"}
+        if isinstance(error, lifecycle.CleanupError):
+            failure["cleanup"] = "failed"
         raise
     finally:
         try:
@@ -214,7 +223,7 @@ def trial(args):
             control.write(output / "result.json", failure)
             raise
         if failure:
-            control.write(output / "result.json", {**failure, "cleanup": "complete"})
+            control.write(output / "result.json", {**failure, "cleanup": failure.get("cleanup", "complete")})
 
 
 if __name__ == "__main__":
