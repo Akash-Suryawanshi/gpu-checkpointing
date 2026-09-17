@@ -113,17 +113,17 @@ merges; do not merge on their behalf.
 **Impact**: Explain this handoff. Neither CPU pre-dump nor a rotating latest directory establishes incremental GPU capture.
 
 ### 2026-09-17 - Extracted CRIU dependencies include dangling linker symlinks
-**Finding**: The local extracted dependency directory contains an unversioned `libmd.so` link without its target. `experiments/finetuning/control.py` fingerprints usable runtime library files and omits dangling development links.
+**Finding**: The local extracted dependency directory contains an unversioned `libmd.so` link without its target. `experiments/finetuning/control.py:213` fingerprints usable runtime library files and omits dangling development links.
 **Impact**: Do not hash every `*.so*` glob result blindly; that rejects a working CRIU runtime before capture.
 
 ### 2026-09-17 - CRIU statistics must leave the immutable image directory
 **Finding**: Pinned `criu/stats.c:205` writes statistics through `AT_FDCWD`; `criu/crtools.c:219` defaults the work directory to the images directory. An absolute log path alone still leaves `stats-restore` inside the hashed payload.
-**Impact**: Independent workers pass `--work-dir` pointing to the mutable attempt directory for both dump and restore.
+**Impact**: `experiments/criu/session.py:213` passes `--work-dir` pointing to the mutable attempt directory for both dump and restore.
 
 ### 2026-09-17 - Restored trainers cannot publish host-clock PID start ticks
-**Finding**: The first independent two-generation trial read start ticks `78305919` inside the restored trainer and `78308751` in its host worker for the same PID. `experiments/finetuning/restore.py` now refreshes registration from the host worker; `control.py` adopts that record instead of replacing it with the trainer's time-namespace view.
+**Finding**: The first independent two-generation trial read start ticks `78305919` inside the restored trainer and `78308751` in its host worker for the same PID. `experiments/finetuning/restore.py:43` now refreshes registration from the host worker; `control.py:144` adopts that record instead of replacing it with the trainer's time-namespace view.
 **Impact**: Process identity comparisons and subsequent acknowledgements must use one observer clock domain; converting event timestamps alone is insufficient.
 
 ### 2026-09-17 - Pause expiry must be serialized with dump arming
-**Finding**: A deadline test showed `control.boundary()` could resume an acknowledged trainer while its capture worker still held the operation lock. Expiry now rechecks the unarmed phase under that lock; workers also wait with their deadline when initial registration briefly owns it.
+**Finding**: A deadline test showed `experiments/finetuning/control.py:144` could resume an acknowledged trainer while its capture worker still held the operation lock. Expiry now rechecks the unarmed phase under that lock; workers also wait with their deadline when initial registration briefly owns it.
 **Impact**: An expired request alone is not permission to resume once a worker may be preparing a dump. Worker death releases the lock, but a persisted dumping phase still forbids automatic continuation.

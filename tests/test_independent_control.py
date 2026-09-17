@@ -202,6 +202,14 @@ class ProtocolTests(unittest.TestCase):
                     child.kill()
                     child.wait()
 
+    def test_legacy_criu_pause_interface_is_rejected_before_model_setup(self):
+        """AC2: process capture has one external-control pause protocol, not an old marker path."""
+        trainer = Path(control.__file__).parent / "train.py"
+        result = subprocess.run([sys.executable, str(trainer), "--assets", ".", "--run-dir", ".",
+                                 "--pause-at", "1"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--pause-at requires --save", result.stderr)
+
     def test_external_pause_cancellation_expiry_and_matching_resume(self):
         """AC2: stale, cancelled, expired, and final-boundary requests cannot hang training."""
         with tempfile.TemporaryDirectory() as folder:

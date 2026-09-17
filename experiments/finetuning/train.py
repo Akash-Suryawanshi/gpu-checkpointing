@@ -1,9 +1,8 @@
 """Run a small LoRA workload with observable, completed-update capture boundaries.
 
-The trainer and controller are separate processes: each is a running program with
-its own memory. This process owns training; the controller owns capture, restore,
-and permission to continue. An application restore rebuilds objects from a file;
-a CRIU restore recreates saved process memory and resumes at its waiting point.
+The trainer and workers are separate processes: running programs with their own
+memory. This process owns training; workers capture and restore its process image.
+The application comparison instead rebuilds training objects from a saved file.
 """
 
 import argparse
@@ -38,8 +37,8 @@ def wait(path):
     Their ordinary Python variables are separate, but they can see the same files.
     Markers therefore coordinate them before capture and after process recreation.
     """
-    # The controller enforces timeouts: a saved deadline could expire while this
-    # process is absent from the GPU, even though its restored state is healthy.
+    # The application harness bounds its wait and cleans up its owned child on
+    # failure. Independent CRIU requests use the separate protocol in control.py.
     while not path.exists():
         time.sleep(0.05)
 
@@ -128,7 +127,7 @@ def main(args):
     }
     if args.load:
         # Application restoration reconstructs objects and loads their saved state.
-        # CRIU restoration bypasses setup: it resumes at the saved wait below.
+        # CRIU bypasses setup and resumes its saved wait in control.boundary().
         progress = state.load_application(args.load, model, optimizer, schedule, identity, config)
 
     def observe(name):
@@ -250,11 +249,6 @@ def main(args):
                 state.save_application(args.save, model, optimizer, schedule, progress, identity, config)
                 (run / f"saved-{update}").touch(exist_ok=False)
                 return  # The controller verifies this original trainer has exited.
-            # CRIU captures while this wait is active. Only after restoring the
-            # process does the controller create inspect-N, then continue-N after
-            # comparing its evidence with the uninterrupted reference.
-            wait(run / f"inspect-{update}")
-            inspect_restored(update)
 
     if not any(initial[n] != state.tensor_record(p) for n, p in parameters.items()):
         raise ValueError("Adapters did not change")
@@ -275,6 +269,8 @@ if __name__ == "__main__":
     parser.add_argument("--timing", action="store_true")
     parser.add_argument("--external-control", action="store_true")
     args = parser.parse_args()
+    if args.pause_at and not args.save:
+        parser.error("--pause-at requires --save; CRIU uses --external-control")
     if args.external_control and (args.pause_at or args.save or args.load or args.timing):
         parser.error("External control requires full inspection and cannot use legacy pause/save/load")
     main(args)
