@@ -58,7 +58,7 @@ def launch(trial, directory, pause=(), extra=()):
                  "--dropout", args.dropout, "--until", args.until]
     if pause:
         arguments += ["--pause-at", ",".join(map(str, pause))]
-    if args.timing:
+    if args.timing and "--external-control" not in extra:
         arguments += ["--timing"]
     # The directory also identifies the child during guarded failure cleanup.
     trial.directory = directory
@@ -85,26 +85,19 @@ def capture_boundary(trial, generation):
     return expected
 
 
-def handoff(trial, generation, require_clean_exit=False):
-    """Verify exit, observe an empty GPU, sync images, then exercise job B.
+def handoff(trial, generation):
+    """Verify application exit, sync its checkpoint, and exercise job B.
 
-    A disappearance during CUDA staging can be temporary, so GPU availability
-    is observed only after the original has been reaped: the controller waits
-    for its exit and Linux removes its process entry. Job B independently
-    allocates GPU memory and computes a result. Its time is recorded separately
-    from capture and restore. ``sync -f`` flushes pending writes on this local
-    filesystem; it does not copy the snapshot to another host or remote store.
+    The launch parent collects the trainer's status before observing an empty
+    GPU. Job B then independently allocates GPU memory and checks a result.
+    ``sync -f`` waits for local filesystem writeback; it does not publish remotely.
     """
     output = trial.args.run_dir
     code = session.reap(trial.pid, trial.process)
-    # Application saving exits normally; CRIU ends its original during dump,
-    # so that route requires verified disappearance without requiring exit 0.
-    if require_clean_exit and code != 0:
+    if code != 0:
         raise RuntimeError("Application save process failed")
     event(trial, "original_exit_verified", generation=generation, pid=trial.pid)
-    # CRIU restores the same numeric PID. Retain it for cleanup if restore fails
-    # after creating that child, but discard the original Popen handle.
-    trial.process = None
+    trial.pid, trial.process = None, None
     event(trial, "gpu_observation_started", generation=generation)
     gpu_log = output / f"gpu-after-exit-{generation}.csv"
     session.command(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader"],
@@ -123,24 +116,18 @@ def handoff(trial, generation, require_clean_exit=False):
     event(trial, "restore_requested", generation=generation)
 
 
-def inspect_restore(trial, generation, expected, *, request_inspection=False):
-    """Release a diagnostic trainer only after untouched restore state matches.
+def inspect_restore(trial, generation, expected):
+    """Inspect an application-loaded trainer before granting its next update.
 
-    Each pipeline requests inspection in its own way. This common half waits
-    for the observation, then compares reference → before → after through
-    session.release_verified. A mismatch never creates the continue marker.
-
-    First record restore return and diagnostic memory mappings. CRIU also needs
-    an inspection request; application loading starts inspection itself. Timing
-    skips diagnostics but still releases CRIU's saved wait.
+    The trainer writes its observation before any repair. Missing or mismatched
+    evidence never creates the continue marker. Timing was admitted separately
+    and skips this diagnostic wait; independent CRIU uses restore.py instead.
     """
     output = trial.args.run_dir
     event(trial, "restore_returned", generation=generation, pid=trial.pid)
     if not trial.args.timing:
         # Linux exposes this process's mapped memory ranges for later diagnosis.
         (output / f"restored-{generation}.maps").write_text(Path(f"/proc/{trial.pid}/maps").read_text())
-    if request_inspection:
-        (output / f"inspect-{generation}").touch(exist_ok=False)
     if not trial.args.timing:
         session.wait_marker(output / f"inspected-{generation}", trial.pid)
         session.release_verified(output, generation, expected)

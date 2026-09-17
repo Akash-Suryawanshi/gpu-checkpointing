@@ -187,8 +187,8 @@ def command(arguments, log, env, timeout=120):
 def criu(action, run, generation, tools, env, pid=None, *, images=None, attempt=None, timeout=120):
     """Dump or restore one generation using CRIU and its native CUDA plugin.
 
-    Dump leaves the original terminated; the caller still must reap it and verify
-    the GPU handoff. Restore returns a PID whose trainer waits for inspection.
+    Dump leaves the original terminated. Its launch parent reaps it; an unrelated
+    caller observes removal. Restore returns a trainer PID waiting for inspection.
     No manual NVIDIA restore/unlock belongs here: the plugin performs both.
     """
     # Every capture needs fresh image and PID paths. This CRIU version creates
