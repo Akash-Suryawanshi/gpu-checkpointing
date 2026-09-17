@@ -93,6 +93,13 @@ class ProtocolTests(unittest.TestCase):
                 if fail_at is None:
                     failure_points.extend(range(1, count + 1))
 
+    def test_dangling_development_symlink_does_not_block_runtime_fingerprints(self):
+        """REGRESSION (independent preflight): extracted libmd.so links can be dangling."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "libmd.so.0").write_bytes(b"runtime")
+            (root / "libmd.so").symlink_to("absent-development-library")
+            self.assertEqual(control.runtime_libraries(root), [root / "libmd.so.0"])
 
     def test_attempt_creation_requires_parent_directory_sync(self):
         """REGRESSION (publication audit): losing the attempt entry loses restore controls."""
@@ -229,6 +236,7 @@ class ProtocolTests(unittest.TestCase):
             control.write(run / "control/request.json", {**request, "job_id": "stale"})
             control.boundary(run, job, 2, lambda: seen.append(2))
             self.assertEqual(seen, [])
+
 
 
 if __name__ == "__main__":

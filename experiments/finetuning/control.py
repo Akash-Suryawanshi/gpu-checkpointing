@@ -203,6 +203,43 @@ def boundary(run, job, update, inspect):
         time.sleep(0.05)
 
 
+def tools_config(root):
+    root = Path(root).resolve()
+    return {"criu": str(root / "criu-4.2.1/criu/criu"),
+            "plugin": str(root / "criu-4.2.1/plugins/cuda"),
+            "libraries": str(root / "criu-deps/usr/lib/x86_64-linux-gnu")}
+
+
+def runtime_libraries(directory):
+    # Extracted development packages can contain dangling unversioned linker
+    # symlinks; fingerprint the usable runtime files, not unavailable build inputs.
+    return [path for path in directory.glob("*.so*") if path.is_file()]
+
+
+def dependencies(job, tools, deadline):
+    """Fingerprint dependencies without importing torch or creating a CUDA context."""
+    assets = Path(job["assets"])
+    manifest = read(assets / "manifest.json")
+    paths = list((ROOT / "experiments/finetuning").glob("*.py"))
+    paths += [ROOT / "experiments/criu/session.py", assets / "manifest.json", assets / "tokens.json"]
+    paths += [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]]
+    paths += [Path(tools) / name for name in (
+        "criu-4.2.1/criu/criu", "criu-4.2.1/plugins/cuda/cuda_plugin.so",
+        "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")]
+    paths += runtime_libraries(Path(tools) / "criu-deps/usr/lib/x86_64-linux-gnu")
+    hashes = {}
+    for path in paths:
+        remaining(deadline)
+        hashes[str(path.absolute())] = file_hash(path)
+    gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,uuid,driver_version,memory.total",
+                                   "--format=csv,noheader"], text=True, timeout=remaining(deadline)).strip()
+    return {"files": hashes, "python": platform.python_version(), "executable": job["python"],
+            "packages": dict(sorted((d.metadata["Name"].lower(), d.version)
+                                     for d in importlib.metadata.distributions())),
+            "kernel": platform.release(), "gpu": gpu,
+            "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip()}
+
+
 def storage(path):
     """Record mount/backing device and reject volatile memory filesystems."""
     data = json.loads(subprocess.check_output(
@@ -263,3 +300,29 @@ def publish(snapshot, manifest, run, deadline, emit):
         raise
 
 
+def validate(snapshot, run, tools, deadline):
+    manifest = read(snapshot / "manifest.json")
+    if manifest.get("schema") != SCHEMA or manifest["run"] != str(run):
+        raise ValueError("Wrong snapshot schema or job path")
+    complete = read(snapshot / "COMPLETE")
+    if complete != {"capture_id": manifest["capture_id"], "manifest_sha256": file_hash(snapshot / "manifest.json")}:
+        raise ValueError("Completion digest mismatch")
+    expected_phase = {"status": "published", "capture_id": manifest["capture_id"], "snapshot": str(snapshot)}
+    if read(run / "control/phase.json") != expected_phase:
+        raise ValueError("Snapshot is ambiguous, consumed, or no longer current")
+    if inventory(snapshot) != manifest["payload"]:
+        raise ValueError("Snapshot payload mismatch")
+    job = read(run / "job.json")
+    if job != manifest["job"] or job["identity"]["uid"] != os.getuid():
+        raise ValueError("Job identity mismatch")
+    if Path(f'/proc/{job["identity"]["pid"]}').exists():
+        raise ValueError("Original PID is still present")
+    request = read(run / "control/request.json")
+    if request != manifest["request"] or (run / "attempts" / manifest["capture_id"] / "inspect.json").exists():
+        raise ValueError("Stale control markers")
+    if dependencies(job, tools, deadline) != manifest["dependencies"]:
+        raise ValueError("Environment, tools, source, or asset mismatch")
+    for name in ("updates.jsonl", "trainer.stderr"):
+        if not (run / name).is_file() or file_hash(run / name) != manifest["external_files"][name]:
+            raise ValueError("Required external log missing or changed")
+    return manifest

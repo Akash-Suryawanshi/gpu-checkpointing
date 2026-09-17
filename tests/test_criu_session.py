@@ -36,6 +36,23 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(session.criu("restore", run, 2, tools, {"PATH": "/usr/bin"}), 123)
                 self.assertEqual(session.criu("restore", run, 3, tools, {"PATH": "/usr/bin"}), 123)
 
+    def test_independent_criu_keeps_statistics_outside_payload(self):
+        """REGRESSION (immutable payload): absolute log paths do not relocate CRIU stats."""
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            attempt = run / "attempt"
+            attempt.mkdir()
+            images = run / "images"
+            tools = {"libraries": "unused", "criu": "unused", "plugin": "unused"}
+            with patch.object(session, "command", side_effect=RuntimeError("stop before CRIU")) as command, \
+                 patch.object(session.subprocess, "run"):
+                with self.assertRaisesRegex(RuntimeError, "stop before CRIU"):
+                    session.criu("dump", run, "capture", tools, {"PATH": "/usr/bin"}, 1,
+                                 images=images, attempt=attempt)
+            arguments = command.call_args.args[0]
+            self.assertEqual(arguments[arguments.index("--work-dir") + 1], str(attempt))
+            self.assertEqual(arguments[arguments.index("--images-dir") + 1], str(images))
+
     def test_continuation_requires_matching_inspection_for_this_generation(self):
         """Critical: a missing, stale, or mismatched inspection must not release training.
 
