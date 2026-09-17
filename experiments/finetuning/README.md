@@ -5,6 +5,8 @@ invoke CRIU with Linux administrator privileges. The tool sandbox is a restricte
 execution environment inside the host; it does not expose the GPU. Keep all
 assets, environments, and run output under ignored `runs/`.
 
+The proposed [independent lifecycle plan](../../docs/independent-lifecycle-plan.md) adds separate capture and restore commands after review. The commands below describe the current implementation.
+
 The **trainer** and **controller** are separate processes: running programs with
 their own memory. The trainer performs the updates; the controller manages when
 it may continue and asks CRIU to capture or reconstruct it. If these concepts are

@@ -1,5 +1,7 @@
 # Single-GPU Fine-Tuning Checkpoint Implementation Plan
 
+**Next proposed change:** the [independent lifecycle plan](independent-lifecycle-plan.md) separates externally triggered training, capture, and restore. It awaits review; the implemented milestones and historical evidence below describe the current controller.
+
 **Status:** Implemented and validated for this bounded same-host configuration, with qualified compatibility. All numerical/lifecycle gates and three timing pairs pass; sharing ownership remains unresolved. [Results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
 
 **Goal:** End a real LoRA training process after update 2, reconstruct it from a CPU/GPU process image, and verify that its state and updates 3–4 match an uninterrupted run. Compare the cost with a complete application checkpoint.

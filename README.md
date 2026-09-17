@@ -49,6 +49,8 @@ A **process checkpoint**, or transparent snapshot, instead aims to reconstruct t
 
 The Markdown chapters are the authoritative explanation. The CPU chapter also links to a standalone interactive walkthrough. After the concepts, read the [single-GPU fine-tuning research](research/single-gpu-finetuning.md), the [implementation plan](docs/implementation-plan.md), and [experiment results](experiments/results.md). The [runnable LoRA experiment](experiments/finetuning/README.md) explains setup, correctness checks, and timing commands.
 
+The proposed [independent lifecycle plan](docs/independent-lifecycle-plan.md) separates trainer, capture, and restore entrypoints. It awaits approval before implementation on a new branch.
+
 ## What has been observed
 
 September 14, 2026 evidence covers two different execution hosts:
