@@ -13,13 +13,15 @@ def run(trial):
     event(trial, "launched", pid=trial.pid)
     expected = capture_boundary(trial, generation)
 
-    # Saving starts inside the measured interval, then the trainer exits normally.
+    # The trainer writes its checkpoint only after this request, so save work is
+    # inside the capture measurement. It publishes saved-* and exits normally.
     (output / f"save-{generation}").touch(exist_ok=False)
     session.wait_marker(output / f"saved-{generation}", trial.pid)
     event(trial, "application_save_completed", generation=generation)
     handoff(trial, generation, require_clean_exit=True)
 
-    # Rebuild from explicit state; diagnostics inspect it before the next update.
+    # This route intentionally reconstructs model/optimizer objects and loads
+    # their state. The restarted trainer requests inspection before any update.
     launch(trial, output, extra=["--load", checkpoint])
     inspect_restore(trial, generation, expected)
     finish(trial)

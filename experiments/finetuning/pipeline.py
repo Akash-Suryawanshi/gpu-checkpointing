@@ -1,7 +1,10 @@
-"""Shared steps; each dedicated pipeline keeps its save/dump/restore sequence.
+"""Shared lifecycle steps for the three explicit fine-tuning pipelines.
 
-The controller supervises the trainer process (running program). Empty marker
-files communicate readiness or permission between them, never model state.
+The controller starts and supervises the trainer process: a running copy of
+train.py. Empty marker files form a handshake: one process creates a file to
+announce readiness or grant permission, and the other waits for that filename.
+These files carry no model state. Keep route-specific save/dump/restore decisions
+in the pipeline files so each experiment reads from top to bottom.
 """
 
 from argparse import Namespace
@@ -22,11 +25,14 @@ import session
 
 @dataclass
 class Trial:
-    """Track the active trainer for sampling and cleanup, including after errors.
+    """Controller data shared with one pipeline, including its live child.
 
-    PID is Linux's process number; Popen is Python's handle for a child it started.
-    CRIU restores a PID without Popen. ``env`` holds child environment variables;
-    ``directory`` identifies its files. Model state stays in the trainer.
+    A PID is Linux's numeric process identifier; Popen is Python's handle for a
+    process it started. CRIU-restored trainers have a PID but no Popen handle.
+    Update these fields as the active trainer changes: the outer controller
+    needs them for memory sampling and cleanup even when a pipeline raises.
+    ``directory`` identifies that trainer's files. No model or optimizer lives
+    here; ``env`` contains the environment variables passed to child processes.
     """
 
     args: Namespace
@@ -62,9 +68,12 @@ def launch(trial, directory, pause=(), extra=()):
 
 
 def capture_boundary(trial, generation):
-    """Check the completed update identified by generation, then request capture.
+    """Wait for a complete update; check its reference before requesting capture.
 
-    Timing skips inspection only after run.py admits matching correctness evidence.
+    A generation is identified by its completed update number. A diagnostic
+    trial compares this boundary and later compares the restored
+    boundary before permitting another update. A timing trial skips these large
+    inspections only after run.py has verified matching correctness evidence.
     """
     args = trial.args
     session.wait_marker(args.run_dir / f"ready-{generation}", trial.pid, 300)
@@ -77,18 +86,24 @@ def capture_boundary(trial, generation):
 
 
 def handoff(trial, generation, require_clean_exit=False):
-    """Verify exit → GPU availability → local sync → job B → restore request.
+    """Verify exit, observe an empty GPU, sync images, then exercise job B.
 
-    Reaping collects the child's exit status and removes its process record.
-    Observe GPU availability afterward: release during staging can be temporary.
+    A disappearance during CUDA staging can be temporary, so GPU availability
+    is observed only after the original has been reaped: the controller waits
+    for its exit and Linux removes its process entry. Job B independently
+    allocates GPU memory and computes a result. Its time is recorded separately
+    from capture and restore. ``sync -f`` flushes pending writes on this local
+    filesystem; it does not copy the snapshot to another host or remote store.
     """
     output = trial.args.run_dir
     code = session.reap(trial.pid, trial.process)
-    # Application save must exit normally; CRIU can terminate its original.
+    # Application saving exits normally; CRIU ends its original during dump,
+    # so that route requires verified disappearance without requiring exit 0.
     if require_clean_exit and code != 0:
         raise RuntimeError("Application save process failed")
     event(trial, "original_exit_verified", generation=generation, pid=trial.pid)
-    # Keep the PID for partial-restore cleanup: CRIU recreates that same number.
+    # CRIU restores the same numeric PID. Retain it for cleanup if restore fails
+    # after creating that child, but discard the original Popen handle.
     trial.process = None
     event(trial, "gpu_observation_started", generation=generation)
     gpu_log = output / f"gpu-after-exit-{generation}.csv"
@@ -97,11 +112,11 @@ def handoff(trial, generation, require_clean_exit=False):
     if gpu_log.read_text().strip():
         raise RuntimeError("GPU compute processes remain after original exit")
     event(trial, "gpu_observed_after_exit", generation=generation)
-    # Flush this filesystem's writes; this does not copy images to another host.
     session.command(["sync", "-f", output], output / f"sync-{generation}.log", trial.env)
     event(trial, "filesystem_synced", generation=generation)
     event(trial, "job_b_requested", generation=generation)
-    # A separate allocation and checked sum prove another job can use CUDA.
+    # A separate process allocates GPU memory and checks a reduction, giving
+    # functional evidence that another job can actually use CUDA after exit.
     session.command([sys.executable, ROOT / "experiments/finetuning/job_b.py"],
                     output / f"job-b-{generation}.log", trial.env, timeout=60)
     event(trial, "job_b_completed", generation=generation)
@@ -109,16 +124,20 @@ def handoff(trial, generation, require_clean_exit=False):
 
 
 def inspect_restore(trial, generation, expected, *, request_inspection=False):
-    """Record restore return, save diagnostic maps, then optionally request inspection.
+    """Release a diagnostic trainer only after untouched restore state matches.
 
-    CRIU needs an inspect marker; application loading starts inspection itself.
-    Diagnostic continuation requires reference → before → after equality.
-    Timing skips maps/comparison but still releases CRIU's saved wait.
+    Each pipeline requests inspection in its own way. This common half waits
+    for the observation, then compares reference → before → after through
+    session.release_verified. A mismatch never creates the continue marker.
+
+    First record restore return and diagnostic memory mappings. CRIU also needs
+    an inspection request; application loading starts inspection itself. Timing
+    skips diagnostics but still releases CRIU's saved wait.
     """
     output = trial.args.run_dir
     event(trial, "restore_returned", generation=generation, pid=trial.pid)
     if not trial.args.timing:
-        # Linux lists this process's mapped memory ranges for later diagnosis.
+        # Linux exposes this process's mapped memory ranges for later diagnosis.
         (output / f"restored-{generation}.maps").write_text(Path(f"/proc/{trial.pid}/maps").read_text())
     if request_inspection:
         (output / f"inspect-{generation}").touch(exist_ok=False)
@@ -135,14 +154,16 @@ def finish(trial, record_exit=True):
         raise RuntimeError("Trainer did not exit successfully")
     if record_exit:
         event(trial, "final_exit_verified", pid=trial.pid)
-    # Failure cleanup must no longer target this exited trainer.
+    # The outer finally block must no longer treat this reaped PID as owned.
     trial.pid, trial.process = None, None
 
 
 def compare_run(reference, actual, until, timing=False):
-    """Compare every loss and boundary exactly; timing saves only the final boundary.
+    """Compare boundary fingerprints and every loss without tolerance.
 
-    Final timing inspection happens after the measured next-update endpoint.
+    Diagnostic runs save every boundary, including initialization. Timing runs
+    save only their final fingerprint outside the measured next-update endpoint;
+    all losses are still compared in their original update order.
     """
     for update in ([until] if timing else range(until + 1)):
         state.compare(json.loads((reference / f"state-{update}.json").read_text()),

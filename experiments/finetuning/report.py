@@ -1,6 +1,7 @@
-"""Selected run records -> reanalyzed measurements -> JSON evidence report.
+"""Turn selected run directories into a reviewable JSON evidence report.
 
-Raw images/logs stay private in ignored runs/. This pipeline launches no workloads.
+This reporting pipeline reads existing measurements; it never launches training
+or restores a process. Raw images and logs remain private in ignored runs/.
 """
 
 import argparse
@@ -9,6 +10,7 @@ import json
 from pathlib import Path
 import statistics
 import metrics
+from prepare import file_hash, write_json
 
 
 def main():
@@ -19,11 +21,12 @@ def main():
     parser.add_argument('--controller-clock-offset-ns', type=int,
                         help='Required only to reanalyze older runs that did not record the controller clock offset')
     args = parser.parse_args()
-    # Keep current analysis hashes separate from each trial's original code hashes.
+    # Analysis source can change after training (for example, a clock correction).
+    # Record those hashes separately from the code hashes in each original key.
     report = {'scope': 'same-host, warm cached assets; numerical success is separate from compatibility',
               'keys': {}, 'runs': {}, 'timing_summary': {},
-              'analysis_source_sha256': {name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
-                                         for name in ('metrics.py', 'report.py')}}
+              'analysis_source_sha256': {name: file_hash(Path(__file__).parent / name)
+                                         for name in ('metrics.py', 'prepare.py', 'report.py')}}
     for run in args.runs:
         key = json.loads((run / 'key.json').read_text())
         # Deduplicate identical environment/configuration records by stable digest.
@@ -39,11 +42,11 @@ def main():
             result['superseded_latencies'] = original
         result['key_sha256'] = digest
         # Publish fingerprints of state records, not their full tensor contents.
-        result['state_file_sha256'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                      for p in sorted(run.glob('state-*.json'))}
+        result['state_file_sha256'] = {p.name: file_hash(p) for p in sorted(run.glob('state-*.json'))}
         report['runs'][run.name] = result
     for mode in ('application', 'criu'):
-        # Exclude diagnostics' inspection work; callers select matching paired trials.
+        # Diagnostic trials include extra inspection work and must not enter the
+        # headline timing summary. The caller supplies matching paired trials.
         trials = [r for r in report['runs'].values() if r['mode'] == mode and r['timing']]
         if not trials:
             continue
@@ -57,7 +60,7 @@ def main():
             summary[metric] = {'individual': values, 'median': statistics.median(values),
                                'min': min(values), 'max': max(values)}
         report['timing_summary'][mode] = summary
-    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+    write_json(args.output, report)
     print(json.dumps(report['timing_summary'], indent=2))
 
 

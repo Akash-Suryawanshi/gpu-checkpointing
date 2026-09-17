@@ -1,7 +1,10 @@
-"""Fingerprint complete state; save adapters and continuation state separately.
+"""Inspect complete training state and save the smaller application checkpoint.
 
-Application restore rebuilds the frozen base from its pinned identity, then
-loads saved state. CRIU restores process memory instead; see criu_pipeline.py.
+Inspection hashes every model tensor, including the frozen base, so comparisons
+can detect changed bytes without writing another full model. Application saves
+contain the trainable adapters and continuation state; the caller reconstructs
+the frozen model from the pinned identity before loading them. These functions
+do not perform CRIU process capture.
 """
 
 import hashlib
@@ -13,10 +16,11 @@ import torch
 
 
 def tensor_record(value):
-    """Record dtype, shape, and a SHA-256 hash of the exact tensor bytes.
+    """Describe a tensor by its dtype, shape, and SHA-256 of its exact bytes.
 
-    Detach from gradient tracking, arrange values contiguously in logical order,
-    then view their bytes without numerical conversion or rounding.
+    Detaching avoids building an autograd graph during inspection. Contiguous
+    storage puts values in logical order; viewing as bytes preserves their exact
+    representation rather than rounding values through a text conversion.
     """
     value = value.detach().contiguous()
     raw = value.reshape(-1).view(torch.uint8)
@@ -29,7 +33,11 @@ def tensor_record(value):
 
 
 def fingerprints(value):
-    """Replace tensors with fingerprints; normalize keys and sequences for JSON."""
+    """Replace tensors in nested state with records suitable for JSON comparison.
+
+    Dictionary keys become strings and tuples become lists, matching the JSON
+    evidence format. Scalar metadata stays unchanged so it is checked as well.
+    """
     if torch.is_tensor(value):
         return tensor_record(value)
     if isinstance(value, dict):
@@ -58,10 +66,11 @@ def restore_rng(saved):
 
 
 def behavior(model):
-    """Read non-tensor settings without changing the model.
+    """Read the execution settings that tensor values alone cannot establish.
 
-    Modes, adapter selection, gradient flags, and dropout affect continuation.
-    Dropout needs both a nonzero probability and training mode.
+    Dropout needs both a nonzero probability and training mode. Adapter
+    selection, disabled/merged adapter layers, and gradient flags also affect
+    the next update, so inspection records them without changing the model.
     """
     modules = dict(model.named_modules())
     return {
@@ -84,10 +93,11 @@ def behavior(model):
 
 
 def inspect(model, optimizer, schedule, progress, identity, config):
-    """Fingerprint continuation state after an update with cleared gradients.
+    """Fingerprint a completed update, including state needed by the next one.
 
-    Identify optimizer tensors by parameter names: Python object IDs change
-    when application restore reconstructs the model.
+    This boundary requires gradients to have been cleared. Parameter names link
+    optimizer moments and parameter groups to model tensors across processes;
+    Python object IDs themselves would differ after application reconstruction.
     """
     parameters = dict(model.named_parameters())
     if any(parameter.grad is not None for parameter in parameters.values()):
@@ -120,9 +130,11 @@ def inspect(model, optimizer, schedule, progress, identity, config):
 
 
 def compare(expected, actual, path="state"):
-    """Report the first mismatch, including types, missing fields, and lengths.
+    """Fail at the first mismatch and report its location in the nested state.
 
-    Compare scalar values exactly, without numerical tolerance.
+    Types, dictionary keys, and list lengths must match before values are
+    compared. A missing field or an extra sequence entry cannot silently pass;
+    scalar comparisons are exact, with no numerical tolerance.
     """
     if type(expected) is not type(actual):
         raise ValueError(f"{path}: type differs")
@@ -141,9 +153,11 @@ def compare(expected, actual, path="state"):
 
 
 def save_application(path, model, optimizer, schedule, progress, identity, config):
-    """Save adapters, buffers, and continuation state, then persist locally.
+    """Write, atomically publish, and locally sync an application checkpoint.
 
-    Identity and parameter order guard the reconstructed model on reload.
+    Save adapters, buffers, and continuation state. Frozen weights come from
+    the pinned base model on reload; parameter order and model identity guard
+    against loading optimizer state into a different reconstruction.
     """
     path = Path(path)
     candidate = path.with_suffix(".temp")
@@ -164,15 +178,18 @@ def save_application(path, model, optimizer, schedule, progress, identity, confi
         "rng": rng_state(),
     }
     try:
-        # "xb" rejects an existing file. flush() sends Python's buffered bytes
-        # to Linux; fsync() persists them via the file's integer handle (fileno).
+        # Exclusive creation rejects an existing temporary file. flush() moves
+        # Python's buffered bytes to Linux; fsync() asks Linux to persist them.
+        # fileno() is the integer file descriptor Linux uses for this open file.
         with candidate.open("xb") as output:
             torch.save(payload, output)
             output.flush()
             os.fsync(output.fileno())
-        # Rename publishes only the finished file under its final name.
+        # A rename publishes the completed file in one operation, so readers do
+        # not see a half-written checkpoint under the final filename.
         os.replace(candidate, path)
-        # Persist the directory's rename too; this cannot survive disk deletion.
+        # Sync the rename itself. This is local filesystem durability, not an
+        # upload to storage that would survive losing the instance or its disk.
         directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(directory)
@@ -183,10 +200,12 @@ def save_application(path, model, optimizer, schedule, progress, identity, confi
 
 
 def load_application(path, model, optimizer, schedule, identity, config):
-    """Load into reconstructed objects; restore random-generator streams last.
+    """Load saved state into a reconstructed model, then restore RNG streams last.
 
-    Check identity/configuration before copying. Restore module modes; require
-    the other behavior flags to match. CRIU inspection never calls this repair.
+    Validate identity, configuration, and parameter order before copying state.
+    Restore module modes, but require adapter settings and trainable flags to
+    already match the reconstruction. This is application-checkpoint loading;
+    CRIU restores process memory and is inspected separately without repairs.
     """
     # Stage serialized tensors on the CPU. copy_ keeps the model's existing
     # devices; the optimizer loader applies its own state-placement rules.
@@ -199,18 +218,20 @@ def load_application(path, model, optimizer, schedule, identity, config):
         [name for name, parameter in model.named_parameters() if parameter.requires_grad],
         "parameter_names",
     )
-    # Copy without gradient tracking; keep the optimizer's parameter references.
+    # Copy tensor contents in place so optimizer references still point to the
+    # same parameters; checkpoint loading must not create an autograd graph.
     with torch.no_grad():
         for name, value in saved["adapters"].items():
             model.get_parameter(name).copy_(value)
         for name, value in saved["buffers"].items():
             model.get_buffer(name).copy_(value)
-    # Construct the scheduler before loading the optimizer's current learning
-    # rate: scheduler construction can overwrite it.
+    # The scheduler must exist before loading optimizer state (including the
+    # current learning rate), because constructing a scheduler can change it.
     schedule.load_state_dict(saved["schedule"])
     optimizer.load_state_dict(saved["optimizer"])
     for name, mode in saved["behavior"]["modes"].items():
-        # train(mode) recurses into children; direct flags preserve mixed modes.
+        # Set each flag directly: train(mode) would recursively overwrite child
+        # modes, potentially losing a deliberate mix of training/evaluation.
         model.get_submodule(name).training = mode
     compare(fingerprints(saved["behavior"]), fingerprints(behavior(model)), "training_behavior")
     # Last: setup and loading must not consume the saved random stream.
