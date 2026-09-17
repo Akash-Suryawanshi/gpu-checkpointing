@@ -6,7 +6,8 @@ complete the pipeline with a smaller model if 8B exceeds GPU or host-memory limi
 
 The local implementation passed with Qwen3-8B on A10G: five diagnostics, twelve
 scheduled timings, and separate disk capture/restore commands. This document keeps
-the acceptance contract; [results](../experiments/results.md#inference-activation-and-gpu-reuse--2026-09-17)
+the acceptance contract. A pinned container also passed CPU/GPU restore probes
+and five 8B diagnostics on the same host; [results](../experiments/results.md#inference-activation-and-gpu-reuse--2026-09-17)
 own measurements and the [runbook](../experiments/inference/README.md) owns commands.
 
 ```text

@@ -508,3 +508,32 @@ No failed timing slot was replaced.
 
 Subsequent cancellation and report fixes have
 separate regression checks; their container validation uses a new comparison key.
+
+## Container compatibility — 2026-09-17
+
+The [pinned image](inference/Dockerfile) passed 47 CPU checks, actual namespace
+creation, CPU-process restoration, and a 64 MiB GPU-tensor restoration with a
+verified next operation. It then passed two fresh and one resident, RAM, and disk
+8B diagnostic; [curated evidence](evidence/2026-09-17/inference-container.json)
+records the image, permissions, source hashes, and result digests.
+
+```text
+image: Python + snapshot tools -----+
+mounts: model + assets + results ---+--> probes -> five 8B diagnostics
+host: Linux kernel + GPU driver ---+                -> exact state and outputs
+```
+
+A container supplies user-space software, but still uses the host's kernel and
+GPU driver. All diagnostics ran inside the same privileged container on the A10G;
+this does not establish recovery after container restart or on another host.
+
+Prepared tokens, output, and weight fingerprints matched host preparation.
+The final cancellation/report sources used a new compatibility key; container
+diagnostic times were not pooled with the host's three timing blocks.
+
+CRIU warned about absent libnftables support (Linux firewall integration) and an
+interrupted system call; networking recovery was not tested. The `sudo` hostname
+warnings were nonfatal. All warnings remain in the evidence.
+
+The [runbook](inference/README.md#container-validation) gives the tested mounts,
+permissions, and probe commands; no smaller model or larger GPU was needed.

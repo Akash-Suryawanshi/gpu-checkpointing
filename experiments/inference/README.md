@@ -197,8 +197,67 @@ Show the capture record and confirm no model worker remains between commands.
 After restore, show matching output and continued operation after the restore
 helper exits. This validates independent commands on the same host, not host-loss recovery.
 
-## After the local pipeline passes
+## Container validation
 
-Follow the [container and scaling gate](../../docs/inference-snapshot-plan.md#9-container-packaging-and-later-scaling).
-Use a fresh campaign per container environment or target host; repeat compatibility
-probes and diagnostics before retrying 8B on a larger GPU.
+Requires Docker with NVIDIA Container Toolkit configured on the host. The image
+fixes the Ubuntu base digest, Python package versions, and CRIU/NVIDIA source commits. Ubuntu build dependencies follow the package repository; their
+archive hashes are saved in `/opt/tools/package-hashes.txt`.
+
+```text
+host model files --read-only bind mount--> /model
+host results disk ----read/write mount--> /data
+pinned image + host NVIDIA driver ------> CPU/GPU probes -> model diagnostics
+```
+
+Bind mounts expose host files at fixed container paths; they do not copy the files.
+Keep these paths stable for recovery. The host supplies the GPU driver through
+NVIDIA Container Toolkit; no model files or saved images enter the image build.
+
+The tested host lacked root-volume space. In a dedicated terminal, start an
+isolated Docker daemon on the data volume; this leaves the existing daemon alone:
+
+```bash
+DOCKER_DATA=/mnt/data/gpu-checkpointing-inference-container
+mkdir -p "$DOCKER_DATA/tmp"
+sudo env DOCKER_TMPDIR="$DOCKER_DATA/tmp" dockerd \
+  --config-file /etc/docker/daemon.json --data-root "$DOCKER_DATA/docker" \
+  --exec-root /tmp/inference-docker-exec --host unix:///tmp/inference-docker.sock \
+  --pidfile /tmp/inference-docker.pid --bridge none --iptables=false \
+  --ip-forward=false --ip-masq=false
+```
+
+In the working terminal, build from the repository root and enter the container:
+
+```bash
+export DOCKER_HOST=unix:///tmp/inference-docker.sock
+mkdir -p /mnt/data/gpu-checkpointing-inference-container/runtime-01
+docker build --network=host -f experiments/inference/Dockerfile \
+  -t gpu-checkpointing-inference:validated .
+docker run --rm -it --runtime=nvidia --gpus all --privileged \
+  --pid=host --cgroupns=host --shm-size=1g --network=none \
+  --mount type=bind,src=/mnt/data/gpu-checkpointing-inference-8b/model,dst=/model,readonly \
+  --mount type=bind,src=/mnt/data/gpu-checkpointing-inference-8b/source.json,dst=/source.json,readonly \
+  --mount type=bind,src=/mnt/data/gpu-checkpointing-inference-container/runtime-01,dst=/data \
+  gpu-checkpointing-inference:validated
+```
+
+Validation used privileged kernel access, the host's process-ID namespace, and
+its cgroup view (resource limits). This records a working permission set, not a
+minimum-permission deployment profile or evidence of cross-host compatibility.
+The network-disabled run emitted `sudo` hostname-resolution warnings; the commands
+and restore probes still succeeded.
+
+Inside the container, record `nvidia-smi`, `uname -a`, `df -h`, `/proc/meminfo`, and
+`/proc/self/cgroup`, and `dpkg-query -W`. Require these probes to pass before preparing a model:
+
+```bash
+sudo unshare --mount --pid --fork --net true
+python experiments/criu/probe.py cpu --tools /opt/tools --output /data/probe-cpu
+python experiments/criu/probe.py gpu --tools /opt/tools --output /data/probe-gpu --timeout 300
+```
+
+Use the preparation and diagnostic commands above with `PY=/opt/venv/bin/python`,
+`TOOLS=/opt/tools`, `BASE=/data`, `MODEL=/model`, `SOURCE=/source.json`, a new asset
+path, and a new campaign. Export the same five cache variables under `/data` first.
+Never reuse host diagnostics for this image or pool container diagnostics with
+host timings. Repeat probes and diagnostics after changing the target environment.

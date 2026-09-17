@@ -146,3 +146,7 @@ merges; do not merge on their behalf.
 ### 2026-09-17 - The isolated CRIU build still needs host build prerequisites
 **Finding**: Pinned `criu/Makefile.packages:30` links UUID and Netlink. `experiments/criu/build.sh` omits UUID development files, and its private `usr/lib` search misses Ubuntu's extracted `lib/libnl-3` layout; the old host supplied both globally.
 **Impact**: The clean container explicitly installs `uuid-dev`/`libnl-3-dev` for building and their runtime libraries. Keep compiler logs; the generic package-check message lists unrelated test dependencies too.
+
+### 2026-09-17 - Container GPU identity checks need a consistent process view
+**Finding**: `experiments/inference/park.py:43` compares NVIDIA-reported process IDs with `/proc` identities. The validated container launch in `experiments/inference/README.md` uses `--pid=host` and `--cgroupns=host`, so identity checks and ancestor-memory admission use the host views.
+**Impact**: Keep that tested profile when reproducing these results; changing namespace isolation requires fresh probes and diagnostics, not an assumption that container IDs will match GPU monitoring.
