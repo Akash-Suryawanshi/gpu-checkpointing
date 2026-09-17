@@ -109,10 +109,15 @@ def cleanup(pid, run, process=None):
     try:
         # Linux separates /proc command-line arguments with zero bytes. A zombie
         # has an empty command line and needs only reaping, not another signal.
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-        if str(run).encode() in cmdline:
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+        arguments = cmdline.split(b"\0")
+        owned = str(run).encode() in arguments
+        if owned:
             os.kill(pid, signal.SIGKILL)
-        if not cmdline or str(run).encode() in cmdline:
+        # Check raw bytes: splitting an empty command line yields [b''], which
+        # is a nonempty list. A live child can briefly have no command line
+        # during launch too, so require an exited state before collecting it.
+        if (not cmdline and not alive(pid)) or owned:
             reap(pid, process)
     except (FileNotFoundError, ProcessLookupError, ChildProcessError):
         pass

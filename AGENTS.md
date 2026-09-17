@@ -23,6 +23,10 @@ Commit each implementation milestone on a feature branch. Never commit directly 
 
 ## Knowledge Updates
 
+### 2026-09-17 - Zombie cleanup needs the raw command-line bytes
+**Finding**: An exited Linux child has an empty `/proc/<pid>/cmdline`, but splitting `b''` on the argument separator produces the truthy list `[b'']`. The original cleanup path therefore skipped reaping an already-exited child; `experiments/criu/session.py:112` now checks raw bytes and exited state, and `tests/test_criu_session.py` reproduces the case with a real child without polling it through `Popen` first. A still-running child can briefly expose an empty command line during launch, so emptiness alone is insufficient.
+**Impact**: A running child still needs a matching run-directory argument before cleanup signals or waits for it; an exited child needs its status collected. Keep both the real-zombie regression and the live-child ownership check when changing cleanup.
+
 ### 2026-09-14 - CRIU restores a different monotonic clock domain
 **Finding**: At the pinned CRIU revision, `criu/timens.c` creates a time namespace and sets its monotonic offset from the captured clock. A timing trial's restore log recorded `timens: monotonic -25 705761319`; comparing its trainer timestamp directly with the controller produced a negative latency despite successful continuation. The controller's measured namespace offset was zero.
 **Impact**: Convert trainer completion timestamps using the exact restored offset and the controller's offset before comparing clocks. Preserve raw timestamps and offset evidence; reject negative latencies. Within-process update durations remain valid because their clock offset cancels.

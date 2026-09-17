@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -74,6 +75,7 @@ class LifecycleTests(unittest.TestCase):
 
         Use a real CPU child to check the bounded wait and Linux process removal.
         A different run directory must fail the controller's ownership guard.
+        An empty command line alone must not be mistaken for an exited child.
         """
         with tempfile.TemporaryDirectory() as folder:
             run = Path(folder)
@@ -83,6 +85,19 @@ class LifecycleTests(unittest.TestCase):
                 # its argument list is the additional identity check used here.
                 session.cleanup(process.pid, run / "different-run", process)
                 self.assertIsNone(process.poll())
+                read_bytes = Path.read_bytes
+
+                def empty_child_command_line(path):
+                    """Expose the observed empty-cmdline case for this live child only."""
+                    if path == Path(f"/proc/{process.pid}/cmdline"):
+                        return b""
+                    return read_bytes(path)
+
+                # A live process can temporarily expose an empty command line.
+                # Simulate just that file read; the child and its exit state are real.
+                with patch.object(Path, "read_bytes", new=empty_child_command_line):
+                    session.cleanup(process.pid, run / "different-run", process)
+                self.assertIsNone(process.poll())
                 with self.assertRaises(subprocess.TimeoutExpired):
                     session.reap(process.pid, process, timeout=0.01)
             finally:
@@ -90,6 +105,35 @@ class LifecycleTests(unittest.TestCase):
             self.assertFalse(session.alive(process.pid))
             with self.assertRaisesRegex(RuntimeError, "exited"):
                 session.wait_marker(run / "ready-2", process.pid, timeout=0.01)
+
+    def test_cleanup_reaps_an_already_exited_child_with_an_empty_command_line(self):
+        """REGRESSION (2026-09-17 zombie cleanup): collect an exited child's status.
+
+        Linux keeps an exited child as a zombie until its parent waits for it.
+        Its empty command line becomes [b''] after splitting; treating that list
+        as nonempty previously skipped cleanup and left the process entry behind.
+        """
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            process = subprocess.Popen([sys.executable, "-c", "pass", str(run)])
+            process_directory = Path(f"/proc/{process.pid}")
+            try:
+                # poll() and wait() would collect the child themselves, hiding
+                # the bug. Observe its exited state through /proc instead.
+                deadline = time.monotonic() + 5
+                while session.alive(process.pid):
+                    if time.monotonic() > deadline:
+                        self.fail("Disposable child did not exit")
+                    time.sleep(0.01)
+                self.assertTrue(process_directory.exists())
+                self.assertEqual((process_directory / "cmdline").read_bytes(), b"")
+                session.cleanup(process.pid, run, process)
+                self.assertFalse(process_directory.exists(), "Cleanup left a zombie child unreaped")
+            finally:
+                # Keep the regression demonstration self-cleaning even before
+                # the production fix exists or when an assertion fails.
+                process.kill()
+                process.wait(timeout=5)
 
 
 if __name__ == "__main__":
