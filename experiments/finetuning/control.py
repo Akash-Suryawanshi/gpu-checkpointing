@@ -112,3 +112,63 @@ def attempt(run):
     return identifier, path
 
 
+def storage(path):
+    """Record mount/backing device and reject volatile memory filesystems."""
+    data = json.loads(subprocess.check_output(
+        ["findmnt", "-J", "-T", str(path), "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"], text=True))
+    mount = data["filesystems"][0]
+    if mount["fstype"] in ("tmpfs", "ramfs"):
+        raise ValueError("Snapshot storage must not be tmpfs/ramfs")
+    usage = shutil.disk_usage(path)
+    return {**mount, "total": usage.total, "free": usage.free}
+
+
+def inventory(snapshot):
+    """Only regular payload files are admitted; logs belong in attempts instead."""
+    paths = [snapshot / "before.json", *sorted((snapshot / "images").rglob("*"))]
+    result = {}
+    for path in paths:
+        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+            raise ValueError("Nonregular snapshot payload")
+        if path.is_file():
+            result[str(path.relative_to(snapshot))] = {"bytes": path.stat().st_size, "sha256": file_hash(path)}
+    if not all(name in result for name in ("before.json", "images/inventory.img", "images/pstree.img")):
+        raise ValueError("Incomplete payload inventory")
+    return result
+
+
+def publish(snapshot, manifest, run, deadline, emit):
+    """Hash, sync payload, persist manifest/ancestors, then completion and phase."""
+    try:
+        manifest["payload"] = inventory(snapshot)
+        emit("payload_hash_completed")
+        for name in manifest["payload"]:
+            remaining(deadline)
+            with (snapshot / name).open("rb") as stream:
+                os.fsync(stream.fileno())
+        for directory in sorted((p for p in (snapshot / "images").rglob("*") if p.is_dir()),
+                                key=lambda p: len(p.parts), reverse=True):
+            sync_directory(directory)
+        sync_directory(snapshot / "images")
+        emit("payload_synced")
+        write(snapshot / "manifest.json", manifest)
+        for directory in (snapshot, *snapshot.parents):
+            remaining(deadline)
+            sync_directory(directory)
+        write(snapshot / "COMPLETE", {"capture_id": manifest["capture_id"],
+                                      "manifest_sha256": file_hash(snapshot / "manifest.json")})
+        remaining(deadline)
+        phase(run, "published", capture_id=manifest["capture_id"], snapshot=str(snapshot))
+        remaining(deadline)
+        emit("local_snapshot_published")
+    except BaseException:
+        # Visible COMPLETE without a durable terminal phase is never eligible.
+        try:
+            (snapshot / "COMPLETE").unlink(missing_ok=True)
+            sync_directory(snapshot)
+            phase(run, "failed", capture_id=manifest["capture_id"], snapshot=str(snapshot))
+        except OSError:
+            pass  # A failing disk may also prevent recording the failure.
+        raise
+
+
