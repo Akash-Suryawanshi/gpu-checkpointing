@@ -1,7 +1,8 @@
 # Plan: independent capture and restore
 
-**Implementation authorized and in validation on `feat/independent-lifecycle`.**
-Commit validated milestones separately; prepare small dependent review branches.
+**Implemented and validated on 2026-09-17.** See the
+[measured evidence](../experiments/results.md#independent-lifecycle-validation--2026-09-17).
+Changes are split into small dependent review branches.
 The user reviews and merges.
 
 ## Architecture

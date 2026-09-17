@@ -2,7 +2,7 @@
 
 Use the EC2 host's GPU access and `sudo`; the restricted tool sandbox has no GPU.
 Use fresh private output directories on persistent storage with sufficient space;
-keep large images outside the checkout when its volume is nearly full. [Measured results](../results.md#four-update-lora-acceptance-and-timing--2026-09-14).
+keep large images outside the checkout when its volume is nearly full. [Measured results](../results.md#independent-lifecycle-validation--2026-09-17).
 
 The trainer updates the model; independent capture and restore workers manage
 its snapshots. These separate **processes** have their own memory. Read the

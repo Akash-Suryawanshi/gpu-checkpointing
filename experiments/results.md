@@ -2,7 +2,7 @@
 
 **Same-host LoRA continuation passed on EC2 A10G with CRIU and application
 restart.** See the [September 14 benchmark](#four-update-lora-acceptance-and-timing--2026-09-14)
-and [September 17 refactor validation](#readability-refactor-validation--2026-09-17).
+and [independent lifecycle validation](#independent-lifecycle-validation--2026-09-17).
 Sharing ownership and retained warnings still qualify compatibility.
 
 On the earlier **L4 container**, permissions blocked CRIU; NVIDIA GPU-only
@@ -396,3 +396,55 @@ permissions, and memory limits even when the workspace survives.
 
 Initial authoring used macOS ARM64 without NVIDIA tools. CUDA checkpointing was
 validated on Linux hosts; local CPU checks are not GPU restoration evidence.
+
+## Independent lifecycle validation — 2026-09-17
+
+**30 CPU checks, all 15 GPU matrix cases, and a separate standalone recovery
+passed** on A10G / driver 570.172.08 / pinned CRIU 4.2.1. The published
+[source and validation record](evidence/2026-09-17/independent-validation.json)
+identifies the exact tested code; later commits only add documentation/evidence.
+
+The matrix covers paired uninterrupted references, dropout 0 and 0.1,
+application and CRIU continuation, capture after update 1, two sequential
+captures at updates 2 and 3, and three paired timing repetitions. Diagnostic
+states and losses match their references; dropout execution and RNG advancement
+were checked. Timing runs use the corresponding diagnostic admission.
+
+The separate recovery began after the capture worker **and its launcher** exited.
+A fresh restore worker compared untouched state, released training, and exited;
+the trainer completed both updates and was reaped. Job B successfully used the
+GPU between capture and restore; final GPU process observations were empty.
+See the [lifecycle sequence](../docs/independent-lifecycle-plan.md#architecture).
+
+| Warm measurement | Seconds |
+| --- | ---: |
+| Four-update CRIU diagnostics, one capture (two dropout settings) | 66.04–66.68 |
+| Four-update CRIU diagnostic, two captures | 125.63 |
+| Application timing: capture to sync, median (range), n=3 | 0.964 (0.915–0.964) |
+| CRIU timing: worker start to publication, median (range), n=3 | 44.69 (44.38–48.55) |
+| Application timing: restore to next update, median (range), n=3 | 5.01 (4.94–5.04) |
+| CRIU timing: restore to next update, median (range), n=3 | 10.20 (10.11–11.91) |
+
+Diagnostic durations are outer CLI wall time, including interpreter startup;
+`trial_seconds` begins inside the runner. CRIU publication includes dependency
+checks, hashing, payload sync, and publication; its request-to-ready interval
+(12.49–12.75 seconds in timing runs) includes trainer initialization and updates.
+CRIU restore includes admission and untouched-state inspection; application
+timing defers diagnostics. These boundaries differ, so this is not a speed ranking.
+
+[Per-run evidence](evidence/2026-09-17/independent-runs.csv) includes wall times,
+artifact sizes, verdicts, and result hashes. [Per-generation evidence](evidence/2026-09-17/independent-generations.csv)
+preserves the cost breakdown and measured clock corrections. Each trial verified
+unchanged snapshot payload hashes after restore; the final audit checked manifests,
+sizes, ordering, source identity, and absence of 20 recorded process identities.
+
+CPU checks cover ownership, worker death, bounded locking, cancellation/expiry,
+publication failures at write/sync/rename operations, artifact rejection, and
+inspection mismatch preventing continuation. The acknowledged-pause expiry
+check specifically prevents a timeout from racing dump arming.
+
+CRIU's interrupted-system-call warnings remain recorded. Success applies to this
+bounded workload on the same host/boot with matching dependencies and persistent
+local storage; it does not establish arbitrary resource-sharing compatibility.
+Ordered persistence is implemented and fault-tested, but power loss, volume
+deletion, replacement hosts, and spot recovery were not tested.
