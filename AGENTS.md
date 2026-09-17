@@ -23,6 +23,10 @@ Commit each implementation milestone on a feature branch. Never commit directly 
 
 ## Knowledge Updates
 
+### 2026-09-17 - Independent capture workers need explicit process ownership
+**Finding**: `experiments/finetuning/pipeline.py:65` launches the trainer as the controller's child, and its handoff at line 99 calls `experiments/criu/session.py:75`, which collects a child's exit status through `Popen.wait()` or `os.waitpid()`. A capture worker started later is not automatically the existing trainer's parent; the subreaper setup in `experiments/criu/session.py:35` only adopts orphaned descendants.
+**Impact**: When separating capture and restore into independent commands, assign trainer supervision and exit-status collection explicitly. The capture worker must verify the target's exit while its parent collects the status; a successful restore must leave supervision in place after the restore command exits, without depending on the old controller's in-memory `Trial`.
+
 ### 2026-09-17 - PR body updates can bypass an obsolete CLI query
 **Finding**: This host's `gh pr edit` fails while querying the retired GraphQL `repository.pullRequest.projectCards` field, before updating the PR. Updating PR #2 through `gh api repos/Akash-Suryawanshi/gpu-checkpointing/pulls/2 --method PATCH --input <json-file>` succeeded using the same personal CLI profile.
 **Impact**: If that exact CLI error recurs, send the body as a JSON string through the REST endpoint and verify the returned PR state and head. Keep the personal authentication profile; changing accounts does not fix this query failure.
