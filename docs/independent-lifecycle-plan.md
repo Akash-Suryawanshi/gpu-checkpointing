@@ -1,290 +1,181 @@
-# Plan: independently triggered training, capture, and restore
+# Plan: train, save to storage, and resume independently
 
-**Status: proposed; awaiting review.** This document changes the plan, not runtime
-behavior. Add it to the current `feat/lora-snapshot` review. After approval, the
-user merges that branch, creates a fresh implementation branch from updated
-`main`, and implementation proceeds in the milestones below. Do not merge or
-begin implementation as part of this planning change.
+**Proposed; awaiting approval.** This is a documentation change on
+`feat/lora-snapshot`. After review, the user merges the current PR and creates a
+new implementation branch from updated `main`. Implement and commit each
+milestone there; no runtime change or merge is part of this revision.
 
-The outcome is three independently runnable entrypoints: `train.py`,
-`checkpoint.py`, and `restore.py`. A capture command can finish and disappear;
-a later restore command uses saved artifacts and the documented environment to
-resume the trainer. No original controller object or long-lived capture worker
-is required. Keep the code small and readable for a CS student without OS
-knowledge, following the [teaching plan](readability-plan.md).
+Read this page from the overall behavior down to the storage guarantee and
+implementation steps. The [technical details](independent-lifecycle-details.md)
+contain exact file layouts, persistence ordering, process ownership, and failure
+handling. The diagrams are ordinary SVG images, so this page does not require a
+Mermaid renderer.
 
-## Scope and existing behavior
+## 1. The change in one example
 
-Keep the pinned same-host, single-GPU FP32 LoRA workload and CRIU CUDA plugin.
-Use four optimizer updates, with a one-update capture as the first GPU gate.
-Target 2–3 minutes for one warm diagnostic trial; installation, asset downloads,
-reference generation, and the complete acceptance matrix are separate costs.
-This is a turnaround target, not a promised result.
+A trainer is learning on the GPU. An external request arrives. A separate command
+saves the running trainer as files and exits. Minutes later, another command
+reads those files and reconstructs the trainer so it can continue.
 
-Today, [criu_pipeline.py](../experiments/finetuning/criu_pipeline.py) calls launch,
-dump, handoff, restore, and comparison within one controller run.
-[train.py](../experiments/finetuning/train.py) receives predetermined
-`--pause-at` updates. The reference/application/CRIU pipeline files are separate
-experiments, not separate capture and restore commands.
+The key requirement is **independence**: the capture worker and its launcher can
+be gone before the restore command starts. Saved files and the documented
+execution environment connect the two operations.
 
-This change adds external triggering and explicit process ownership. It does not
-add an AWS warning listener, object-store upload, instance provisioning, cross-host
-restore, arbitrary-point capture, distributed training, a new backend, or an
-inference experiment. Manual/scripted triggers exercise the same command boundary
-that a future warning receiver or scheduler can call. Existing compatibility
-qualifications remain in force.
-
-## Entrypoints and shared code
-
-A program file contains instructions; a process is a running instance with its
-own memory. Each entrypoint below must work as a separate process, not merely as
-a function imported by the old controller.
-
-| File | Responsibility after the change |
+| Program | What it owns |
 | --- | --- |
-| `experiments/finetuning/train.py` | Train; publish job identity; accept a request and acknowledge a completed-update boundary; wait for inspection/release. It does not invoke CRIU. |
-| `experiments/finetuning/checkpoint.py` — new | Validate the existing trainer, request capture, invoke CRIU dump, verify exit and image completion, publish the completed snapshot, and exit. It does not restore. |
-| `experiments/finetuning/restore.py` — new | Validate a completed snapshot and its dependencies, invoke CRIU restore, inspect the untouched restored state, permit continuation on a match, and exit while training continues. |
-| `experiments/finetuning/control.py` — new, small shared module | Read/write the job registration, request acknowledgements, and snapshot manifest. Share only real protocol operations; use plain records and functions. |
-| `experiments/criu/session.py` | Keep privileged CRIU calls, bounded process observation, child reaping, and targeted failure cleanup. Separate observing an unrelated process from waiting for an owned child. |
-| `run.py`, `criu_pipeline.py`, `pipeline.py` | Remain the experiment harness. Launch the new commands as subprocesses; compare references and continuation, run job B, and report evidence. Remove duplicate capture/restore orchestration once replaced. |
-| `state.py`, `metrics.py`, `report.py` | Retain state comparisons; include new source files in fingerprints and adapt event reporting to independent workers. |
+| `train.py` | The model, optimizer, and training loop. It can pause after finishing its current update. |
+| `checkpoint.py` | Capture an existing trainer, ensure the files are persisted, publish completion, and exit. |
+| `restore.py` | Read a completed snapshot, reconstruct the trainer, verify its state, allow continuation, and exit. |
 
-Keep reference and application-checkpoint pipelines usable. Extract existing
-preflight/identity checks only where both standalone commands need them; avoid
-import cycles through `run.py`. The worker command path should not initialize a
-model or CUDA context. Prefer one readable main sequence per entrypoint, shared
-functions for meaningful operations, and grouped comments for non-obvious steps.
-No generic workflow engine, plugin registry, queue service, or class hierarchy.
+A **process** is a running instance of a program, with its own memory. These are
+three independently runnable entrypoints; CRIU and NVIDIA also create helper
+processes. The first demonstration uses scripted requests. A future warning
+receiver can invoke the same capture command.
 
-The proposed interface, to implement on the later branch, is:
+Today, the trainer is separate but one controller performs capture and restore
+within the same run. This plan separates those two operations and replaces the
+preselected pause update with an externally requested pause.
 
-```bash
-# Run in separate terminals or through the experiment harness.
-python train.py --assets ASSETS --run-dir JOB --external-control --until 4
-python checkpoint.py --run-dir JOB --snapshot SNAPSHOT --tools TOOLS
-python restore.py --snapshot SNAPSHOT --tools TOOLS
-```
+## 2. Follow one capture and restore
 
-These are design examples, not commands supported by the current checkout.
-Use the existing isolated interpreter in the eventual runnable examples. The
-four-update trainer can finish before a human types the next command, so the
-reproducible demonstration must automate requests from observable progress.
+Suppose a request arrives during update 2. The trainer finishes that entire
+update before acknowledging the pause. That includes its optimizer, learning-rate
+schedule, next-input position, and outstanding GPU calculations. It then waits;
+it does not begin update 3 or consume more training randomness.
 
-## Files connect the processes
+![Runtime sequence: request a completed-update pause, capture, persist files, exit the capture worker, then independently restore, verify, and continue.](assets/independent-runtime.svg)
 
-A **manifest** is a small description of a saved snapshot. It records what was
-captured and which external files and environment are still required. A
-**marker** is a file that communicates readiness or permission; it is not model
-state. Reuse the existing file handshake instead of adding sockets or a server.
+*Read downward in time. Arrows mean “next phase,” not byte movement. Update 2 is
+an example; the saved record names whichever update actually acknowledged the
+request. CRIU and its CUDA plugin perform the capture and reconstruction.*
 
-```text
-JOB/
-  job.json                   Current trainer identity and required paths
-  control/                   Requests and acknowledgements, each with a unique ID
-  ...                        Existing trainer observations and logs
-SNAPSHOT/                    A fresh directory for one capture
-  manifest.json              Versioned description and image inventory
-  images/                    CRIU process/GPU images
-  before.json                Diagnostic boundary observation; never loaded as state
-  capture-events.jsonl        Capture worker's own events
-  COMPLETE                   Published last, after required local persistence
-JOB/restore-attempts/ID/      Fresh logs, PID filename, and observations per attempt
-```
+The original trainer exits during our chosen terminating CRIU dump. The capture
+worker separately verifies that exit and observes GPU availability afterward.
+Finishing the dump is followed by the storage-completion steps below. The tiny
+independent GPU job B runs between capture and restore as evidence that another
+job can use the GPU; its runtime is reported separately.
 
-This is the logical layout; retain existing filenames where compatible. Store
-absolute control/model/asset paths in the manifest. The first implementation
-requires those paths and their external file contents to remain available on the
-same host. A process image does not roll back external files. Do not advertise a
-self-contained portable archive or support relocation in this phase.
+Restore first reconstructs the trainer at its saved wait. It observes the restored
+state **before changing settings or permitting another update**. A match allows
+training to continue. Restoring is not a fresh run of model initialization.
 
-The records must establish:
+## 3. How the checkpoint gets from RAM to the drive
 
-- **Identity:** stable job ID, unique capture/request ID, acknowledged update,
-  trainer PID, process start identity and host boot identity, plus expected UID
-  and job path. A PID alone can be reused for another process. Refresh live
-  registration after restore; do not confuse a reused numeric PID with the old
-  process generation.
-- **Compatibility:** schema version, interpreter/package and tool fingerprints,
-  GPU/driver information, workload/source fingerprints, model/data identity,
-  and required external paths. Reuse the existing manifest checks.
-- **Completeness:** image inventory and integrity hashes, captured observation,
-  successful CRIU/plugin evidence, exit verification, and local flush outcome.
-  Keep integrity hashing visible in costs; it must not silently disappear from
-  capture-to-publication or restore-preflight timing.
+**VRAM** is the GPU's working memory. **RAM**, or host memory, holds CPU-side state.
+Both are live memory. A completed save must reach the chosen persistent storage
+volume, not just another area of RAM.
 
-Publish each small record by writing a temporary file and renaming it into place
-on the same filesystem, so another process sees a complete record. Flush required
-files and directories before publishing `COMPLETE`, then persist that publication.
-File visibility and durable directory entries are distinct; see the
-[Linux fsync documentation](https://man7.org/linux/man-pages/man2/fsync.2.html).
-Keep completed snapshot payloads immutable; restore logs and PID files belong to
-fresh attempt directories. Partial snapshots are never eligible for restore, and
-a failed newer capture must not overwrite a previous completed one.
+NVIDIA's checkpoint mechanism first copies GPU data into driver-managed host
+memory. CRIU can then include that staged data with the required CPU/process
+state in its image files. The CUDA plugin coordinates NVIDIA's operations; our
+Python worker does not separately copy tensors or invoke a second GPU restore.
+[NVIDIA describes this staging step](https://github.com/NVIDIA/cuda-checkpoint#the-utility).
 
-Use one OS-managed exclusive operation lock per job across capture/restore, with
-its handle held by the worker, not the captured trainer. This prevents simultaneous
-workers without leaving a permanently held lock after worker death. Also retain
-a durable phase record: losing the lock does not mean an interrupted operation
-is safe to repeat. The first version refuses ambiguous retries and explains the
-required cleanup rather than attempting automatic recovery of a partial dump.
+![Data path: GPU VRAM to host RAM, CRIU image writes into Linux page cache, then writeback to persistent storage with completion acknowledged to fsync.](assets/snapshot-memory-storage.svg)
 
-## Runtime sequence
+*These arrows represent the data path. CPU state and kernel-resource descriptions
+also contribute to the image. The page cache is RAM owned by Linux, separate from
+the trainer's memory. Copies and writeback can overlap; this is a conceptual path,
+not a claim that each stage holds a complete extra image.*
 
-```mermaid
-sequenceDiagram
-    participant T as Trainer
-    participant C as Checkpoint command
-    participant D as Snapshot storage
-    participant R as Restore command (started later)
-    Note over T: Independently running training process
-    C-->>T: Request ID: pause after a complete update
-    T-->>C: Ready: request ID + actual completed update
-    Note over T,C: CRIU + CUDA plugin capture; original exits
-    C->>D: Write images, manifest, and boundary evidence
-    Note over C: Verify original exit and GPU availability; flush
-    C->>D: Publish COMPLETE last
-    Note over C: Checkpoint command exits
-    D->>R: Read completed snapshot and required-path description
-    Note over T,R: CRIU reconstructs trainer at its saved wait
-    R-->>T: Inspect saved state before any training changes
-    T-->>R: Restored observation
-    R-->>T: Continue only after comparison passes
-    Note over R: Restore command exits; trainer continues
-```
+A normal file write may finish after Linux accepts the bytes into its **page
+cache**, a RAM cache for file contents. The filename may be visible and the file
+may even read back correctly while writes are still pending. A successful write
+alone does not establish persistence. [Linux write semantics](https://man7.org/linux/man-pages/man2/write.2.html).
 
-Dashed arrows represent control messages; solid arrows represent saved files
-being written/read. CRIU/NVIDIA helper processes and the OS parent/reaper are
-omitted from the diagram, but their responsibilities are explicit below.
+The worker therefore asks Linux to **synchronize** the finished files with
+storage. `fsync(file)` waits for storage to acknowledge the file's data and
+required metadata. A **directory** records names pointing to files; synchronizing
+a file does not automatically persist its name, so affected directories must be
+synchronized too. [Linux fsync semantics](https://man7.org/linux/man-pages/man2/fsync.2.html).
 
-1. **Register and request.** Trainer publishes its identity and listens at update
-   boundaries. Checkpoint validates that identity and publishes one unique
-   request. Only acknowledge after at least one update has initialized Adam.
-   Record the actual acknowledged update; do not encode it as the request ID.
-2. **Finish the whole update.** Complete forward/backward, optimizer and scheduler,
-   gradient clearing, temporary cleanup, counters/data cursor, and CUDA
-   synchronization. Publish diagnostic evidence and readiness, then wait without
-   fetching another example or consuming training randomness. A request arriving
-   mid-update takes effect at this boundary. A request arriving after training
-   finishes fails clearly rather than pretending to capture.
-3. **Capture and publish.** Use the pinned terminating CRIU dump with its CUDA
-   plugin as the only owner of CUDA transitions. Require successful tool completion,
-   the expected image inventory, verified original exit/reaping, and GPU observation
-   after exit. Persist the manifest/images and publish `COMPLETE`; return success
-   and exit. Job B remains a separate experiment run after capture and before
-   restore; its duration is not snapshot overhead.
-4. **Restore and inspect.** Start a new process that receives the snapshot path,
-   tools, and documented environment. Validate completion, integrity, compatibility,
-   paths, and absence of an already-active job before invoking CRIU. Use a fresh
-   restore-attempt ID and PID filename. Reconstruct the trainer, release only its
-   inspection wait, compare its untouched state with `before.json`, and then
-   permit continuation. No application checkpoint, model initialization, or
-   training-state repair is used in this route.
-5. **Continue independently.** On successful handoff, the restore command exits
-   without running failure cleanup on the trainer. The trainer performs subsequent
-   updates and remains observable through files and its refreshed identity.
-   Uninterrupted-reference comparisons remain the harness's responsibility;
-   restore does not require the old harness or its `Trial` object.
+## 4. When we are allowed to say “saved”
 
-Use a unique capture ID and a separate unique restore-attempt ID. Before the
-single supported restore of a capture, reject unexpected old inspect/continue
-markers. Keep the initial scope to a sequential lineage: capture A → restore A →
-capture B → restore B. Replaying an older snapshot after later execution or
-retrying a partially completed restore requires external-file rollback semantics
-and is not silently supported.
+The planned command reports success only after this ordered protocol:
 
-## Process ownership is the first implementation gate
+1. **Finish capture.** Require CRIU success, evidence that the CUDA plugin ran,
+   and the expected image files. Verify original exit separately.
+2. **Check and persist the payload.** Record file sizes and hashes, then
+   synchronize every required image and diagnostic boundary file, plus their
+   directory entries. A hash checks which bytes we have; it does not flush them.
+3. **Persist the manifest.** Save a small description of the snapshot, its files,
+   and required environment. Synchronize that file and the directories needed to
+   find the snapshot after a restart.
+4. **Publish completion last.** Write and synchronize a temporary completion
+   record, rename it to `COMPLETE`, then synchronize its directory. Only then
+   return success and record `local_snapshot_published`.
 
-A parent is the process that created another process. After a child exits, its
-parent collects its status; Linux can then remove its remaining process record.
-This is **reaping**. The current controller is the original trainer's parent and
-adopts restored descendants, so its `Popen.wait()`/`os.waitpid()` assumptions work.
-A new capture worker is not automatically the existing trainer's parent.
-[Linux wait](https://man7.org/linux/man-pages/man2/waitpid.2.html) and
-[subreapers](https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html)
-describe this distinction.
+![Publication dependencies: persist payload first, manifest and directory entries second, then persist COMPLETE and report success.](assets/snapshot-publication.svg)
 
-For the standalone demonstration, the original launch shell/service owns and
-reaps the original trainer. The short-lived restore worker can temporarily adopt
-its restored descendant for failed-attempt cleanup. On success, that trainer
-must outlive the worker and pass to the existing host/ancestor reaper. Verify
-which process actually adopts it in the approved host execution context; do not
-assume that the tool sandbox has the host's PID namespace or working PID 1.
-Record the documented launcher/reaper arrangement and any service settings that
-would terminate descendants when the worker exits. Existing host supervision is
-an environment dependency, not saved recovery state.
+*Arrows mean ordering dependencies. `COMPLETE` is a record of a completed protocol,
+not an operation that itself flushes the large image files. Exact calls and error
+handling are in the [storage protocol](independent-lifecycle-details.md#2-exact-local-storage-protocol).*
 
-Prove this with a tiny CPU-only process lifecycle before modifying GPU orchestration.
-The new observation helper waits for an identified unrelated process to exit;
-only its actual parent calls `wait`. Do not report the original PID reusable
-until the old process record has been removed. Retain the existing regression
-protection for zombies and unrelated live children. Use a stable process handle
-where supported for targeted signaling, and recheck identity before CRIU receives
-its numeric PID. If the launch environment cannot provide the required reaping
-and survival behavior, stop this gate with evidence and revise the launch recipe;
-do not introduce a hidden permanent Python supervisor.
+A write, sync, or publication error makes the command fail. Keep the previous
+completed snapshot untouched. If an error occurs after the completion name becomes
+visible, treat the attempt as ambiguous rather than reporting success or trusting
+the filename alone; the technical protocol defines how restore handles this.
+Because the original may already have exited, a failed save cannot promise to
+recover its latest work automatically.
 
-## Failures, time, and evidence
+**Already implemented:** the current controller runs `sync -f` after CRIU capture
+in [pipeline.py](../experiments/finetuning/pipeline.py). That requests completion
+for the filesystem containing the run directory. The new plan makes the specific
+snapshot's file/directory ordering and final publication explicit. These are
+planned changes, not newly measured storage guarantees.
 
-Every request, CRIU phase, inspection, and exit observation has a bounded wait.
-Keep a single caller deadline for the capture operation and report which phase
-exhausted it; the current per-command timeouts are not a warning-window promise.
-Before dump starts, an explicit cancellation can release the still-live trainer
-from a matching request. Once dump may have started, failure leaves a recorded
-failed/unknown phase and no `COMPLETE`; do not automatically resume or publish an
-ambiguous CUDA/process state. A trainer's control wait also times out visibly.
+**What this proves:** successful completion of the selected filesystem/storage
+flush contract. It assumes the storage stack correctly honors its acknowledgements.
+It does not prove recovery after deleting that storage volume. On EC2, EBS
+retention depends on configuration such as `DeleteOnTermination`; saving to an
+instance-associated volume alone is not enough. A later recovery experiment must
+choose retained storage or publish a remote copy.
+[AWS volume-retention documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/preserving-volumes-on-termination.html).
 
-Reject stale identities, concurrent requests, incomplete/corrupt images,
-unsupported manifests, missing assets, and mismatched environments before the
-relevant destructive operation. A failed inspection never writes the continue
-marker. Preserve evidence and clean up only the positively identified failed
-attempt; do not signal a recycled PID or delete earlier completed snapshots.
+## 5. What we will verify
 
-Each worker writes its own events with capture/attempt IDs, raw monotonic times,
-and clock-domain evidence. Record request receipt, readiness, dump completion,
-original exit, subsequent GPU observation, local snapshot publication, restore
-request/return, verified release, and next completed update. Preserve the existing
-CRIU time-namespace conversion when comparing trainer and worker timestamps.
+| Check | Evidence it supplies |
+| --- | --- |
+| Ordered writes, file/directory syncs, and persisted completion | The worker followed the local persistence protocol before reporting success. Injected write/sync failures must reject success and preserve the previous snapshot. |
+| Fresh restore command after capture worker exit | Recovery does not depend on the capture worker's live memory or Python objects. This alone is not a power-loss test: Linux may retain file cache. |
+| Matching saved/restored state and subsequent updates | The resumed trainer behaves like uninterrupted training, including active dropout and advancing CUDA randomness. |
+| Missing/corrupt files, stale requests, or mismatched state | Restore rejects invalid input and never releases a failed inspection into training. |
 
-Report request-to-ready, request-to-local-publication, request-to-post-exit GPU
-availability, and restore-request-to-next-update separately. Include worker launch,
-preflight, hashing, and sync in the appropriate end-to-end interval; keep job B
-and deliberate time between the two commands separate. Full diagnostic trial
-time remains a separate measure. Local flushing does not establish survival of
-instance deletion; future remote publication must add its own completion event.
+Use a CPU-only ownership/publication check first, then capture after one real
+LoRA update, restore, and compare the next update. Keep ordinary trials at four
+updates and aim for 2–3 minutes per warm diagnostic iteration. Setup, downloads,
+reference generation, and the whole acceptance matrix are outside that target.
+A reboot or abrupt-storage-loss experiment would be separate evidence; this plan
+does not label a same-host restore as proof of either.
 
-## Implementation milestones and acceptance
+## 6. Implement in six small milestones
 
-Commit each milestone on the **new implementation branch** after its gate passes.
-Do not retroactively relabel historical runs as validating the new commands.
+Each milestone receives its own verified commit on the later implementation
+branch. Keep existing reference and application-checkpoint comparisons usable.
 
-| Milestone | Concrete change | Acceptance gate |
-| --- | --- | --- |
-| 1. Ownership and protocol | Add minimal control records/publication; split process observation from child reaping; document the standalone launcher. | CPU lifecycle proves an unrelated worker can observe exit and a detached process survives its worker, with eventual reaping. Identity, exclusive-operation, and incomplete-publication failures are covered. |
-| 2. External trainer pause | Add `--external-control`; consume requests only at completed updates; preserve existing reference/application modes. | A request during work is acknowledged after a complete update with initialized Adam, synchronized CUDA, and unchanged RNG while waiting. Late/cancelled/stale requests have bounded, explicit outcomes. |
-| 3. Standalone capture | Add `checkpoint.py`, fresh snapshot directories, integrity inventory, and durable completion publication. | Capture an independently started one-update LoRA trainer; original exit and post-exit GPU availability are proven; checkpoint command exits; job B succeeds. No restore is performed by this command. |
-| 4. Standalone restore | Add `restore.py`, attempt-specific files, untouched-state comparison, refreshed identity, and successful ownership handoff. | With the capture worker and its launcher gone, a fresh restore process reconstructs the trainer from images and required files, exits, and the next update matches the reference. This completes the first new GPU restore gate. |
-| 5. Harness and repeated lifecycle | Make the CRIU experiment invoke the entrypoints; remove the replaced in-process path; adapt event/metric collection. | Fresh matching reference pairs and both application/CRIU routes pass with dropout 0 and active 0.1; two sequential capture/restore generations pass without stale markers/PID files. |
-| 6. Evidence and teaching | Update both READMEs, code walkthrough, results, and curated evidence; explain requests, manifests, parent ownership, publication, and clocks beside their use. | A reader can reproduce the independent commands; one warm trial is measured against the 2–3-minute target; one timing smoke per route verifies metric wiring. New comparative performance claims require fresh paired repetitions. |
+| Milestone | Result required before moving on |
+| --- | --- |
+| 1. Ownership and file protocol | A CPU-only check establishes who collects exited processes and proves a restored child can outlive its worker. Control records, exclusive operations, and failed publication behave correctly. |
+| 2. Externally requested pause | Trainer acknowledges a request only after a complete update; stale, cancelled, and late requests have explicit outcomes. |
+| 3. Independent capture | `checkpoint.py` captures, verifies exit and GPU availability, persists the payload/manifest/completion in order, and exits. Job B succeeds. |
+| 4. Independent restore | `restore.py` reconstructs from saved artifacts, verifies untouched state, exits, and the trainer completes the matching next update. |
+| 5. Full comparison | Harness launches the separate commands; dropout 0 and active 0.1, application restart, and two sequential capture/restore generations pass. |
+| 6. Measured evidence and teaching | Update runnable examples, code explanations, results, and metrics; measure actual turnaround and validate timing calculations. New comparative performance claims need fresh paired measurements. |
 
-Keep tests necessary and small. Each added test docstring must name its purpose
-under the writing-tests discipline: **Critical contract**, **Acceptance criterion**,
-**Non-obvious correctness**, or **Regression**. Prefer real small child processes
-and temporary directories over mocks of CRIU success. Parameterize closely related
-invalid-artifact cases rather than adding one test per field.
+## 7. Then read the implementation details
 
-The load-bearing checks are independent-worker survival/exit ownership; request
-identity and cancellation; single-operation exclusion; rejection of partial or
-corrupt publication; and refusal to continue after a mismatched restore.
-Exercise interrupted capture and failed restore publication/cleanup paths without
-sacrificing the previous valid snapshot. Do not add tests for trivial wrappers
-or exact explanatory wording.
+The code stays deliberately small: add `checkpoint.py` and `restore.py`, retain
+one training loop, and use a small `control.py` for shared records and publication.
+Keep OS/CRIU calls in the existing `session.py`. The experiment harness invokes
+the commands and collects evidence; it does not become required recovery state.
 
-GPU acceptance retains full named state comparisons: model tensors, Adam,
-schedule, data position, CPU/CUDA RNG, training/evaluation modes, enabled adapters,
-trainable flags, and dropout settings. Require the actual LoRA dropout path to run
-in training mode and its used CUDA generator to advance during both original and
-restored updates. Inspect restored settings before any code can repair them;
-matching configuration alone is insufficient. Follow boundary equality with
-matching losses and subsequent updates. Numerical, lifecycle, and compatibility
-verdicts remain separate; unresolved sharing and resource warnings remain visible.
+Continue with [files, exact persistence steps, process ownership, and failure
+rules](independent-lifecycle-details.md). That companion document preserves the
+contracts needed for implementation without making them the starting point for
+a reader. Comments should explain non-obvious blocks and introduce the OS
+concepts they use, following the [teaching plan](readability-plan.md).
+
+The scope remains the pinned single-host, single-GPU FP32 LoRA workload. AWS
+warning detection, remote upload, replacement-host restore, older-snapshot replay,
+distributed training, and inference experiments remain later work. Keep unresolved
+shared-memory/resource warnings visible even when numerical continuation passes.

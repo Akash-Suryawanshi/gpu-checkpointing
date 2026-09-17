@@ -23,6 +23,10 @@ Commit each implementation milestone on a feature branch. Never commit directly 
 
 ## Knowledge Updates
 
+### 2026-09-17 - CRIU buffer flushing is not snapshot durability
+**Finding**: At the pinned CRIU revision, `criu/bfd.c:114` makes `bfd_flush_images()` an earlier-buffer-error check; `bflush()` at line 235 calls `write_all()`, not `fsync()`. The current POC separately invokes `sync -f` in `experiments/finetuning/pipeline.py:115`; successful CRIU completion, file visibility, and a matching hash are not substitutes for that storage-completion step.
+**Impact**: For independent snapshot publication, persist the required files and directory entries before publishing the completion record, then persist that record too. Treat local storage acknowledgement and survival of EC2 volume deletion as separate claims; keep the ordered protocol in `docs/independent-lifecycle-details.md`.
+
 ### 2026-09-17 - Independent capture workers need explicit process ownership
 **Finding**: `experiments/finetuning/pipeline.py:65` launches the trainer as the controller's child, and its handoff at line 99 calls `experiments/criu/session.py:75`, which collects a child's exit status through `Popen.wait()` or `os.waitpid()`. A capture worker started later is not automatically the existing trainer's parent; the subreaper setup in `experiments/criu/session.py:35` only adopts orphaned descendants.
 **Impact**: When separating capture and restore into independent commands, assign trainer supervision and exit-status collection explicitly. The capture worker must verify the target's exit while its parent collects the status; a successful restore must leave supervision in place after the restore command exits, without depending on the old controller's in-memory `Trial`.
