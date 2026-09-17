@@ -1,7 +1,6 @@
-"""Turn selected run directories into a reviewable JSON evidence report.
+"""Selected run records -> reanalyzed measurements -> JSON evidence report.
 
-This reporting pipeline reads existing measurements; it never launches training
-or restores a process. Raw images and logs remain private in ignored runs/.
+Raw images/logs stay private in ignored runs/. This pipeline launches no workloads.
 """
 
 import argparse
@@ -20,8 +19,7 @@ def main():
     parser.add_argument('--controller-clock-offset-ns', type=int,
                         help='Required only to reanalyze older runs that did not record the controller clock offset')
     args = parser.parse_args()
-    # Analysis source can change after training (for example, a clock correction).
-    # Record those hashes separately from the code hashes in each original key.
+    # Keep current analysis hashes separate from each trial's original code hashes.
     report = {'scope': 'same-host, warm cached assets; numerical success is separate from compatibility',
               'keys': {}, 'runs': {}, 'timing_summary': {},
               'analysis_source_sha256': {name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
@@ -45,8 +43,7 @@ def main():
                                       for p in sorted(run.glob('state-*.json'))}
         report['runs'][run.name] = result
     for mode in ('application', 'criu'):
-        # Diagnostic trials include extra inspection work and must not enter the
-        # headline timing summary. The caller supplies matching paired trials.
+        # Exclude diagnostics' inspection work; callers select matching paired trials.
         trials = [r for r in report['runs'].values() if r['mode'] == mode and r['timing']]
         if not trials:
             continue

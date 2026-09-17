@@ -1,10 +1,8 @@
-"""Measure memory and event intervals without adding work to the trainer.
+"""Measure memory and elapsed time in the controller, which manages the trainer.
 
-The controller is the running Python program that manages the separate trainer
-process. It records events with a monotonic clock: an elapsed-time counter, not
-a calendar date. A restored trainer can see a different counter offset, so
-finish() aligns timestamps before latencies() calculates intervals. JSON field
-names are the evidence API.
+Monotonic clocks count elapsed time, not calendar dates. Restored clocks may have
+different offsets: raw events -> finish() aligns clocks -> latencies() measures.
+Keep JSON field names stable for evidence readers.
 """
 
 import json
@@ -14,20 +12,17 @@ import threading
 
 
 def sample_memory(get_pid):
-    """Start a controller-side sampler; return a function that stops and collects it.
+    """Sample memory; return a function that stops sampling and collects the result.
 
-    get_pid reads the current trainer PID on each sample because application
-    restart creates a new process. Linux identifies a process with an integer
-    PID and exposes information about it through virtual files under /proc.
-    A cgroup is a group of processes whose resource use Linux measures/limits.
-    Its memory includes other processes and cached file data, not just training.
+    get_pid follows the trainer's process ID across restarts. Linux's /proc files
+    expose process memory. Cgroups group processes to count and limit their memory,
+    including cached file data.
     """
     # This host uses cgroup v2: `0::/path` identifies the controller's group.
     group_path = Path('/proc/self/cgroup').read_text().strip().split('::', 1)[1]
     group = Path('/sys/fs/cgroup') / group_path.lstrip('/')
     limits = {}
-    # Cgroups are nested. A parent's limit still applies when this group says
-    # "max" (no additional limit at this level).
+    # Ancestor limits apply even when this group's "max" means no local limit.
     for parent in (group, *group.parents):
         if parent == Path('/sys/fs'):
             break
@@ -36,8 +31,7 @@ def sample_memory(get_pid):
     usage = {'sampling_interval_seconds': 0.1, 'process_peak_rss_bytes': 0,
              'process_peak_hwm_bytes': 0, 'cgroup_peak_bytes': 0,
              'host_min_available_bytes': None, 'cgroup': str(group), 'cgroup_limits': limits}
-    # A thread is another execution path within this controller process. The
-    # Event lets the main path ask the sampling thread to stop cleanly.
+    # A thread runs alongside the controller's main code; Event requests its stop.
     stop = threading.Event()
 
     def sample():
@@ -45,8 +39,7 @@ def sample_memory(get_pid):
         while not stop.is_set():
             try:
                 rows = Path(f'/proc/{get_pid()}/status').read_text().splitlines()
-                # Resident memory is memory currently held in physical RAM.
-                # VmRSS is current usage; VmHWM is the Linux kernel's peak.
+                # VmRSS counts RAM currently held; VmHWM is the kernel's lifetime peak.
                 for field, key in [('VmRSS:', 'process_peak_rss_bytes'), ('VmHWM:', 'process_peak_hwm_bytes')]:
                     value = next(
                         (int(row.split()[1]) * 1024 for row in rows if row.startswith(field)),
@@ -80,11 +73,10 @@ def sample_memory(get_pid):
 
 
 def latencies(events, updates, clock_shifts=None):
-    """Calculate one set of intervals per capture generation, in seconds.
+    """Measure seconds per generation (the completed update being captured).
 
-    A generation is the completed update being captured (2 or 3). Controller
-    events already share a clock; only trainer update times need clock_shifts.
-    Failed or incomplete trials may lack an endpoint and yield no interval.
+    Only trainer timestamps need clock_shifts. Skip generations missing the next
+    update or filesystem-sync event.
     """
     measurements = []
     for capture in (e for e in events if e['event'] == 'capture_requested'):
@@ -106,8 +98,7 @@ def latencies(events, updates, clock_shifts=None):
                 raise ValueError('Negative latency: timestamps are not in the same clock domain')
             return (end - start) / 1e9
 
-        # CRIU finishes a dump; the application route finishes its own save.
-        # Sync is a fallback for older event records without a command endpoint.
+        # Use each route's completion event; old records fall back to filesystem sync.
         capture_completed = phase.get(
             'dump_completed',
             phase.get('application_save_completed', phase['filesystem_synced']),
@@ -126,13 +117,10 @@ def latencies(events, updates, clock_shifts=None):
 
 
 def finish(result, output, controller_offset_ns=None):
-    """Attach measurements to a run result, retaining the raw timing evidence.
+    """Attach measurements while retaining raw timestamps and clock offsets.
 
-    A Linux namespace gives processes their own view of a resource. A time
-    namespace can shift the clock they see without changing the host's clock.
-    Old runs need an externally measured controller offset. New runs read their
-    own namespace. CRIU's restore log supplies the restored trainer's offset;
-    fresh application children inherit the controller's offset instead.
+    A time namespace gives a process an offset view of the host clock. CRIU logs
+    the restored offset; old runs need an externally measured controller offset.
     """
     path = output / 'updates.jsonl'
     try:
@@ -161,12 +149,11 @@ def finish(result, output, controller_offset_ns=None):
             if len(matches) != 1:
                 raise ValueError('Need exactly one recorded CRIU monotonic clock offset')
             seconds, nanos = map(int, matches[0])
-            # Linux represents negative fractions as signed seconds + positive ns.
-            # For example, (-25, 700000000) means -24.3 seconds, not -25.7.
+            # Signed seconds + positive nanoseconds: (-25, 700000000) means -24.3 s.
             offset = seconds * 1_000_000_000 + nanos
         offsets[generation] = offset
     result['trainer_monotonic_offsets_ns'] = offsets
-    # Both offsets are measured against the underlying host clock:
+    # Both offsets refer to the host clock:
     # controller_time = trainer_time - trainer_offset + controller_offset.
     shifts = {g: result['controller_monotonic_offset_ns'] - offset for g, offset in offsets.items()}
     result['latencies'] = latencies(result['events'], updates, shifts)

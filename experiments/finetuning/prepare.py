@@ -1,8 +1,7 @@
-"""Prepare pinned model inputs once, outside every measured training trial.
+"""Prepare pinned inputs outside measured training trials.
 
-The manifest identifies the model files, authored examples, tokenized inputs, and
-execution environment. Later runs compare these identities before comparing
-restoration results, so changed inputs cannot masquerade as checkpoint failures.
+Model + examples -> tokens + manifest (file identities and execution environment).
+Comparing manifests prevents changed inputs from appearing as restore failures.
 """
 
 import argparse
@@ -16,7 +15,7 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
-# Download only the files used by the local model/tokenizer, at the pinned revision.
+# Download only required model/tokenizer files at the pinned revision.
 MODEL_FILES = (
     "config.json", "generation_config.json", "model.safetensors", "tokenizer.json",
     "tokenizer_config.json", "vocab.json", "merges.txt",
@@ -33,27 +32,14 @@ def file_hash(path):
 
 
 def write_json(path, value):
-    """Write stable, readable JSON for manifests and diagnostic evidence.
-
-    This is an ordinary evidence write; durable application checkpoint publication
-    has its own flush, fsync, and rename sequence in state.save_application.
-    """
+    """Write sorted evidence JSON; durable checkpoints use state.save_application."""
     Path(path).write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
 
 
-def packages():
-    """Record all installed distribution versions, including transitive packages."""
-    return dict(sorted(
-        (d.metadata["Name"].lower(), d.version)
-        for d in importlib.metadata.distributions()
-    ))
-
-
 def environment():
-    """Require isolated Python/CUDA access and record the actual host/runtime.
+    """Require isolated Python and CUDA; identify the host and installed packages.
 
-    Record the PyTorch CUDA runtime and NVIDIA driver separately: their versions
-    need not match, and both matter when interpreting restoration compatibility.
+    CUDA runtime and driver versions can differ; record both for compatibility.
     """
     import torch
 
@@ -63,7 +49,8 @@ def environment():
         raise RuntimeError("CUDA unavailable in this execution context")
     return {
         "python": platform.python_version(),
-        "packages": packages(),
+        "packages": dict(sorted((d.metadata["Name"].lower(), d.version)
+                                for d in importlib.metadata.distributions())),
         "kernel": platform.release(),
         "torch": str(torch.__version__),
         "cuda": torch.version.cuda,
@@ -82,11 +69,10 @@ def main():
     parser.add_argument("--model-dir", type=Path, help="Reuse previously downloaded pinned model files")
     args = parser.parse_args()
     os.umask(0o077)
-    args.output.mkdir(parents=True)  # An existing directory is an error: never replace a run's inputs.
+    args.output.mkdir(parents=True)  # Reject existing inputs rather than overwrite them.
     config = json.loads((HERE / "config.json").read_text())
     if args.model_dir:
-        # The preliminary probe's cache declares its repository and immutable
-        # revision. Check that declaration, then hash the actual files below.
+        # Check the cache's declared revision, then hash its actual files below.
         model = args.model_dir.resolve()
         source = json.loads((model / "asset-manifest.json").read_text())
         if source != {"repo": config["model"], "revision": config["revision"]}:
@@ -105,21 +91,18 @@ def main():
     tokens = []
     for line in (HERE / "examples.jsonl").read_text().splitlines():
         example = json.loads(line)
-        # Build one prompt+answer sequence, terminated explicitly with EOS. The
-        # causal-LM model shifts labels internally to predict each following token.
+        # Append an end-of-sequence token. The model shifts labels to predict the next token.
         prompt = tokenizer.encode(example["prompt"], add_special_tokens=False)
         answer = tokenizer.encode(example["answer"], add_special_tokens=False) + [tokenizer.eos_token_id]
-        # -100 tells the loss to ignore prompt positions: only the answer trains.
-        # Apply the same length cap to inputs and labels, and require some target
-        # labels to survive so a truncated prompt cannot produce an empty task.
+        # -100 excludes prompt tokens from the loss. Keep input/label lengths equal
+        # and require an answer target to survive truncation.
         labels = ([-100] * len(prompt) + answer)[:config["max_tokens"]]
         if not any(label != -100 for label in labels):
             raise ValueError("Truncation removed every answer label")
         tokens.append({"input_ids": (prompt + answer)[:config["max_tokens"]], "labels": labels})
     write_json(args.output / "tokens.json", tokens)
 
-    # Save both configuration/provenance and content identities. Token hashes
-    # capture the exact sequences used by training, beyond the raw text fixture.
+    # Hash both source text and tokenized sequences; training uses the latter.
     manifest = {
         "model_path": str(model),
         "config": config,
