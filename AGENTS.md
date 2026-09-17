@@ -2,6 +2,16 @@
 
 Understand what GPU snapshotting saves, how it works, and where it can help. Use a bounded POC to make the mechanism and trade-offs observable; no production platform is currently being built.
 
+## Learning audience
+
+Write for a CS student who knows basic programming but has not studied operating
+systems. Introduce required OS concepts before using them to explain a checkpoint
+step. Use function docstrings and grouped comments for non-obvious code; keep
+longer explanations and diagrams in the learning chapters. Each experiment
+pipeline should be readable in execution order in its own file, with only
+substantive shared operations extracted. Follow the [readability and teaching
+plan](docs/readability-plan.md) when extending the material.
+
 ## Optional local context
 
 If `.local-notes/context.md` exists, read it before planning work. It contains machine-local context and is intentionally untracked; its absence on another checkout is normal. Keep personal context out of tracked documentation.
