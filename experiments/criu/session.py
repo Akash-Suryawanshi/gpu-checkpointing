@@ -54,7 +54,7 @@ def alive(pid):
     """
     try:
         # The state field follows the parenthesized process name in /proc/PID/stat.
-        return Path(f"/proc/{pid}/stat").read_text().split(")", 1)[1].split()[0] != "Z"
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
     except FileNotFoundError:
         return False
 
@@ -184,7 +184,7 @@ def command(arguments, log, env, timeout=120):
                               stdout=output, stderr=subprocess.STDOUT, check=True, timeout=timeout)
 
 
-def criu(action, run, generation, tools, env, pid=None):
+def criu(action, run, generation, tools, env, pid=None, *, images=None, attempt=None, timeout=120):
     """Dump or restore one generation using CRIU and its native CUDA plugin.
 
     Dump leaves the original terminated; the caller still must reap it and verify
@@ -193,8 +193,10 @@ def criu(action, run, generation, tools, env, pid=None):
     """
     # Every capture needs fresh image and PID paths. This CRIU version creates
     # its PID file exclusively, so reusing one makes a later restore fail.
-    directory = run / f"images-{generation}"
-    pidfile = run / f"restored-{generation}.pid"
+    directory = images if images is not None else run / f"images-{generation}"
+    work = attempt if attempt is not None else run
+    pidfile = work / f"restored-{generation}.pid"
+    logfile = work / (action + ".log") if attempt is not None else directory / (action + ".log")
     if action == "dump":
         directory.mkdir()
     extra = ["--tree", str(pid)] if action == "dump" else ["--restore-detached", "--pidfile", str(pidfile)]
@@ -204,24 +206,25 @@ def criu(action, run, generation, tools, env, pid=None):
     # --shell-job permits the job's session/group arrangement. --libdir selects
     # the CUDA plugin, while --no-default-config prevents host config overrides.
     args = ["sudo", "-n", "env", "-i", "PATH=" + env["PATH"],
-            "LD_LIBRARY_PATH=" + tools["libraries"], "timeout", "--kill-after=5", "120",
+            "LD_LIBRARY_PATH=" + tools["libraries"], "timeout", "--kill-after=5", str(max(0.1, timeout - 5)),
             tools["criu"], "--no-default-config", action,
             "--images-dir", str(directory), "--libdir", tools["plugin"], "--shell-job",
-            "--log-file", action + ".log", "-v4", *extra]
+            "--log-file", str(logfile), "-v4",
+            *(["--work-dir", str(attempt)] if attempt is not None else []), *extra]
     try:
-        command(args, run / f"{action}-{generation}.stdout", env, timeout=130)
+        command(args, work / f"{action}-{generation}.stdout", env, timeout=timeout)
     finally:
         # CRIU's root-owned images/logs stay private beneath the mode-0700 run directory.
         # Return file ownership to the invoking user, including after failure.
-        subprocess.run(["sudo", "-n", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(directory)], check=True)
+        subprocess.run(["sudo", "-n", "chown", "-R", f"{os.getuid()}:{os.getgid()}", str(directory), *([str(logfile)] if logfile.exists() and attempt is not None else [])], check=True, timeout=10)
     if action == "dump":
         # CRIU must report success and leave its image inventory and process tree.
         # This checks completed output, not storage survival after losing the host.
         if not all((directory / name).is_file() for name in ("inventory.img", "pstree.img")):
             raise RuntimeError("Successful dump lacks image inventory")
     else:
-        subprocess.run(["sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(pidfile)], check=True)
-    log = (directory / (action + ".log")).read_text()
+        subprocess.run(["sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(pidfile)], check=True, timeout=10)
+    log = logfile.read_text()
     # Command success alone cannot prove the selected CUDA plugin did the work.
     # Keep other warnings available through warnings(); do not silently erase them.
     required = "Checkpointing CUDA devices" if action == "dump" else "resuming devices on pid"
@@ -253,6 +256,6 @@ def release_verified(run, generation, reference):
 
 def warnings(run):
     """Collect compatibility warnings and errors from every generation's CRIU logs."""
-    return [line.strip() for path in sorted(run.glob("images-*/*.log"))
+    return [line.strip() for path in sorted([*run.glob("images-*/*.log"), *run.glob("attempts/*/dump.log"), *run.glob("attempts/*/restore.log")])
             for line in path.read_text().splitlines()
             if " Warn " in line or " Error " in line or "unsupported" in line.lower()]
