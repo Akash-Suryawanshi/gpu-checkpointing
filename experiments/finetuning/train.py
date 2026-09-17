@@ -1,9 +1,8 @@
-"""Run a small LoRA workload with observable, completed-update capture boundaries.
+"""Run a small LoRA workload; pause after complete updates for capture.
 
-The trainer and controller are separate processes: each is a running program with
-its own memory. This process owns training; the controller owns capture, restore,
-and permission to continue. An application restore rebuilds objects from a file;
-a CRIU restore recreates saved process memory and resumes at its waiting point.
+Trainer: update -> ready -> wait for restore -> inspect -> continue.
+The controller is a separate running program that captures/restores this one;
+marker files carry permission to inspect and continue.
 """
 
 import argparse
@@ -17,11 +16,10 @@ from prepare import environment, file_hash, write_json
 
 
 def memory():
-    """Read current resident RAM (VmRSS) and its lifetime high-water mark (VmHWM).
+    """Read current/peak resident RAM (VmRSS/VmHWM), retaining Linux's units.
 
-    Linux exposes live process information through /proc; self means this process.
-    Resident RAM is physical CPU memory currently backing it, not a saved image's
-    disk size. Keep the kernel's units. CUDA statistics separately describe VRAM.
+    /proc/self describes this process. Resident RAM is physical CPU memory
+    backing it; CUDA statistics separately describe GPU memory (VRAM).
     """
     status = Path("/proc/self/status").read_text().splitlines()
     return {
@@ -32,11 +30,7 @@ def memory():
 
 
 def wait(path):
-    """Wait for a file whose existence signals permission from the controller.
-
-    Their ordinary Python variables are separate, but they can see the same files.
-    Markers therefore coordinate them before capture and after process recreation.
-    """
+    """Wait for the controller's marker file: both processes see the same files."""
     # The controller enforces timeouts: a saved deadline could expire while this
     # process is absent from the GPU, even though its restored state is healthy.
     while not path.exists():
@@ -50,11 +44,9 @@ def main(args):
     os.umask(0o077)  # Restrict newly created evidence files to their owning user.
 
     def mappings(stage):
-        """Record Linux's list of this process's address ranges at each milestone.
+        """Record memory address ranges, permissions, and backing files, not bytes.
 
-        /proc/self/maps describes ranges of virtual addresses, their access flags,
-        and any backing files. It does not contain the bytes stored in those ranges.
-        These snapshots help investigate shared-memory compatibility warnings.
+        These /proc/self/maps records help investigate shared-memory warnings.
         """
         (run / f"{stage}.maps").write_text(Path("/proc/self/maps").read_text())
 
@@ -72,8 +64,7 @@ def main(args):
     from transformers import AutoModelForCausalLM
     from peft import LoraConfig, get_peft_model
 
-    # Reuse prepared files for every run. Dropout is the one per-trial setting;
-    # all model, tokenizer-output, and environment identities must still match.
+    # Only dropout varies per trial; prepared assets and their identities match.
     config = {**manifest["config"], "dropout": args.dropout}
     identity = manifest["identity"]
     model_path = Path(manifest["model_path"])
@@ -84,8 +75,8 @@ def main(args):
     state.compare(identity["tokens_sha256"], file_hash(args.assets / "tokens.json"), "tokens")
     tokens = json.loads((args.assets / "tokens.json").read_text())
 
-    # Seed before adapter construction. Deterministic kernels and disabled TF32
-    # keep the comparison strict; dropout may still consume the seeded RNG stream.
+    # Seed before adapter construction. Deterministic operations and disabled
+    # TF32 (reduced-precision matrix math) allow exact comparison with dropout.
     random.seed(config["seed"])
     torch.manual_seed(config["seed"])
     torch.use_deterministic_algorithms(True)
@@ -97,13 +88,13 @@ def main(args):
         dtype=torch.float32,
         attn_implementation="eager",
     )
-    model.config.use_cache = False  # Training does not need a generation KV cache.
+    model.config.use_cache = False  # Disable caching of past tokens for generation.
     model = get_peft_model(
         model,
         LoraConfig(**config["lora"], lora_dropout=args.dropout, task_type="CAUSAL_LM"),
     )
-    # Pretrained loading uses evaluation mode. Explicit training mode is required
-    # for the dropout experiment; successful gradients alone cannot prove it ran.
+    # Loading uses evaluation mode, which disables dropout. Gradients alone do
+    # not prove dropout ran; explicitly enter training mode, then observe calls.
     model.cuda().train()
     mappings("model")
     parameters = {n: p for n, p in model.named_parameters() if p.requires_grad}
@@ -111,8 +102,8 @@ def main(args):
     if sum(p.numel() for p in parameters.values()) != 540672:
         raise ValueError("Unexpected trainable parameter count")
 
-    # Only adapters train. Adam allocates its moment tensors on the first update;
-    # the linear schedule is part of the continuation state, even in this tiny run.
+    # Adam's gradient averages (moments) allocate on update 1. Preserve these
+    # and the learning-rate schedule when resuming the trainable adapters.
     optimizer = torch.optim.AdamW(parameters.values(), **config["optimizer"])
     schedule = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda n: max(0, 1 - n / config["updates"])
@@ -125,8 +116,7 @@ def main(args):
         "last_loss": None,
     }
     if args.load:
-        # Application restoration reconstructs objects and loads their saved state.
-        # CRIU restoration bypasses setup: it resumes at the saved wait below.
+        # Application restore loads rebuilt objects; CRIU resumes at wait below.
         progress = state.load_application(args.load, model, optimizer, schedule, identity, config)
 
     def observe(name):
@@ -140,24 +130,22 @@ def main(args):
 
         return hook
 
-    # A configured probability is insufficient evidence: these hooks see actual
-    # LoRA forward calls, and each update separately checks CUDA RNG consumption.
+    # Observe actual dropout calls; each update also checks CUDA randomness use.
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Dropout) and "lora_dropout" in name:
             module.register_forward_hook(observe(name))
 
     def evidence(name, full=False):
-        """Write exact state evidence in diagnostics and allocator memory in all runs.
+        """Record memory, and hash state when diagnostic or explicitly requested.
 
-        Full inspection hashes model and optimizer tensors, which is substantial
-        work. Timing runs defer it until after the measured next-update endpoint.
+        Timing runs defer expensive hashes past the measured update endpoint.
         """
         if not args.timing or full:
             record = state.inspect(model, optimizer, schedule, progress, identity, config)
             write_json(run / name, record)
             del record
-        # Allocated memory belongs to live PyTorch tensors; reserved memory also
-        # includes its allocator cache. These figures are not total driver VRAM.
+        # Allocated = live tensors; reserved also includes PyTorch's memory cache.
+        # Neither measures total driver VRAM.
         write_json(run / "memory.json", {
             **memory(),
             "allocated_vram": torch.cuda.memory_allocated(),
@@ -171,8 +159,8 @@ def main(args):
         torch.cuda.synchronize()
         if args.timing:
             return  # Correctness was checked separately; time the next real update.
-        # Observe modes, adapters, flags, RNG, and tensors before changing anything:
-        # calling train() or reseeding here could conceal a bad process restore.
+        # Inspect before changing modes/adapters/flags/RNG/tensors: calling train()
+        # or reseeding here could conceal a bad process restore.
         evidence(f"after-{update}.json")
         (run / f"inspected-{update}").touch(exist_ok=False)
         wait(run / f"continue-{update}")
@@ -198,8 +186,8 @@ def main(args):
         if any(p.grad is None or not torch.isfinite(p.grad).all() for p in parameters.values()):
             raise ValueError("Missing or nonfinite adapter gradient")
 
-        # The capture boundary follows the whole update: parameters, optimizer,
-        # schedule, cleared gradients, and data position must all agree.
+        # Complete the update before capture: weights, optimizer, schedule,
+        # cleared gradients, and data position must all agree.
         optimizer.step()
         schedule.step()
         optimizer.zero_grad(set_to_none=True)
@@ -217,10 +205,8 @@ def main(args):
         )
         torch.cuda.synchronize()  # Finish asynchronous CUDA work before reporting completion.
         update = progress["update"]
-        # A monotonic clock measures elapsed time. Linux can give a restored
-        # process its own clock offset (a time namespace), so the controller uses
-        # recorded offsets to convert completed_ns into its clock. update_ns is a
-        # difference within this process, so the offset cancels from that duration.
+        # Linux may restore a time namespace: a private elapsed-time clock offset.
+        # The controller converts completed_ns; same-process update_ns cancels it.
         print(json.dumps({
             "update": update,
             "loss": value,
@@ -230,8 +216,7 @@ def main(args):
         }), flush=True)
         if update == 1:
             mappings("adam")
-            # A one-update capture must include initialized Adam moments, not an
-            # empty optimizer that has yet to exercise its allocation path.
+            # Require initialized Adam moments before the earliest capture.
             if not all(
                 set(optimizer.state[p]) == {"step", "exp_avg", "exp_avg_sq"}
                 for p in parameters.values()
@@ -239,17 +224,15 @@ def main(args):
                 raise ValueError("Adam state missing")
         evidence(f"state-{update}.json")
         if update in args.pause_at:
-            # Generation-specific markers prevent a repeated restore from taking
-            # an earlier update's signal as permission to proceed.
+            # Update-specific markers prevent reuse of an earlier permission.
             (run / f"ready-{update}").touch(exist_ok=False)
             if args.save:
                 wait(run / f"save-{update}")
                 state.save_application(args.save, model, optimizer, schedule, progress, identity, config)
                 (run / f"saved-{update}").touch(exist_ok=False)
                 return  # The controller verifies this original trainer has exited.
-            # CRIU captures while this wait is active. Only after restoring the
-            # process does the controller create inspect-N, then continue-N after
-            # comparing its evidence with the uninterrupted reference.
+            # CRIU captures at this wait. After restore: inspect-N -> evidence
+            # comparison with the uninterrupted reference -> continue-N.
             wait(run / f"inspect-{update}")
             inspect_restored(update)
 
