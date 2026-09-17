@@ -44,7 +44,7 @@ def durations(records, run_id, reference):
                 raise ValueError("Stale or wrong message identity")
         start, published, received, completed = (record[k] for k in
             ("start_ns", "published_ns", "first_ns", "completed_ns"))
-        times = (previous, start, published, received, completed)
+        times = (previous, start, record["request_start_ns"], published, received, completed)
         if any(type(t) is not int for t in times) or list(times) != sorted(times):
             raise ValueError("Observer events are out of order")
         previous = completed
@@ -71,6 +71,8 @@ def validate_run(path, check_diagnostic=True):
             raise ValueError("Evidence changed: " + name)
     if run["kind"] == "timing" and check_diagnostic:
         diagnostic = run["diagnostic"]
+        if not isinstance(diagnostic, dict):
+            raise ValueError("Diagnostic required")
         diagnostic_record(diagnostic["path"], run["key"], run["route"], diagnostic["sha256"])
     elif run["kind"] != "diagnostic":
         raise ValueError("Diagnostic required")
