@@ -1,9 +1,4 @@
-"""Validate inputs, select one explicit pipeline, and retain its evidence.
-
-Read reference_pipeline.py, application_pipeline.py, or criu_pipeline.py for
-the route itself. This entry point keeps the shared admission checks and result
-writing together, including evidence from failed trials.
-"""
+"""Validate inputs, select a dedicated pipeline, and retain success/failure evidence."""
 
 import argparse
 import json
@@ -22,12 +17,10 @@ import metrics
 
 
 def reference_key(args):
-    """Fingerprint everything that must match a reference or correctness run.
+    """Fingerprint inputs, environment, all trainer/controller sources, and tools.
 
-    Source hashes include every fine-tuning module, including the dedicated
-    pipelines. A code change therefore invalidates earlier admission evidence.
-    Tool commits identify the pinned sources; binary hashes identify the actual
-    built programs and CUDA plugin used for this trial.
+    Code changes invalidate references. Tool commits identify source revisions;
+    binary hashes identify the programs/plugin actually used.
     """
     manifest = json.loads((args.assets / "manifest.json").read_text())
     state.compare(manifest["environment"], environment(), "environment")
@@ -46,15 +39,12 @@ def reference_key(args):
 
 
 def run(args):
-    """Run an admitted trial, retain execution results, and clean up an owned child.
+    """Validate before launch; record results and clean up the owned child on failure.
 
-    Admission checks happen before trainer launch. Timing is permitted only
-    for the same inputs, code, mode, and capture boundaries as a successful
-    diagnostic run. Trial owns the current PID so exceptions cannot hide a
-    still-running original or restored trainer from the finally block.
+    Timing requires matching passed diagnostics. Trial tracks the current trainer
+    so cleanup can find it even if a pipeline raises.
     """
-    # Images may contain the complete process memory. Keep all new files private
-    # and reject an existing run directory to avoid accidentally reusing markers.
+    # Images contain process memory: keep files private and reject stale run markers.
     os.umask(0o077)
     args.run_dir = args.run_dir.resolve()
     args.assets = args.assets.resolve()
@@ -67,8 +57,7 @@ def run(args):
     env = session.child_environment(args.tools / "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")
     key = reference_key(args)
     write_json(output / "key.json", key)
-    # A single reference can match by accident; require its independently
-    # repeated run to have passed before accepting it as comparison evidence.
+    # Admit only references whose two independent runs matched exactly.
     if args.mode != "reference":
         if args.reference is None or not (args.reference / "verified").exists():
             raise ValueError("A verified pair of references is required")
@@ -82,13 +71,11 @@ def run(args):
                 or validated.get("timing") or validated["mode"] != args.mode
                 or validated["capture"] != args.capture):
             raise ValueError("Matching full correctness run did not pass")
-        # Timing trainers skip large asset re-hashes. Check the actual files here
-        # before launch so that omission cannot silently admit different weights.
+        # Check large asset hashes here, outside the trainer's measured interval.
         manifest = json.loads((args.assets / "manifest.json").read_text())
         for name, digest in key["identity"]["files"].items():
             state.compare(digest, file_hash(Path(manifest["model_path"]) / name), f"asset.{name}")
-    # CRIU creates the restored trainer, then detaches from it. Ask Linux to
-    # make this controller its adopting parent so it can wait for the final exit.
+    # Adopt CRIU's detached trainer so this controller can collect its exit status.
     session.adopt_restored_children()
     trial = Trial(args, tools, env)
     result = {"mode": args.mode, "timing": args.timing, "capture": args.capture,
@@ -99,15 +86,13 @@ def run(args):
     stop_sampling = metrics.sample_memory(lambda: trial.pid)
 
     try:
-        # Each file spells out one route in execution order, with shared lifecycle
-        # phases in pipeline.py. There is no alternate restore backend in a route.
+        # Dedicated files keep each route readable in execution order.
         pipelines = {"reference": reference_pipeline.run,
                      "application": application_pipeline.run, "criu": criu_pipeline.run}
         pipelines[args.mode](trial)
         result["lifecycle_passed"] = True
         if args.mode == "reference":
-            # Both processes have exited. Numerical agreement is a separate
-            # verdict; publish this admission marker only after it is proven.
+            # Publish admission only after numerical agreement, not just clean exits.
             compare_run(output, output / "repeat", args.until)
             (output / "verified").touch(exist_ok=False)
         else:
@@ -121,17 +106,14 @@ def run(args):
         result["memory_samples"] = stop_sampling()
         if trial.pid:
             session.cleanup(trial.pid, trial.directory, trial.process)
-        # Preserve warnings even for successful numerical runs. Equal state does
-        # not establish every resource-sharing or future-host compatibility claim.
+        # Equal state does not resolve resource-sharing warnings or future-host support.
         result["warnings"] = session.warnings(output)
         result["compatibility"] = "qualified: sharing ownership and any resource warnings require interpretation"
         result["image_bytes"] = sum(p.stat().st_size for p in output.glob("images-*/*.img"))
         result["application_bytes"] = (output / "application.pt").stat().st_size if (output / "application.pt").exists() else 0
         if trial.events:
             result["trial_seconds"] = (time.monotonic_ns() - trial.events[0]["monotonic_ns"]) / 1e9
-        # A Linux time namespace can give the restored trainer a different clock
-        # offset. metrics.finish converts it before comparing trainer/controller
-        # timestamps; raw events remain available to audit reported latencies.
+        # Convert restored clock offsets before comparing timestamps; retain raw events.
         metrics.finish(result, output)
         write_json(output / "result.json", result)
 
