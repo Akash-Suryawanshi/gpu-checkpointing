@@ -59,6 +59,50 @@ def alive(pid):
         return False
 
 
+def identity(pid):
+    """Bind a PID to this boot, start tick, and owner, avoiding PID reuse."""
+    directory = Path(f"/proc/{pid}")
+    fields = (directory / "stat").read_text().rsplit(")", 1)[1].split()
+    return {"pid": pid, "start_ticks": int(fields[19]), "uid": directory.stat().st_uid,
+            "boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip()}
+
+
+def matches(expected):
+    try:
+        return identity(expected["pid"]) == expected and alive(expected["pid"])
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+
+def observe_exit(expected, deadline, removed=False):
+    """Observe an unrelated trainer; only its actual parent can collect status."""
+    while True:
+        try:
+            current = identity(expected["pid"])
+        except (FileNotFoundError, ProcessLookupError):
+            return
+        if current != expected:
+            raise RuntimeError("PID reused while observing original exit")
+        if not removed and not alive(expected["pid"]):
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Original trainer has not exited/been reaped")
+        time.sleep(0.05)
+
+
+def kill_identified(expected):
+    """Pin the process with a pidfd, then recheck identity before signaling."""
+    try:
+        fd = os.pidfd_open(expected["pid"])
+    except ProcessLookupError:
+        return
+    try:
+        if matches(expected):
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+    finally:
+        os.close(fd)
+
+
 def wait_marker(path, pid, timeout=120):
     """Wait for a trainer-created control file, failing on exit or timeout."""
     # A monotonic clock measures elapsed time without calendar-clock corrections.
