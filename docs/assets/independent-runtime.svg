@@ -1,39 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 917" role="img" aria-labelledby="title desc">
-<title id="title">The independent runtime sequence</title><desc id="desc">Read downward in time. A running trainer receives a capture request and pauses after its current update. CRIU captures it and ends the original. The worker flushes files and publishes completion, then exits. Later an independent restore worker reconstructs and verifies the trainer. The restore worker exits and training continues. Arrows mean the next phase, not movement of bytes.</desc>
-<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#375f83"/></marker></defs>
-<style>text { font-family: Georgia, "Times New Roman", serif; fill: #242424; font-size: 18px; } .label { font-size: 16px; fill: #375f83; }</style>
-<rect width="440" height="917" fill="#faf9f6"/>
-<rect x="20" y="20" width="400" height="80" rx="4" fill="#f0eee9" stroke="#b2afa6"/>
-<text x="220" y="49" text-anchor="middle">1. Trainer is running</text>
-<text x="220" y="76" text-anchor="middle">train.py owns the model and optimizer</text>
-<path d="M40 103 V149" fill="none" stroke="#375f83" stroke-width="2" marker-end="url(#arrow)"/>
-<text class="label" x="57" y="131">External trigger</text>
-<rect x="20" y="154" width="400" height="105" rx="4" fill="#f0eee9" stroke="#b2afa6"/>
-<text x="220" y="183" text-anchor="middle">2. Capture command starts</text>
-<text x="220" y="210" text-anchor="middle">checkpoint.py requests a pause</text>
-<text x="220" y="234" text-anchor="middle">Trainer completes its update and waits</text>
-<path d="M40 262 V308" fill="none" stroke="#375f83" stroke-width="2" marker-end="url(#arrow)"/>
-<text class="label" x="57" y="290">Ready acknowledgement</text>
-<rect x="20" y="313" width="400" height="105" rx="4" fill="#f0eee9" stroke="#b2afa6"/>
-<text x="220" y="342" text-anchor="middle">3. CRIU captures the process</text>
-<text x="220" y="369" text-anchor="middle">CUDA plugin stages GPU state in RAM</text>
-<text x="220" y="393" text-anchor="middle">CRIU writes images; original exits</text>
-<path d="M40 421 V467" fill="none" stroke="#375f83" stroke-width="2" marker-end="url(#arrow)"/>
-<text class="label" x="57" y="449">Successful dump + verified exit</text>
-<rect x="20" y="472" width="400" height="105" rx="4" fill="#f0eee9" stroke="#b2afa6"/>
-<text x="220" y="501" text-anchor="middle">4. Checkpoint becomes ready</text>
-<text x="220" y="528" text-anchor="middle">Flush payload, manifest, and directories</text>
-<text x="220" y="552" text-anchor="middle">Publish + persist COMPLETE; worker exits</text>
-<path d="M40 580 V626" fill="none" stroke="#375f83" stroke-width="2" marker-end="url(#arrow)"/>
-<text class="label" x="57" y="608">Saved files connect the two commands</text>
-<rect x="20" y="631" width="400" height="105" rx="4" fill="#f0eee9" stroke="#b2afa6"/>
-<text x="220" y="660" text-anchor="middle">5. Restore command starts later</text>
-<text x="220" y="687" text-anchor="middle">restore.py reads the completed snapshot</text>
-<text x="220" y="711" text-anchor="middle">CRIU reconstructs the paused trainer</text>
-<path d="M40 739 V785" fill="none" stroke="#375f83" stroke-width="2" marker-end="url(#arrow)"/>
-<text class="label" x="57" y="767">Permit updates only after comparison</text>
-<rect x="20" y="790" width="400" height="105" rx="4" fill="#e9eef1" stroke="#b2afa6"/>
-<text x="220" y="819" text-anchor="middle">6. Verify, release, and continue</text>
-<text x="220" y="846" text-anchor="middle">Compare untouched restored state</text>
-<text x="220" y="870" text-anchor="middle">Restore worker exits; trainer continues</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="380" height="210" viewBox="0 0 380 210" role="img" aria-labelledby="title desc">
+<title id="title">Independent capture and restore</title><desc id="desc">Execution order: trainer pauses after an update. A separate capture worker dumps and persists the snapshot, then exits. Later a restore worker reconstructs, verifies, and releases the trainer.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#375f83"/></marker></defs>
+<style>text{font-family:Georgia,"Times New Roman",serif;font-size:16px;fill:#242424}.label{font-size:13px;fill:#375f83}</style>
+<rect width="380" height="210" fill="#faf9f6"/>
+<rect x="10" y="10" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="29" text-anchor="middle">1. Trainer pauses</text>
+<text x="190" y="47" text-anchor="middle">Complete update; synchronize CUDA</text>
+<path d="M26 58V79" stroke="#375f83" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="label" x="42" y="74">Ready acknowledgement</text>
+<rect x="10" y="82" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="101" text-anchor="middle">2. Capture worker</text>
+<text x="190" y="119" text-anchor="middle">CRIU dump → fsync → COMPLETE → exit</text>
+<path d="M26 130V151" stroke="#375f83" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="label" x="42" y="146">Saved artifacts connect independent workers</text>
+<rect x="10" y="154" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="173" text-anchor="middle">3. Later restore worker</text>
+<text x="190" y="191" text-anchor="middle">Reconstruct → verify → continue → exit</text>
 </svg>
