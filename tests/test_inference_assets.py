@@ -34,3 +34,15 @@ class AssetTests(unittest.TestCase):
             env = session.child_environment(Path("/tools/cuda-checkpoint"))
         self.assertTrue(all(env[k] == v for k, v in allowed.items()))
         self.assertNotIn("UNRELATED_SECRET", env)
+
+    def test_direct_preparation_sets_deterministic_cublas_before_loading(self):
+        """REGRESSION (8B preparation v1): direct loading needs the child cuBLAS policy."""
+        import worker
+        from unittest.mock import MagicMock
+        torch, transformers = MagicMock(), MagicMock()
+        def check(*args, **kwargs):
+            self.assertEqual(os.environ["CUBLAS_WORKSPACE_CONFIG"], ":4096:8")
+            return MagicMock()
+        transformers.AutoModelForCausalLM.from_pretrained.side_effect = check
+        with patch.dict(os.environ, {}, clear=True), patch.dict("sys.modules", {"torch": torch, "transformers": transformers}):
+            worker.load("model")

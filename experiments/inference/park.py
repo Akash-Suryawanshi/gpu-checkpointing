@@ -53,7 +53,7 @@ def admission(observed, memory, action, pid=None):
     if any(p != pid for p in observed["compute_pids"]):
         raise ValueError("Foreign GPU compute process")
     reserved = memory["reserved_vram"]
-    gpu_required = reserved + GIB if action == "restore" else GIB
+    gpu_required = reserved + GIB if action in ("restore", "wake") else GIB
     if observed["gpu_free"] < gpu_required:
         raise ValueError("Insufficient GPU reserve")
     required = reserved + 4 * GIB + (memory["rss_bytes"] if action == "restore" else 0)

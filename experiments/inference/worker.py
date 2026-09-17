@@ -12,6 +12,8 @@ import control
 
 
 def load(model_path):
+    # Direct preparation and isolated children must use the same cuBLAS policy.
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     torch.set_num_threads(1)
