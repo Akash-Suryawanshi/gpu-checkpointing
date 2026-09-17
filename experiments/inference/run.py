@@ -87,8 +87,10 @@ def trial(args):
                   f"host RSS retained: {after.get('rss_bytes', 0) / park.GIB:.2f} GiB", flush=True)
             control.write(output / "released-resources.json", after)
             emit("job_b_started", mib=mib, claim=claim)
-            session.command([sys.executable, HERE.parent / "finetuning/job_b.py", "--mib", str(mib)],
-                            output / "job-b.log", env, timeout=control.remaining(deadline))
+            # Keep ownership until exit is collected, including cancellation.
+            with lifecycle.helper([sys.executable, HERE.parent / "finetuning/job_b.py", "--mib", str(mib)],
+                                  output / "job-b.log", env, deadline, privileged=False) as command:
+                lifecycle.wait_helper(command, deadline)
             checked = json.loads((output / "job-b.log").read_text())
             if not checked["passed"] or checked["sum"] != mib * park.MIB:
                 raise ValueError("Job B result differs")

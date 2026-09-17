@@ -138,3 +138,7 @@ merges; do not merge on their behalf.
 ### 2026-09-17 - Cancel the whole inference helper group before reaping its leader
 **Finding**: `experiments/inference/lifecycle.py:22` uses `waitid(..., WNOWAIT)` to keep the helper PID reserved while stopping its process group. `experiments/criu/session.py` keeps GNU timeout in that group for inference; its default group creation would let privileged descendants escape group cleanup.
 **Impact**: A controller interruption must stop capture/restore commands before cleaning up model workers. Preserve the separate restored-worker identity checks, and report an unresolved helper or partial restore as failed cleanup.
+
+### 2026-09-17 - Killing a direct command does not prove its exit was collected
+**Finding**: An injected SIGTERM during `experiments/criu/session.py:181` reached Python's `KeyboardInterrupt` cleanup, but the child still had a `/proc` entry when the call returned. `experiments/inference/lifecycle.py:22` explicitly stops and reaps owned helper groups.
+**Impact**: Use that owner for inference job B as well as capture/restore; GPU reuse requires completed cleanup, not merely sending a kill signal.

@@ -37,7 +37,7 @@ class LifecycleTests(unittest.TestCase):
         """Critical: deadline and identity checks precede every helper subprocess."""
         for deadline, matches in [(time.monotonic() - 1, True), (time.monotonic() + 5, False)]:
             parking = park.Parking("helper", {"uid": os.getuid()}, deadline, lambda *a, **k: None)
-            with patch.object(park.session, "matches", return_value=matches), patch.object(park.subprocess, "run") as run:
+            with patch.object(park.session, "matches", return_value=matches), patch.object(park.subprocess, "Popen") as run:
                 with self.assertRaises((TimeoutError, ValueError)):
                     parking.park()
                 run.assert_not_called()
@@ -47,7 +47,7 @@ class LifecycleTests(unittest.TestCase):
         memory = {"reserved_vram": 8 * park.GIB, "rss_bytes": 3 * park.GIB}
         observed = {"compute_pids": [], "gpu_free": 20 * park.GIB, "available": 12 * park.GIB}
         park.admission(observed, memory, "park")
-        with patch.object(park.subprocess, "run") as helper:
+        with patch.object(park.subprocess, "Popen") as helper:
             with self.assertRaisesRegex(ValueError, "host memory"):
                 park.admission(observed, memory, "restore")
             helper.assert_not_called()
@@ -172,3 +172,47 @@ restore.restore(Namespace(snapshot=run / "snapshot", tools=run, timeout=5))
                     raise KeyboardInterrupt()
             self.assertFalse(Path(f"/proc/{command.pid}").exists())
             self.assertFalse(Path(f"/proc/{child}").exists())
+
+    def test_controller_has_no_unowned_blocking_commands(self):
+        """REGRESSION (cancelled job B): direct run() can leave an unreaped child."""
+        import ast
+        from pathlib import Path
+        source = Path(__file__).resolve().parents[1] / "experiments/inference/run.py"
+        calls = [ast.unparse(node.func) for node in ast.walk(ast.parse(source.read_text()))
+                 if isinstance(node, ast.Call)]
+        # The group owner has a real descendant-cancellation check above. Keep
+        # controller subprocesses inside it until their exits are collected.
+        self.assertNotIn("session.command", calls)
+        self.assertNotIn("subprocess.run", calls)
+
+    def test_interrupted_cuda_helper_is_reaped_before_return(self):
+        """REGRESSION (cancelled direct helper): kill alone leaves an uncollected exit."""
+        import signal
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            helper = root / "helper"
+            marker = root / "pid"
+            helper.write_text("#!/usr/bin/python3\nimport os,time\nfrom pathlib import Path\n"
+                f"Path({str(marker)!r}).write_text(str(os.getpid()))\ntime.sleep(60)\n")
+            helper.chmod(0o700)
+            parking = park.Parking(helper, {"pid": os.getpid(), "uid": os.getuid()},
+                                   time.monotonic() + 5, lambda *a, **k: None)
+            previous = signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+            try:
+                signal.setitimer(signal.ITIMER_REAL, 0.5)
+                # Incidental destructor polling is not a cleanup guarantee.
+                with patch.object(park.session, "matches", return_value=True), \
+                        patch.object(park.subprocess.Popen, "__del__", lambda self: None), \
+                        self.assertRaises(KeyboardInterrupt):
+                    parking.command("--get-state")
+                self.assertTrue(marker.exists())
+                self.assertFalse(Path(f"/proc/{int(marker.read_text())}").exists())
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
+                if marker.exists() and Path(f"/proc/{int(marker.read_text())}").exists():
+                    pid = int(marker.read_text())
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)

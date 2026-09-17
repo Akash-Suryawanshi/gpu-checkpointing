@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 
+import lifecycle
 from worker import control
 from control import session
 
@@ -70,13 +71,28 @@ class Parking:
         control.remaining(self.deadline)
         if not session.matches(self.identity) or self.identity["uid"] != os.getuid():
             raise ValueError("RAM worker identity changed")
-        completed = subprocess.run([str(self.helper), *arguments, "--pid", str(self.identity["pid"])],
-            capture_output=True, text=True, timeout=control.remaining(self.deadline))
-        self.emit("cuda_helper", arguments=list(arguments), code=completed.returncode,
-                  stdout=completed.stdout.strip(), stderr=completed.stderr.strip())
-        completed.check_returncode()
+        command = [str(self.helper), *arguments, "--pid", str(self.identity["pid"])]
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            stdout, stderr = process.communicate(timeout=control.remaining(self.deadline))
+        finally:
+            try:
+                # run() can return from KeyboardInterrupt before reaping. This
+                # direct NVIDIA helper must finish before worker cleanup starts.
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=10)
+            except BaseException as error:
+                raise lifecycle.CleanupError("CUDA helper cleanup failed") from error
+            finally:
+                process.stdout.close()
+                process.stderr.close()
+        self.emit("cuda_helper", arguments=list(arguments), code=process.returncode,
+                  stdout=stdout.strip(), stderr=stderr.strip())
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
         control.remaining(self.deadline)
-        return completed.stdout.strip().lower()
+        return stdout.strip().lower()
 
     def expect(self, state):
         actual = self.command("--get-state")
