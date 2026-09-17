@@ -6,24 +6,21 @@
 <title>Inside CRIU: nine-step checkpoint and restore walkthrough</title>
 <style>
 * { box-sizing: border-box; }
-html { color-scheme: light; background: #fffefb; color: #262626; }
-body { max-width: 900px; margin: auto; padding: 40px 28px 64px; font: 18px/1.75 Georgia, "Times New Roman", serif; }
-h1 { font-size: 32px; line-height: 1.25; }
+html { color-scheme: light; background: #faf9f6; color: #242424; }
+body { max-width: 900px; margin: auto; padding: 40px 28px 64px; font: 19px/1.7 Georgia, "Times New Roman", serif; }
+h1 { font-size: 30px; line-height: 1.25; font-weight: 400; }
 p { margin: 0 0 18px; }
 a { color: #285374; text-underline-offset: 3px; }
-summary { cursor: pointer; font-weight: bold; }
+summary { cursor: pointer; }
 .r-collapsible-body { padding-top: 20px; }
-.r-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 15px; }
-.r-table th, .r-table td { text-align: left; vertical-align: top; padding: 10px; border-bottom: 1px solid #d7d3ca; }
-.r-table th { background: #f3f1eb; }
 code { font: .85em ui-monospace, monospace; overflow-wrap: anywhere; }
-@media (max-width: 600px) { body { padding: 24px 16px; font-size: 17px; } h1 { font-size: 27px; } }
+@media (max-width: 600px) { body { padding: 24px 16px; } h1 { font-size: 27px; } }
 </style>
 </head>
 <body>
 <header><p><a href="../../README.md">Foundations</a> · <a href="../01-cpu-checkpointing.md">CPU chapter</a> · <a href="../02-gpu-checkpointing.md">GPU chapter</a></p>
 <h1>Inside CRIU: checkpoint and restore</h1>
-<p>A simplified CPU-only walkthrough. The Markdown chapters are the authoritative written explanation; this standalone animation needs no external libraries or network access.</p></header>
+<p>Follow one CPU process from capture to resumed execution. Use Next to advance; playback starts only when requested.</p></header>
 <details class="r-collapsible" id="criu-walkthrough" open><summary>Inside CRIU: follow one program through a snapshot</summary><div class="r-collapsible-body r-prose">
 <style>
 #criu-walkthrough { scroll-margin-top: 24px; }
@@ -37,21 +34,20 @@ code { font: .85em ui-monospace, monospace; overflow-wrap: anywhere; }
 #criu-walkthrough .cw-progress span { flex:1; height:4px; background:#e4e2da; }
 #criu-walkthrough .cw-progress span[data-current="true"] { background:#285374; }
 #criu-walkthrough .cw-phase { font-size:16px; color:#555; margin:0 0 4px; }
-#criu-walkthrough h3 { font-family:inherit; font-size:22px; font-weight:bold; letter-spacing:0; text-transform:none; margin:0 0 16px; color:inherit; }
-#criu-walkthrough .cw-diagram { display:grid; grid-template-columns:1fr 28px 1fr 28px 1fr; align-items:stretch; margin:16px 0; }
-#criu-walkthrough .cw-node { border:1px solid #bdb9b0; padding:12px; min-width:0; background:#f8f7f2; font-size:15px; line-height:1.5; }
-#criu-walkthrough .cw-node[data-active="true"] { border:2px solid #285374; padding:11px; background:#edf3f5; }
-#criu-walkthrough .cw-node strong { display:block; font-size:17px; margin-bottom:8px; }
+#criu-walkthrough h3 { font-family:inherit; font-size:22px; font-weight:400; letter-spacing:0; text-transform:none; margin:0 0 16px; color:inherit; }
+#criu-walkthrough .cw-diagram { display:grid; grid-template-columns:1fr 22px 1fr 22px 1fr; align-items:stretch; max-width:640px; margin:16px auto; }
+#criu-walkthrough .cw-node { border:1px solid #bdb9b0; padding:9px; min-width:0; background:#f8f7f2; font-size:15px; line-height:1.5; }
+#criu-walkthrough .cw-node[data-active="true"] { border:2px solid #285374; padding:8px; background:#edf3f5; }
+#criu-walkthrough .cw-node strong { display:block; font-size:15px; margin-bottom:6px; }
 #criu-walkthrough .cw-node span { display:block; white-space:pre-line; }
 #criu-walkthrough .cw-arrow { align-self:center; text-align:center; font-size:24px; color:#285374; }
 #criu-walkthrough .cw-caption { font-size:15px; color:#555; margin:8px 0 18px; }
 #criu-walkthrough .cw-explain p { margin:10px 0; }
 #criu-walkthrough .cw-interface { padding:10px 14px; border-left:3px solid #aaa69d; background:#f7f6f0; font-size:16px; }
-#criu-walkthrough .cw-map { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:16px 0; font-size:16px; line-height:1.5; }
+#criu-walkthrough .cw-map { display:grid; grid-template-columns:1fr 1fr; gap:10px; max-width:560px; margin:16px auto; font-size:16px; line-height:1.5; }
 #criu-walkthrough .cw-map-column { border:1px solid #bdb9b0; padding:12px; }
-#criu-walkthrough .cw-map-cell { border:1px solid #cecac0; padding:10px; margin-top:10px; }
+#criu-walkthrough .cw-map-cell { border:1px solid #cecac0; padding:8px; margin-top:8px; }
 #criu-walkthrough .cw-safe { background:#edf3f5; border-color:#285374; }
-#criu-walkthrough .cw-late { border-left:3px solid #285374; padding-left:16px; margin:22px 0; }
 #criu-walkthrough .cw-reference { font-size:15px; }
 @media(max-width:600px) {
  #criu-walkthrough .cw-diagram { grid-template-columns:1fr; }
@@ -60,8 +56,7 @@ code { font: .85em ui-monospace, monospace; overflow-wrap: anywhere; }
  #criu-walkthrough .cw-count { width:100%; margin-left:0; }
 }
 </style>
-<p>A <strong>process</strong> is a running program. It has memory and one or more <strong>threads</strong>—sequences of instructions that Linux schedules on CPU cores. CRIU saves this process, not the whole machine.</p>
-<p>Follow the three boxes below. The left is the process being saved or rebuilt; the middle is the machinery doing the work; the right is the saved files. This is a simplified CPU-only sequence. The <a href="../02-gpu-checkpointing.md">GPU chapter</a> explains the CUDA sequence.</p>
+<p>A <strong>process</strong> is a running program. Its <strong>threads</strong> are instruction sequences scheduled by Linux. The diagram tracks the process, checkpoint machinery, and saved files.</p>
 <div class="cw-controls" aria-label="CRIU walkthrough controls">
 <button type="button" data-cw="prev" disabled>← Previous</button>
 <button type="button" data-cw="next">Next →</button>
@@ -76,7 +71,7 @@ code { font: .85em ui-monospace, monospace; overflow-wrap: anywhere; }
 <div class="cw-diagram" role="group" aria-label="Process, checkpoint machinery, and saved files">
 <div class="cw-node" data-cw="process"><strong>Program in RAM</strong><span></span></div>
 <div class="cw-arrow" data-cw="arrow1" aria-hidden="true"></div>
-<div class="cw-node" data-cw="worker"><strong>Who does the work?</strong><span></span></div>
+<div class="cw-node" data-cw="worker"><strong>CRIU / Linux</strong><span></span></div>
 <div class="cw-arrow" data-cw="arrow2" aria-hidden="true"></div>
 <div class="cw-node" data-cw="files"><strong>Snapshot files</strong><span></span></div>
 </div>
@@ -84,163 +79,208 @@ code { font: .85em ui-monospace, monospace; overflow-wrap: anywhere; }
 <div class="cw-explain">
 <p><strong>What happens.</strong> <span data-cw="what"></span></p>
 <p><strong>Why now.</strong> <span data-cw="why"></span></p>
-<p class="cw-interface"><strong>Important interface:</strong> <span data-cw="interface"></span> <a data-cw="source">Read the source</a>.</p>
+<p class="cw-interface"><strong>Interface:</strong> <span data-cw="interface"></span> <a data-cw="source">Read the source</a>.</p>
 </div>
 </div>
-<noscript><p>The interactive steps need JavaScript. The explanations and memory diagram below remain readable. The <a href="../01-cpu-checkpointing.md">CPU chapter</a> contains all nine steps as static text. See <a href="https://criu.org/Checkpoint/Restore">CRIU's checkpoint/restore sequence</a> for the complete sequence.</p></noscript>
-
-<h3 style="margin-top:32px">Why can't CRIU put all the memory back immediately?</h3>
-<p>Each process sees its own numbered memory addresses. A <strong>memory mapping</strong> tells Linux which address range refers to which memory or file. A saved pointer still refers to the old address, so restoring bytes somewhere else would not be enough. But the process doing the rebuilding already has code and data at some of those addresses.</p>
-<div class="cw-map" role="img" aria-label="Before the final memory change: rebuilding code occupies the ordinary memory area, and a small restorer runs in a separate safe area. After the change: saved program memory occupies its original addresses, while the restorer remains safely outside.">
-<div class="cw-map-column"><strong>Before the final memory change</strong>
-<div class="cw-map-cell">Ordinary memory area<br>Code and data doing the rebuilding</div>
-<div class="cw-map-cell cw-safe">Separate, unused address range<br>Small restorer routine ← executing here</div>
+<noscript><p>JavaScript is disabled. Read the <a href="../01-cpu-checkpointing.md">same nine steps in the CPU chapter</a>.</p></noscript>
+<h3 style="margin-top:28px">Why restore memory from a separate region?</h3>
+<p>A <strong>mapping</strong> associates an address range with memory or a file. Saved pointers require the old addresses, but reconstruction code may occupy them. A small <strong>restorer</strong> runs outside both layouts so moving memory cannot overwrite its own instructions.</p>
+<div class="cw-map" role="img" aria-label="Before replacement, reconstruction code occupies the application's address range. After replacement, saved application memory occupies it. The restorer remains in a separate safe range throughout.">
+<div class="cw-map-column"><strong>Before</strong>
+<div class="cw-map-cell">Application address range:<br>reconstruction code</div>
+<div class="cw-map-cell cw-safe">Separate range:<br>restorer executing</div>
 </div>
-<div class="cw-map-column"><strong>After the final memory change</strong>
-<div class="cw-map-cell">Same addresses as the saved program<br>Original code, objects and stacks</div>
-<div class="cw-map-cell cw-safe">Same safe range<br>Restorer survives the replacement</div>
+<div class="cw-map-column"><strong>After</strong>
+<div class="cw-map-cell">Same address range:<br>saved application memory</div>
+<div class="cw-map-cell cw-safe">Separate range:<br>restorer still executing</div>
 </div>
 </div>
-<p>A <strong>stack</strong> holds a thread's active function calls and local data. CRIU first loads saved memory into temporary mappings. A small <strong>restorer</strong>, placed outside both memory layouts, then moves memory to its required addresses. It can replace the old layout without deleting the instructions it is currently executing. <a href="https://criu.org/Memory_dumping_and_restoring">Memory restoration</a>; <a href="https://criu.org/Restorer_context">restorer context</a>.</p>
-
-<div class="cw-late">
-<h3>“Restore” is several steps. Resuming the program is last.</h3>
-<p>Restoration starts when CRIU begins rebuilding processes. The final action is to hand control back to the saved application instructions. Before that handoff:</p>
-<ul>
-<li><strong>Memory must be at the right addresses.</strong> Otherwise a saved pointer or stack pointer could refer to the wrong bytes.</li>
-<li><strong>The remaining threads are recreated late.</strong> Their stacks must be ready; creating them late also avoids keeping extra threads parked during memory replacement.</li>
-<li><strong>Timers are restored late.</strong> Starting them early could let them expire while reconstruction is still underway.</li>
-<li><strong>Permissions are restored late.</strong> CRIU may need privileges to finish setup. Giving those up too early could prevent it from completing the job.</li>
-</ul>
-<p class="cw-reference"><a href="https://criu.org/Restorer_context">Why CRIU orders these operations this way</a>.</p>
-<p>At the handoff, saved <strong>CPU registers</strong>—small values held by the CPU, including the stack address and next instruction address—are restored. Linux's <code>rt_sigreturn</code> mechanism can restore this execution context. The next instruction can then use the reconstructed process. <a href="https://man7.org/linux/man-pages/man2/sigreturn.2.html">How that CPU handoff works</a>.</p>
-<p>For a GPU program, the CUDA state must also be ready before ordinary GPU work can proceed. See the <a href="../02-gpu-checkpointing.md">GPU chapter</a> for the different CRIU and DMTCP coordination paths; CPU threads need not remain stopped through every tool's GPU restore phase.</p>
-</div>
-
-<details><summary>What is actually in the saved directory?</summary>
-<p>“Image” means a saved state file here, not a picture. CRIU stores memory bytes and descriptions of the process around them.</p>
-<table class="r-table">
-<thead><tr><th>Files you may inspect</th><th>What they describe</th></tr></thead>
-<tbody>
-<tr><td><code>pages-*.img</code></td><td>Captured memory bytes: for example, Python objects and stacks.</td></tr>
-<tr><td><code>mm-*.img</code>, <code>pagemap-*.img</code></td><td>The memory layout and how saved pages belong in it.</td></tr>
-<tr><td><code>core-*.img</code></td><td>Thread information and CPU register values.</td></tr>
-<tr><td>Process-tree and file-descriptor images</td><td>Process relationships and references to open resources.</td></tr>
-</tbody></table>
-<p>CRIT is the tool for decoding CRIU's structured image records. File names and contents vary by version and workload. <a href="https://criu.org/Images">CRIU image formats</a>.</p>
-</details>
-<p>Restoring an open-file reference does not recreate every file's contents. The executable, libraries, datasets and external services must remain available or be provided separately. Snapshotting one process does not roll back the outside world. <a href="https://criu.org/External_resources">External resources</a>.</p>
+<p class="cw-reference"><a href="https://criu.org/Memory_dumping_and_restoring">Memory placement</a> · <a href="https://criu.org/Restorer_context">Restorer dependencies</a></p>
+<p>Images contain memory and reconstruction records; they do not automatically include every referenced file or remote service. See <a href="../01-cpu-checkpointing.md#4-write-memory-and-reconstruction-records">image contents</a> and <a href="https://criu.org/External_resources">external dependencies</a>. The <a href="../02-gpu-checkpointing.md">GPU chapter</a> adds CUDA coordination.</p>
 <script>
 (() => {
   const root = document.getElementById('criu-walkthrough');
   const el = name => root.querySelector('[data-cw="' + name + '"]');
   const steps = [
-    {
-      phase: 'Before the snapshot', title: '1. The program is running',
-      process: 'Application instructions execute.\nMemory and file positions change.',
-      worker: 'Linux schedules its threads on CPU cores.',
-      files: 'No new snapshot yet.', active: ['process'], arrows: ['·', '·'],
-      caption: 'RAM contains the live process. A snapshot directory is a separate thing.',
-      what: 'The program changes memory as it runs. Linux also tracks resources such as open files. A file descriptor is the small number the program uses to refer to an open resource.',
-      why: 'Saving just memory would miss information held by Linux, including which files are open and where the program was reading.',
-      interface: '/proc is Linux’s interface for inspecting process information.',
-      source: 'https://man7.org/linux/man-pages/man5/proc.5.html'
-    },
-    {
-      phase: 'Checkpoint · stop changes', title: '2. Stop the application threads',
-      process: 'Ordinary application code is paused.\nOther programs can still run.',
-      worker: 'CRIU finds the selected processes and threads, then stops them.',
-      files: 'Not complete.', active: ['process', 'worker'], arrows: ['←', '·'],
-      caption: 'Control moves from the application to CRIU; the whole computer is not frozen.',
-      what: 'CRIU discovers the selected process tree through /proc and controls its threads with ptrace, the interface also used by debuggers.',
-      why: 'If the application kept changing memory during collection, one part could describe an earlier moment than another.',
-      interface: 'ptrace: PTRACE_SEIZE attaches; PTRACE_INTERRUPT stops an attached thread. Attaching alone does not stop it.',
-      source: 'https://man7.org/linux/man-pages/man2/ptrace.2.html'
-    },
-    {
-      phase: 'Checkpoint · collect', title: '3. Read the state, including from inside',
-      process: 'Application code stays paused.\nA temporary helper runs under CRIU’s control.',
-      worker: 'CRIU reads Linux records and CPU registers; its helper gathers state inside the process.',
-      files: 'State is being collected.', active: ['process', 'worker'], arrows: ['↔', '·'],
-      caption: '“Paused” means normal application execution is stopped; CRIU can deliberately run its helper.',
-      what: 'CRIU uses /proc and ptrace to inspect the process. It also injects a small helper called parasite code into the process’s memory, where it can use interfaces available from inside that process.',
-      why: 'Some state is easier or only possible to collect from inside the target. The helper is temporary checkpoint machinery, not a restart of the training script.',
-      interface: 'ptrace sets up the helper; shared memory and a Unix socket—a local communication channel—let CRIU exchange data and commands with it.',
-      source: 'https://criu.org/Parasite_code'
-    },
-    {
-      phase: 'Checkpoint · write', title: '4. Write memory and reconstruction records',
-      process: 'The captured application state remains fixed.',
-      worker: 'CRIU writes image files.',
-      files: 'Memory bytes\nCPU register records\nMemory and resource descriptions',
-      active: ['worker', 'files'], arrows: ['→', '→'],
-      caption: 'Data direction: process RAM → saved files. No new training iterations are being executed.',
-      what: 'The files contain memory bytes plus records describing their layout, threads and resources. Together they describe how to reconstruct the process.',
-      why: 'Bytes alone do not say where to put them or which instruction should execute next. The descriptions supply that missing structure.',
-      interface: 'CRIU image files, including pages, pagemap, mm and core records; CRIT decodes structured records.',
-      source: 'https://criu.org/Images'
-    },
-    {
-      phase: 'Between checkpoint and restore', title: '5. The original process can be gone',
-      process: 'For this demonstration:\noriginal process has ended.',
-      worker: 'Nothing is executing the saved application.',
-      files: 'Completed snapshot remains.\nKeep it on storage that survives instance removal.',
-      active: ['files'], arrows: ['·', '·'],
-      caption: 'Saved files are passive data. They do not train or use GPU compute.',
-      what: 'Our full-restore demonstration ends the original after a successful dump. Other CRIU dump modes can leave it running or stopped.',
-      why: 'Ending it lets the demonstration prove that a new process was reconstructed from the saved state. A snapshot is useful only if the required files survive.',
-      interface: 'criu dump creates the snapshot; its options control whether the original is left running or stopped.',
-      source: 'https://criu.org/Simple_loop'
-    },
-    {
-      phase: 'Restore · build the surroundings', title: '6. Recreate processes and resources',
-      process: 'A replacement is being built.\nApplication instructions are not running yet.',
-      worker: 'CRIU creates processes and reconnects supported resources.',
-      files: 'CRIU reads saved descriptions and memory.',
-      active: ['process', 'worker', 'files'], arrows: ['←', '←'],
-      caption: 'Data direction has reversed: saved files → a reconstructed process.',
-      what: 'CRIU rebuilds the process tree and shared resources, reopens supported files, and prepares memory. It does not start the training script at line one and call the model loader.',
-      why: 'Application code expects these things to exist. Rebuild them before giving control back to that code.',
-      interface: 'fork/clone create processes or threads; file interfaces reopen resources. CRIU coordinates these using its image records.',
-      source: 'https://criu.org/Checkpoint/Restore'
-    },
-    {
-      phase: 'Restore · place memory', title: '7. Put memory at its saved addresses',
-      process: 'Original memory layout is reconstructed.\nPointers can refer to the right bytes again.',
-      worker: 'A tiny restorer runs in a safe memory region.',
-      files: 'Saved memory has been loaded for placement.',
-      active: ['process', 'worker'], arrows: ['←', '←'],
-      caption: 'These are addresses inside the process, not fixed physical RAM locations.',
-      what: 'Saved private memory is first loaded into temporary areas. The restorer moves mappings to their required addresses and rebuilds file-backed mappings.',
-      why: 'Rearranging memory can overwrite the code doing the rearranging. The tiny restorer works from a separate region that survives this change; see the diagram below.',
-      interface: 'mmap creates memory mappings; mremap can move them to the required addresses.',
-      source: 'https://criu.org/Memory_dumping_and_restoring'
-    },
-    {
-      phase: 'Restore · finish before the handoff', title: '8. Complete the remaining execution state',
-      process: 'Memory is ready.\nRemaining threads and their stacks are reconstructed.',
-      worker: 'The restorer finishes threads, timers and permissions.',
-      files: 'Saved records supply the remaining settings.',
-      active: ['process', 'worker'], arrows: ['←', '←'],
-      caption: 'The order follows dependencies: memory first, then the work that relies on it.',
-      what: 'CRIU leaves remaining threads, timers and credentials—user identity and permissions—until late in restoration.',
-      why: 'Threads need their memory. Timers should not expire during setup. Dropping privileges too early could block work still needed to rebuild the process.',
-      interface: 'Linux thread, timer and credential interfaces, called by the restorer.',
-      source: 'https://criu.org/Restorer_context'
-    },
-    {
-      phase: 'Restore · hand control back', title: '9. Continue the saved application',
-      process: 'Application instructions execute again.\nThey use the reconstructed state.',
-      worker: 'Saved CPU context is installed; Linux returns control to application code.',
-      files: 'Snapshot remains available on storage.',
-      active: ['process'], arrows: ['←', '·'],
-      caption: 'The application continues from its saved execution point; it has not rerun all earlier training.',
-      what: 'The CPU receives the saved register values, including where the stack is and which instruction comes next. The process can now continue.',
-      why: 'Doing this earlier would let application code access memory, files or threads that were still incomplete. Restore is the rebuilding; this is its final handoff.',
-      interface: 'rt_sigreturn restores a saved CPU execution context. GPU restoration, when needed, must also finish before ordinary GPU work can proceed.',
-      source: 'https://man7.org/linux/man-pages/man2/sigreturn.2.html'
-    }
-  ];
+  {
+    "phase": "Before capture",
+    "title": "1. The program is running",
+    "process": "Instructions execute.\nMemory changes.",
+    "worker": "Linux schedules threads.",
+    "files": "No snapshot yet.",
+    "active": [
+      "process"
+    ],
+    "arrows": [
+      "·",
+      "·"
+    ],
+    "caption": "Live process state includes memory and resources held by Linux.",
+    "what": "Linux tracks open files and their positions. A file descriptor is the small integer the program uses to access an open resource.",
+    "why": "Saving variables alone would miss this resource state.",
+    "interface": "/proc exposes process information.",
+    "source": "https://man7.org/linux/man-pages/man5/proc.5.html"
+  },
+  {
+    "phase": "Capture · stop changes",
+    "title": "2. Stop application threads",
+    "process": "Application work paused.",
+    "worker": "CRIU controls the selected threads.",
+    "files": "Not complete.",
+    "active": [
+      "process",
+      "worker"
+    ],
+    "arrows": [
+      "←",
+      "·"
+    ],
+    "caption": "Control request: CRIU stops selected threads, not the whole machine.",
+    "what": "CRIU collects the process tree—the parent and its children—and stops ordinary application execution.",
+    "why": "Otherwise copied fields could belong to different moments.",
+    "interface": "ptrace attaches and interrupts threads; attaching alone does not stop them.",
+    "source": "https://man7.org/linux/man-pages/man2/ptrace.2.html"
+  },
+  {
+    "phase": "Capture · inspect",
+    "title": "3. Run a temporary helper",
+    "process": "Application paused.\nHelper runs.",
+    "worker": "CRIU collects state.",
+    "files": "Collection in progress.",
+    "active": [
+      "process",
+      "worker"
+    ],
+    "arrows": [
+      "↔",
+      "·"
+    ],
+    "caption": "Control and data pass between CRIU and its injected helper.",
+    "what": "CRIU uses /proc and ptrace, then injects temporary parasite code to inspect state from inside the process.",
+    "why": "Some information is only accessible, or easier to collect, from inside.",
+    "interface": "Shared memory and a Unix socket connect CRIU to the helper.",
+    "source": "https://criu.org/Parasite_code"
+  },
+  {
+    "phase": "Capture · write",
+    "title": "4. Write image files",
+    "process": "Captured state fixed.",
+    "worker": "CRIU writes images.",
+    "files": "Memory bytes\nLayout and resource records",
+    "active": [
+      "worker",
+      "files"
+    ],
+    "arrows": [
+      "→",
+      "→"
+    ],
+    "caption": "Data movement: process RAM → image files, initially possibly buffered in RAM.",
+    "what": "Images contain memory plus its layout, thread registers, and resource descriptions. CRIT decodes the structured records.",
+    "why": "Bytes alone do not specify their addresses or the next instruction. Storage writes must also finish before declaring durability.",
+    "interface": "pages, pagemap, mm, and core image files.",
+    "source": "https://criu.org/Images"
+  },
+  {
+    "phase": "Between capture and restore",
+    "title": "5. Verify original exit",
+    "process": "Original has exited.",
+    "worker": "No saved instructions execute.",
+    "files": "Completed snapshot persists.",
+    "active": [
+      "files"
+    ],
+    "arrows": [
+      "·",
+      "·"
+    ],
+    "caption": "The files must survive the failure being tested.",
+    "what": "Our demonstration verifies original exit after a successful dump and separately flushes storage. Other dump modes can leave the original alive.",
+    "why": "Restore after exit proves reconstruction rather than unpausing the original.",
+    "interface": "criu dump options determine the original process’s final state.",
+    "source": "https://criu.org/Simple_loop"
+  },
+  {
+    "phase": "Restore · reconstruct",
+    "title": "6. Rebuild processes and resources",
+    "process": "Replacement being built.",
+    "worker": "CRIU reconstructs resources.",
+    "files": "Images being read.",
+    "active": [
+      "process",
+      "worker",
+      "files"
+    ],
+    "arrows": [
+      "←",
+      "←"
+    ],
+    "caption": "Data movement reverses: images → reconstructed process.",
+    "what": "CRIU rebuilds processes, shared resources, supported open files, and memory. It does not rerun the training script from line one.",
+    "why": "Saved application instructions need their environment reconstructed first.",
+    "interface": "fork/clone create processes or threads.",
+    "source": "https://criu.org/Checkpoint/Restore"
+  },
+  {
+    "phase": "Restore · place memory",
+    "title": "7. Restore saved addresses",
+    "process": "Saved memory layout restored.",
+    "worker": "Small restorer runs separately.",
+    "files": "Memory loaded for placement.",
+    "active": [
+      "process",
+      "worker"
+    ],
+    "arrows": [
+      "←",
+      "←"
+    ],
+    "caption": "Virtual addresses are preserved; physical RAM locations may change.",
+    "what": "The restorer moves temporarily loaded memory into place and rebuilds file-backed mappings.",
+    "why": "Saved pointers need their old addresses. The separate restorer avoids overwriting itself; see below.",
+    "interface": "mmap creates mappings; mremap moves them.",
+    "source": "https://criu.org/Memory_dumping_and_restoring"
+  },
+  {
+    "phase": "Restore · finish setup",
+    "title": "8. Complete execution state",
+    "process": "Memory and stacks ready.",
+    "worker": "Finish threads, timers, permissions.",
+    "files": "Remaining settings applied.",
+    "active": [
+      "process",
+      "worker"
+    ],
+    "arrows": [
+      "←",
+      "←"
+    ],
+    "caption": "The sequence follows dependencies.",
+    "what": "CRIU completes remaining threads, timers, and credentials—user identity and permissions—late in restoration.",
+    "why": "Threads need stacks; timers must not expire during setup; reconstruction may still need privileges.",
+    "interface": "Linux thread, timer, and credential interfaces.",
+    "source": "https://criu.org/Restorer_context"
+  },
+  {
+    "phase": "Restore · resume",
+    "title": "9. Continue the application",
+    "process": "Saved instructions resume.",
+    "worker": "Linux installs CPU context.",
+    "files": "Snapshot remains available.",
+    "active": [
+      "process"
+    ],
+    "arrows": [
+      "←",
+      "·"
+    ],
+    "caption": "Control returns to saved execution, without repeating earlier training.",
+    "what": "Saved CPU registers include the stack pointer and next instruction address. Installing them returns control to application code.",
+    "why": "Earlier resumption could access incomplete state. GPU work also requires CUDA restoration.",
+    "interface": "rt_sigreturn restores the CPU execution context.",
+    "source": "https://man7.org/linux/man-pages/man2/sigreturn.2.html"
+  }
+];
   let current = 0;
   let timer = null;
   function stop() {
