@@ -127,3 +127,7 @@ merges; do not merge on their behalf.
 ### 2026-09-17 - Pause expiry must be serialized with dump arming
 **Finding**: A deadline test showed `experiments/finetuning/control.py:144` could resume an acknowledged trainer while its capture worker still held the operation lock. Expiry now rechecks the unarmed phase under that lock; workers also wait with their deadline when initial registration briefly owns it.
 **Impact**: An expired request alone is not permission to resume once a worker may be preparing a dump. Worker death releases the lock, but a persisted dumping phase still forbids automatic continuation.
+
+### 2026-09-17 - Check the installed loader before claiming parallel-loading gains
+**Finding**: Installed Transformers 5.0.0 `core_model_loading.py:1116–1121` uses a thread pool by default; `HF_DEACTIVATE_ASYNC_LOAD` disables it. Its versioned environment-variable documentation instead describes `HF_ENABLE_PARALLEL_LOADING`.
+**Impact**: Benchmark the real default and verify the execution host's implementation; a serial control is not evidence of improvement over the default.
