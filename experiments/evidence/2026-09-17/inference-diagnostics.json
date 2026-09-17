@@ -1,0 +1,126 @@
+{
+  "source_commit": "6a7ace0",
+  "campaign": "a10g-03",
+  "cpu_checks": 44,
+  "model": "Qwen/Qwen3-8B",
+  "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "configuration": {
+    "attention": "sdpa",
+    "batch_size": 1,
+    "dtype": "bfloat16"
+  },
+  "gpu": "NVIDIA A10G",
+  "driver": "570.172.08",
+  "kernel": "6.8.0-1036-aws",
+  "compatibility_key_sha256": "cc6a7b8ee7ef79ee164bba2374ebd31ac2bbd6f6f30253120b62c72bd25cacaa",
+  "source_sha256": {
+    "experiments/criu/session.py": "e50c0aace4871c2994a53cf869e1cc4d5687dd74357d985245efd535d9602969",
+    "experiments/finetuning/application_pipeline.py": "e84e222f2859e9e2bfb3f6cf905fb1f2272de3cb794986c7b9cd97944fc32a5a",
+    "experiments/finetuning/checkpoint.py": "703c88784dc2c03fc6622522565fc85cf5a766caf3df1b852ba4de49debf2e55",
+    "experiments/finetuning/control.py": "d49500378a711f52ca9847e5b842ca72eed3c158d4e4ace767b6bf9411353c70",
+    "experiments/finetuning/criu_pipeline.py": "e267f973088365e6eb227c96771e7b8d690655f4ddb8f8036c5810e389295d74",
+    "experiments/finetuning/job_b.py": "9d0e1a7e54a46f3d86ba1b23d79937b49c01956aa4524f577684abc8c1627ac1",
+    "experiments/finetuning/metrics.py": "e62fdd31903775baa23e97b83ef7decdffee3b59fc9c341feee9e609e6f9c634",
+    "experiments/finetuning/pipeline.py": "02a7beeb96894d4c83997748f895e368e67b3f00aecf59652c40cb48c8cfee04",
+    "experiments/finetuning/prepare.py": "e7a3924f0d5fb9d8f6475e2bc3b23497ad644a14727e82846b2087c9f4de4618",
+    "experiments/finetuning/reference_pipeline.py": "3e3217cc51ddf6cf1ee573b82634ca4215073258a3b710710052cd5aaedf5fb4",
+    "experiments/finetuning/report.py": "f15e66591a2c9a61da09fb0901155844c946aeee48fdd26041f2a8d7eca49fca",
+    "experiments/finetuning/restore.py": "147223126c7074dcaac665a0ce0509b391966d382ba154b89a013e5dd2a445bf",
+    "experiments/finetuning/run.py": "a43d2f6ebe8007ea2f793ecf53dd78ab5b36b9d8aa0f883aef113005e7cf0d60",
+    "experiments/finetuning/state.py": "ffd0812eef6f10842d6411a942ec436c28cc4f5cae3097b60e84ff5c4ac37ddd",
+    "experiments/finetuning/train.py": "866b19fdeb41bd6f0b60e33ab55acb4f8ef0ed5288f7757104d69aeb9927ee12",
+    "experiments/inference/lifecycle.py": "fcceeaf34841f7d68ddc038adaf0c3e3e2f3dfa43e5a8d8ec2c929fcb8bb95be",
+    "experiments/inference/measure.py": "9cfb976ba0411a82fdea48bfa0acd7a1a543a14c9dda53a61e305bd1abe6c792",
+    "experiments/inference/park.py": "a0918413b627f9cf1c753d956caeba4e6aed25effc055a3adaa902a2189cc63e",
+    "experiments/inference/prepare_assets.py": "97c9c05446396e3e840a30141d043ea43920786b66ea4e4b5bf2582f4c04e578",
+    "experiments/inference/report.py": "7cce7aa29deb9b9cbf47e9c37f07f3b04531ae2dfd7a8e98a2771475fbed2106",
+    "experiments/inference/run.py": "8f6bb61f5521a5f62fef9836eddfb7bbd499f048f0878bdb9b4e005b20183c5f",
+    "experiments/inference/worker.py": "98c35f79461d3d51f3e6a39f5e38fb958a40c15c8bb56b90972e628bb7896e81"
+  },
+  "diagnostics": [
+    {
+      "run": "fresh-1",
+      "route": "fresh",
+      "status": "passed",
+      "cleanup": "complete",
+      "result_sha256": "e8288601801affd3840a9702096f794d88105c588f2aba46600899379e66f08f"
+    },
+    {
+      "run": "fresh-2",
+      "route": "fresh",
+      "status": "passed",
+      "cleanup": "complete",
+      "result_sha256": "71219b12290ab34fc7a29d25706d96bd9ee1aee5f663bf5c50dbbe09f10a5a23"
+    },
+    {
+      "run": "resident",
+      "route": "resident",
+      "status": "passed",
+      "cleanup": "complete",
+      "result_sha256": "3f9df2d31049227e0c9607e8a438cdcb1c9587640454d06cbf0d7f8f014c3ad2"
+    },
+    {
+      "run": "ram",
+      "route": "ram",
+      "status": "passed",
+      "cleanup": "complete",
+      "result_sha256": "5c4d6771956fd8ad910a7babe121c5236caa193734899a4f89058aa9c8c8d240",
+      "reuse": {
+        "claim": "allocation_enabled_by_release",
+        "exited": true,
+        "mib": 12288,
+        "passed": true,
+        "sum": 12884901888
+      },
+      "pre_staging": {
+        "VmRSS": "1457076 kB",
+        "allocated_vram": 16415044608,
+        "reserved_vram": 16418603008,
+        "rss_bytes": 1492045824
+      },
+      "released": {
+        "available": 5248856064,
+        "gpu_free": 23696769024,
+        "gpu_used": 0,
+        "rss_bytes": 18202071040
+      }
+    },
+    {
+      "run": "disk",
+      "route": "disk",
+      "status": "passed",
+      "cleanup": "complete",
+      "result_sha256": "e0c5132481e1c9fc0930ce41e2ddcd9af9d14d4b3556b72cc9c65b61cee4a5a7",
+      "reuse": {
+        "claim": "allocation_enabled_by_release",
+        "exited": true,
+        "mib": 12288,
+        "passed": true,
+        "sum": 12884901888
+      },
+      "pre_staging": {
+        "VmRSS": "1457112 kB",
+        "allocated_vram": 16415044608,
+        "reserved_vram": 16418603008,
+        "rss_bytes": 1492082688
+      },
+      "released": {
+        "available": 23057903616,
+        "gpu_free": 23696769024,
+        "gpu_used": 0
+      },
+      "original_reaped": true,
+      "capture_exited": true,
+      "restore_exited": true,
+      "image_hashes_match": true,
+      "image_bytes": 17839421135
+    }
+  ],
+  "eos_smoke": {
+    "forced_eos_tokens": [
+      785
+    ],
+    "passed": true
+  },
+  "scope": "Same-host diagnostics; timing campaign and container validation are separate gates."
+}
