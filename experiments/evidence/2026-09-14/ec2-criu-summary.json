@@ -1,0 +1,361 @@
+{
+  "date": "2026-09-14",
+  "selected_backend": "CRIU native CUDA plugin",
+  "manifest": {
+    "date": "2026-09-14",
+    "kernel": "6.8.0-1036-aws",
+    "os": "Ubuntu 22.04.5 LTS",
+    "python": "3.10.12",
+    "packages": {
+      "torch": "2.8.0",
+      "transformers": "5.0.0",
+      "peft": "0.18.1",
+      "numpy": "2.2.6",
+      "safetensors": "0.8.0rc0",
+      "huggingface_hub": "1.3.5",
+      "tokenizers": "0.22.2"
+    },
+    "criu_commit": "9539417f3e3cfa4eb84c319cd71f4d52f1f08645",
+    "cuda_checkpoint_commit": "00d5cce84c628088d6caa203fc4af40c1538b6f7",
+    "model": {
+      "repo": "Qwen/Qwen2.5-0.5B",
+      "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987"
+    },
+    "source_hashes": {
+      "runs/ec2-check/probe.py": "7f48c61b7433d9aa92dc2a897686e424b0cf767298cfaff9a8cb81b3b1f5c697",
+      "runs/ec2-check/lora.py": "3f4cc032d902f6a2c57512b0690a9a7444e749b70afd1b60c44bedcf68dc63fd"
+    },
+    "asset_hashes": {
+      "tokenizer.json": {
+        "bytes": 7031645,
+        "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+      },
+      "generation_config.json": {
+        "bytes": 138,
+        "sha256": "8c970692323e3ea0e9b8b0a4dca79388d31226e41f83c9fd6014804280ebf6e8"
+      },
+      "model.safetensors": {
+        "bytes": 988097824,
+        "sha256": "88c142557820ccad55bb59756bfcfcf891de9cc6202816bd346445188a0ed342"
+      },
+      "tokenizer_config.json": {
+        "bytes": 7228,
+        "sha256": "c91efca15ceff6e9ee9424db58a6f59cd41294e550a86cbd07e3c1fb500b34f9"
+      },
+      "vocab.json": {
+        "bytes": 2776833,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+      },
+      "merges.txt": {
+        "bytes": 1671839,
+        "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+      },
+      "config.json": {
+        "bytes": 681,
+        "sha256": "479dcf0c5286339e41ad3992cd08ae88a467c4187587936248e2b7c96283484b"
+      }
+    },
+    "environment_qualification": "Preliminary probe uses existing host packages without modification; the full isolated locked training environment is not implemented.",
+    "system_packages_installed": false,
+    "driver_or_security_settings_changed": false
+  },
+  "environment": {
+    "gpu": "NVIDIA A10G",
+    "gpu_total_mib": 23028,
+    "driver": "570.172.08",
+    "pytorch_runtime": "2.8.0+cu128",
+    "cuda_runtime": "12.8",
+    "host_ram_gib_approx": 30,
+    "cgroup_memory_max_at_session_and_ancestors": "max",
+    "host_sudo_passed": true,
+    "host_user_namespace_creation_passed": true,
+    "host_root_network_namespace_creation_passed": true,
+    "host_seccomp": 0,
+    "tool_sandbox_gpu_access": false,
+    "host_gpu_access": true
+  },
+  "criu_check": {
+    "passed": true,
+    "warning": "Built without libnftables support; no system package or security settings changed."
+  },
+  "probes": {
+    "cpu": {
+      "run": "runs/ec2-check/cpu-03",
+      "passed": true,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 526152875303079,
+          "pid": 2847761
+        },
+        {
+          "event": "ready",
+          "monotonic_ns": 526152976414523,
+          "pid": 2847761
+        },
+        {
+          "event": "dump_requested",
+          "monotonic_ns": 526152976462664
+        },
+        {
+          "event": "dump_completed",
+          "monotonic_ns": 526153095036086
+        },
+        {
+          "event": "original_exit_verified",
+          "monotonic_ns": 526153095391384,
+          "pid": 2847761
+        },
+        {
+          "event": "filesystem_synced",
+          "monotonic_ns": 526153160874120
+        },
+        {
+          "event": "restore_requested",
+          "monotonic_ns": 526153161364510
+        },
+        {
+          "event": "restore_completed",
+          "monotonic_ns": 526153251444733,
+          "pid": 2847761
+        },
+        {
+          "event": "restored_exit_verified",
+          "monotonic_ns": 526153351988846,
+          "pid": 2847761
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 526153466998123,
+          "mode": "cpu"
+        }
+      ],
+      "seconds": {
+        "launch_to_verification": 0.591695044,
+        "dump_request_to_return": 0.118573422,
+        "sync_after_exit": 0.065482736,
+        "restore_request_to_return": 0.090080223
+      },
+      "image_files_bytes": 6623420,
+      "warnings": [],
+      "comparison": {
+        "state_matches": true,
+        "resumed_after_step": 20,
+        "final_step": 25
+      }
+    },
+    "gpu": {
+      "run": "runs/ec2-check/gpu-01",
+      "passed": true,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 526153555123125,
+          "pid": 2847787
+        },
+        {
+          "event": "ready",
+          "monotonic_ns": 526156121167652,
+          "pid": 2847787
+        },
+        {
+          "event": "dump_requested",
+          "monotonic_ns": 526156121208763
+        },
+        {
+          "event": "dump_completed",
+          "monotonic_ns": 526158056283131
+        },
+        {
+          "event": "original_exit_verified",
+          "monotonic_ns": 526158057242592,
+          "pid": 2847787
+        },
+        {
+          "event": "filesystem_synced",
+          "monotonic_ns": 526162041861661
+        },
+        {
+          "event": "job_b_passed",
+          "monotonic_ns": 526165284490927
+        },
+        {
+          "event": "restore_requested",
+          "monotonic_ns": 526165284781203
+        },
+        {
+          "event": "restore_completed",
+          "monotonic_ns": 526166471898010,
+          "pid": 2847787
+        },
+        {
+          "event": "restored_exit_verified",
+          "monotonic_ns": 526167375936379,
+          "pid": 2847787
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 526167376324847,
+          "mode": "gpu"
+        }
+      ],
+      "seconds": {
+        "launch_to_verification": 13.821201722,
+        "dump_request_to_return": 1.935074368,
+        "sync_after_exit": 3.984619069,
+        "restore_request_to_return": 1.187116807
+      },
+      "image_files_bytes": 645792735,
+      "warnings": [
+        "(01.801520) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2847788 with interrupted system call"
+      ],
+      "tensor_or_state_hash_before": "bcfcc724743f7bf094ad3ecaf64d1d5fcc08e80c5801a5c00d368c99bcf8f709",
+      "tensor_or_state_hash_after": "bcfcc724743f7bf094ad3ecaf64d1d5fcc08e80c5801a5c00d368c99bcf8f709",
+      "job_b_sum": 1048576.0
+    },
+    "lora": {
+      "run": "runs/ec2-check/lora-01",
+      "passed": true,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 526303918958754,
+          "pid": 2849706
+        },
+        {
+          "event": "ready",
+          "monotonic_ns": 526317148071825,
+          "pid": 2849706
+        },
+        {
+          "event": "dump_requested",
+          "monotonic_ns": 526317148130626
+        },
+        {
+          "event": "dump_completed",
+          "monotonic_ns": 526327569781038
+        },
+        {
+          "event": "original_exit_verified",
+          "monotonic_ns": 526327570927692,
+          "pid": 2849706
+        },
+        {
+          "event": "filesystem_synced",
+          "monotonic_ns": 526351038798150
+        },
+        {
+          "event": "job_b_passed",
+          "monotonic_ns": 526354354991796
+        },
+        {
+          "event": "restore_requested",
+          "monotonic_ns": 526354355084358
+        },
+        {
+          "event": "restore_completed",
+          "monotonic_ns": 526361821634772,
+          "pid": 2849706
+        },
+        {
+          "event": "restored_exit_verified",
+          "monotonic_ns": 526367609513136,
+          "pid": 2849706
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 526367612069899,
+          "mode": "lora"
+        }
+      ],
+      "seconds": {
+        "launch_to_verification": 63.693111145,
+        "dump_request_to_return": 10.421650412,
+        "sync_after_exit": 23.467870458,
+        "restore_request_to_return": 7.466550414
+      },
+      "image_files_bytes": 3899903119,
+      "warnings": [
+        "(09.808939) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2849780 with interrupted system call",
+        "(09.809149) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2849836 with interrupted system call"
+      ],
+      "tensor_or_state_hash_before": "48f33ddc50659302d987fac0e52ee7c2a35d51c17e2c43e432913d72de59cc7e",
+      "tensor_or_state_hash_after": "48f33ddc50659302d987fac0e52ee7c2a35d51c17e2c43e432913d72de59cc7e",
+      "job_b_sum": 1048576.0,
+      "model": {
+        "repo": "Qwen/Qwen2.5-0.5B",
+        "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987"
+      },
+      "trainable_parameters": 540672,
+      "dropout": 0.1,
+      "two_references_exact_match": true,
+      "restored_boundary_exact_match": true,
+      "next_update_exact_match": true,
+      "losses": [
+        2.6493842601776123,
+        1.7310601472854614
+      ],
+      "cuda_rng_advanced_on_both_updates": true,
+      "all_trainable_adam_states_initialized": true,
+      "dropout_module_calls_after_update_1": 48,
+      "dropout_module_calls_after_update_2": 96,
+      "final_state_sha256": "e5fad952c20e839dfb6d1b387163108ff327d202a12a404e26c1b1cb7ed65e1f",
+      "shared_mapping_observations": [
+        {
+          "before": "70065b200000-70065b5c1000 rw-s 00000000 00:01 7188                       /dev/zero (deleted)",
+          "after": "70065b200000-70065b5c1000 rw-s 00000000 00:01 2075                       /memfd:/dev/zero (deleted)",
+          "range_and_shared_permissions_preserved": true
+        },
+        {
+          "before": "70065b600000-70065b800000 rw-s 00000000 00:01 7189                       /dev/zero (deleted)",
+          "after": "70065b600000-70065b800000 rw-s 00000000 00:01 2076                       /memfd:/dev/zero (deleted)",
+          "range_and_shared_permissions_preserved": true
+        },
+        {
+          "before": "700696400000-700696600000 rw-s 00000000 00:01 7187                       /dev/zero (deleted)",
+          "after": "700696400000-700696600000 rw-s 00000000 00:01 2077                       /memfd:/dev/zero (deleted)",
+          "range_and_shared_permissions_preserved": true
+        },
+        {
+          "before": "700718600000-700718800000 rw-s 00000000 00:01 7183                       /dev/zero (deleted)",
+          "after": "700718600000-700718800000 rw-s 00000000 00:01 2078                       /memfd:/dev/zero (deleted)",
+          "range_and_shared_permissions_preserved": true
+        },
+        {
+          "before": "700718800000-700718a00000 rw-s 00000000 00:01 7184                       /dev/zero (deleted)",
+          "after": "700718800000-700718a00000 rw-s 00000000 00:01 2079                       /memfd:/dev/zero (deleted)",
+          "range_and_shared_permissions_preserved": true
+        },
+        {
+          "before": "700719400000-700719600000 rw-s 00000000 00:01 7186                       /dev/zero (deleted)",
+          "after": "700719400000-700719600000 rw-s 00000000 00:01 2080                       /memfd:/dev/zero (deleted)",
+          "range_and_shared_permissions_preserved": true
+        },
+        {
+          "before": "70075a200000-70075a400000 rw-s 00000000 00:01 7185                       /dev/zero (deleted)",
+          "after": "70075a200000-70075a400000 rw-s 00000000 00:01 2081                       /memfd:/dev/zero (deleted)",
+          "range_and_shared_permissions_preserved": true
+        }
+      ]
+    }
+  },
+  "all_probe_pids_absent": true,
+  "final_gpu_compute_process_listing_empty": true,
+  "qualifications": [
+    "Preliminary two-update LoRA probe uses existing host packages and two authored examples; full isolated four-update plan is not implemented.",
+    "Interrupted-system-call warnings occurred once for the tensor probe and twice for LoRA; retained and not treated as a clean warning-free result.",
+    "Shared mapping flags and ranges were observed after LoRA restore; driver-side or external sharing dependencies are not independently proven.",
+    "Single-run times include diagnostic hashing, controller overhead, job B, and sync; they are not paired backend benchmarks."
+  ],
+  "not_tested": [
+    "complete_application_checkpoint_comparison",
+    "four_update_acceptance",
+    "repeated_restore",
+    "locked_isolated_training_environment",
+    "replacement_host_restore",
+    "spot_interruption",
+    "DMTCP_on_EC2"
+  ],
+  "preliminary_lora_gate_passed": true,
+  "full_plan_acceptance_passed": false
+}

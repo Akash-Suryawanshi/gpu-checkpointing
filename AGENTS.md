@@ -1,61 +1,113 @@
 # Learning GPU snapshotting
 
-Understand what GPU snapshotting saves, how it works, and where it can help. Use a bounded POC to make the mechanism and trade-offs observable; no production platform is currently being built.
+A bounded POC for understanding GPU snapshots and their trade-offs; no production
+platform is being built.
+
+## Learning audience
+
+Write clear technical prose for a CS student without assumed OS knowledge.
+Define unfamiliar terms at first use; shortening must not turn explanations into jargon.
+
+## Documentation style
+
+- Keep files short and paragraphs to 1–3 short sentences. Cut repetition and filler.
+- Pair every conceptual or process explanation with a compact diagram showing
+  sequence, state, data movement, or relationships. Use SVG, Mermaid, or plain
+  text; label arrows and add a brief caption or text equivalent.
+- Link to existing explanations and diagrams instead of repeating them.
+  Chapters own mechanisms, the runbook owns commands, results owns evidence,
+  and plans own requirements.
+- Keep necessary definitions, runnable commands, evidence, and limitations.
+  Comments explain non-obvious operations; follow the [teaching plan](docs/readability-plan.md).
 
 ## Optional local context
 
-If `.local-notes/context.md` exists, read it before planning work. It contains machine-local context and is intentionally untracked; its absence on another checkout is normal. Keep personal context out of tracked documentation.
+Read `.local-notes/context.md` if present before planning. It is intentionally
+untracked; never copy personal context into public docs.
+
+## Git workflow
+
+Commit each milestone on a feature branch, never `main`. The user reviews and
+merges; do not merge on their behalf.
 
 ## Knowledge Updates
 
+### 2026-09-17 - CRIU buffer flushing is not snapshot durability
+**Finding**: Pinned `criu/bfd.c:114` checks earlier buffer errors; `bflush():235` calls `write_all()`, not `fsync()`. `pipeline.py:115` separately invokes `sync -f`.
+**Impact**: Persist payload, directory entries, and completion in order; see [publication contract](docs/independent-lifecycle-details.md). Local persistence does not establish survival of volume deletion.
+
+### 2026-09-17 - Independent capture workers need explicit process ownership
+**Finding**: `pipeline.py:65` creates the trainer; `:99` calls `session.reap():75`, which assumes child ownership. Subreapers adopt orphaned descendants, not unrelated trainers.
+**Impact**: Separate exit observation from parent-owned reaping. Successful restore must transfer supervision without depending on the old `Trial`.
+
+### 2026-09-17 - PR body updates can bypass an obsolete CLI query
+**Finding**: Installed `gh pr edit` fails on retired GraphQL `projectCards`. REST `gh api .../pulls/2 --method PATCH --input <json-file>` works.
+**Impact**: Use the personal CLI profile from local context; changing accounts does not fix this query error.
+
+### 2026-09-17 - Zombie cleanup needs the raw command-line bytes
+**Finding**: Splitting empty `/proc/PID/cmdline` gives truthy `[b'']`. `experiments/criu/session.py:112` checks raw bytes and exited state; a live child can briefly have empty arguments.
+**Impact**: Keep zombie and live-child ownership regression checks. Require matching job identity before signaling a running process.
+
+### 2026-09-14 - CRIU restores a different monotonic clock domain
+**Finding**: Pinned `criu/timens.c` restores clock offsets; one trial recorded `-25 705761319`. Uncorrected trainer/controller comparison produced negative latency.
+**Impact**: Preserve raw times and measured offsets; convert clock domains and reject negative latency. Same-process durations cancel the offset.
+
+### 2026-09-14 - Repeated CRIU restores need fresh PID filenames
+**Finding**: CRIU 4.2.1 opens `--pidfile` with `O_EXCL` (`criu/log.c:414`). Reuse failed after partial reconstruction.
+**Impact**: Use fresh image/PID/handshake files per generation; reap the original before reusing its numeric PID.
+
+### 2026-09-14 - CRIU and preliminary LoRA restoration pass on the EC2 host
+**Finding**: EC2 A10G/570.172.08 restored CPU, GPU-tensor, and initialized LoRA processes with pinned CRIU `9539417f`. GPU access required approved host execution.
+**Impact**: Use the [EC2 evidence](experiments/results.md#ec2-criu-validation--2026-09-14), not historical container blockers. Retain sharing/syscall-warning qualifications; same-host success is not spot recovery.
+
 ### 2026-09-14 - Native DMTCP can reacquire the GPU after writing a checkpoint
-**Finding**: At the pinned DMTCP revision, `src/dmtcpworker.cpp:502` finalizes the image before the normal resume path, and `plugin/cuda/cuda-ckpt.cpp:333` calls GPU restore after both checkpoint resume and image restart. The release metric in `docs/implementation-plan.md:166` therefore needs to distinguish temporary staging-time release from availability after verified original-process exit; see the [pinned plugin](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp#L333-L378).
-**Impact**: Do not treat the first disappearance from GPU monitoring as the completed handoff. Record original-process exit and subsequent GPU availability, with job B as functional evidence, before reporting the GPU as available to another job.
+**Finding**: Pinned DMTCP finalizes images before resume; its [CUDA hook](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp#L333-L378) restores GPU state on both original resume and image restart.
+**Impact**: Measure availability after verified original exit, not the first disappearance from monitoring. Keep job B as functional evidence.
 
 ### 2026-09-14 - DMTCP final image names have a version-specific completion meaning
-**Finding**: The preserved single-process controller uses a fresh run directory and `--no-gzip`, then waits for a final `*.dmtcp` image in `experiments/dmtcp/probe-dmtcp.py:96`. In the pinned DMTCP build, [processinfo.h:114](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/processinfo.h#L114) appends `.temp` while writing and [dmtcpworker.cpp:490–504](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/src/dmtcpworker.cpp#L490-L504) renames after the write barrier in the default non-forked path.
-**Impact**: Final-name appearance is meaningful for this bounded uncompressed probe; do not replace it with arbitrary file-size sleeps or generalize it to compressed/forked/multi-process capture. Filesystem sync and survival of host loss are separate conditions.
+**Finding**: Pinned `dmtcpworker.cpp:490–504` renames `.temp` after the write barrier for the bounded, uncompressed, non-forked probe.
+**Impact**: Use fresh directories and final-name evidence for that route only. Command return, stable size, compressed/forked capture, and durable storage are separate questions.
 
 ### 2026-09-14 - DMTCP has a native NVIDIA CUDA route beyond historical CRAC
-**Finding**: DMTCP v4.2.0 introduced a native CUDA plugin; maintenance SHA `b175bb5ccadd2f02d11cf052f586d2d9ac62ad53` contains later CUDA/PyTorch fixes. On the existing restricted host, CPU restore passed and a complete PyTorch GPU process image restored after original exit with matching tensor data, but anonymous shared-memory warnings remain; see `experiments/results.md:59`.
-**Impact**: Do not describe CRIU permission changes or old CRAC as the only options. Preserve the distinction between measured restoration success and unqualified fine-tuning compatibility.
+**Finding**: DMTCP v4.2.0 added native CUDA; pinned `b175bb5c` includes later fixes. The earlier container restored GPU tensor bytes, with shared-memory warnings.
+**Impact**: Do not describe CRIU or historical CRAC as the only options, or infer full fine-tuning compatibility from that probe.
 
 ### 2026-09-14 - PyTorch CUDA runtime and compiler headers are separate installations
-**Finding**: PyTorch uses CUDA 13.0, while `/usr/local/cuda` resolves to CUDA 12.6 development files. DMTCP's CUDA plugin required matching CUDA 13 runtime and CRT headers in isolated tools directories; the exact build and capacity observations are in `experiments/results.md:88`.
-**Impact**: Inspect actual include paths and package dependencies, not just `torch.version.cuda` or a Makefile version banner. Read the cgroup RAM limit as well as host-wide `free` output when sizing GPU staging memory.
+**Finding**: The earlier host used PyTorch CUDA 13.0 with `/usr/local/cuda` headers at 12.6. DMTCP needed isolated matching runtime/CRT headers.
+**Impact**: Inspect actual include paths. Check cgroup RAM limits as well as host memory before GPU staging; build details remain in [results](experiments/results.md).
 
 ### 2026-09-14 - DMTCP warnings and logs require targeted evidence handling
-**Finding**: DMTCP saves `/dev/zero (deleted)` contents as private memory, potentially losing sharing relationships; its separate `anon_inode` warning concerns missing kernel objects. Coordinator logs include the inherited environment, and this revision's blocking checkpoint command did not establish image finalization for our controller; see `experiments/results.md:67`.
-**Impact**: Do not silently allowlist unsupported-resource warnings, publish whole coordinator logs, or end the original merely because the command returned. Launch probes with a minimal environment and verify finalized images and original-process exit separately.
+**Finding**: DMTCP captures `/dev/zero (deleted)` bytes privately; `anon_inode` warnings concern missing kernel objects. Coordinator logs contain inherited environment values.
+**Impact**: Preserve sharing/resource warnings, publish targeted evidence, use a minimal environment, and verify image finalization independently of blocking-command return.
 
 ### 2026-09-14 - Namespace sysctls do not establish container permissions
-**Finding**: The live container exposes enabled user-namespace settings, but `unshare --user --map-root-user true` still fails with `Operation not permitted`; see `experiments/results.md:113`. The operation was tested without changing any security settings.
-**Impact**: Check actual namespace creation before suggesting rootless CRIU or nested rootless containers. A globally enabled feature can still be denied within the instance.
+**Finding**: The earlier container enabled namespace sysctls but rejected actual `unshare --user --map-root-user true`.
+**Impact**: Probe namespace creation before proposing rootless CRIU or nested containers; do not change security policy to hide the blocker.
 
 ### 2026-09-14 - Distinguish CRIU startup probes from workload requirements
-**Finding**: Both the packaged CRIU gate and direct CPU dump fail in `kerndat_has_nftables_concat` before process capture; see `experiments/results.md:103`. The L4 GPU-only probe nevertheless passes in the same container, preserving a 64 MiB tensor while the original CPU process stays alive.
-**Impact**: Do not say the CPU counter needs networking or equate GPU suspension with a saved process image. Keep the container-permission failure and successful NVIDIA-only probe as separate outcomes.
+**Finding**: Packaged CRIU failed in `kerndat_has_nftables_concat` before CPU capture. NVIDIA-only suspension still preserved the L4 tensor in the live process.
+**Impact**: Do not infer a networking requirement for the CPU counter or equate GPU suspension with a complete saved process.
 
 ### 2026-09-14 - Recheck the driver after instance resume
-**Finding**: The resumed instance reports driver 595.58.03, whereas the original observation reported 580.126.20; see `experiments/results.md:133`. The saved workspace remaining available does not establish that the surrounding driver environment stayed identical.
-**Impact**: Record the live GPU, driver and tool versions for each experiment after a resume. Do not reuse historical compatibility results without checking the current execution environment.
+**Finding**: The earlier resumed instance reported driver 595.58.03 instead of 580.126.20.
+**Impact**: Record live GPU/driver/tool versions after resume; a persistent workspace does not establish an unchanged execution environment.
 
 ### 2026-09-12 - Separate the development machine from the execution host
-**Finding**: The initial workspace is on macOS ARM64. NVIDIA's [CUDA checkpoint API](https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__CHECKPOINT.html) is Linux-only; ARM CPU support in cuda-checkpoint does not imply macOS support.
-**Impact**: Author notes and code locally, but validate CUDA checkpoint/restore on a compatible NVIDIA Linux host. Do not report a local simulation as GPU checkpoint validation.
+**Finding**: Initial development used macOS ARM64; NVIDIA CUDA checkpointing is Linux-only.
+**Impact**: Validate on a compatible NVIDIA Linux host. ARM support does not imply macOS support; simulation is not GPU validation.
 
 ### 2026-09-12 - PyTorch caching is different from CUDA managed memory
-**Finding**: The supplied September 4 brief incorrectly associates ordinary PyTorch lazy/cached allocations with unsupported UVM memory. [PyTorch's CUDA semantics](https://docs.pytorch.org/docs/main/notes/cuda.html#memory-management) describes a caching allocator and separately discusses opt-in cudaMallocManaged allocations; [NVIDIA's limitations](https://github.com/NVIDIA/cuda-checkpoint#functionality) apply to UVM and specified IPC APIs.
-**Impact**: Do not exclude ordinary PyTorch workloads solely because UVM checkpointing is unsupported. Record the actual allocator configuration and CUDA features when evaluating a POC.
+**Finding**: Ordinary PyTorch caching is distinct from opt-in `cudaMallocManaged`; see [CUDA memory management](https://docs.pytorch.org/docs/main/notes/cuda.html#memory-management).
+**Impact**: Inspect actual allocation features. Do not exclude normal PyTorch solely because NVIDIA checkpointing excludes UVM.
 
 ### 2026-09-12 - Choose one owner for CUDA restore
-**Finding**: Earlier drafts mixed CRIU integration with unconditional manual CUDA restore/unlock; the maintained distinction is in `docs/02-gpu-checkpointing.md:123`. The upstream [CUDA plugin restore hook](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505) restores and unlocks CUDA itself, even if CUDA was already checkpointed before the dump.
-**Impact**: Select and verify either manual CUDA transitions or plugin-managed transitions for the installed CRIU version. Unconditional manual restore/unlock after plugin-managed restore can encounter an already-running process and fail.
+**Finding**: CRIU’s CUDA plugin restores/unlocks GPU state itself, including when CUDA was staged before dump.
+**Impact**: Select one owner for the installed route. Unconditional manual restore/unlock afterward can fail on an already-running process; see the [GPU chapter](docs/02-gpu-checkpointing.md).
 
 ### 2026-09-13 - QLoRA optimizer choice can introduce unsupported managed memory
-**Finding**: bitsandbytes [optimizer.py:339–355](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/bitsandbytes/optim/optimizer.py#L339-L355) uses paged buffers for sufficiently large optimizer tensors when paging is enabled; [pythonInterface.cpp:501–504](https://github.com/bitsandbytes-foundation/bitsandbytes/blob/main/csrc/pythonInterface.cpp#L501-L504) allocates those buffers with `cudaMallocManaged`. NVIDIA cuda-checkpoint excludes UVM, while four-bit model weights alone do not establish that a workload uses UVM.
-**Impact**: Start fine-tuning experiments with a non-paged optimizer. Probe checkpoint compatibility after optimizer state has been initialized, and do not generalize a QLoRA failure to all quantized fine-tuning or wait for visible CPU paging before checking this constraint.
+**Finding**: Paged bitsandbytes buffers can use `cudaMallocManaged`; four-bit weights alone do not imply this. Source links remain in the [research note](research/single-gpu-finetuning.md).
+**Impact**: Start with a non-paged optimizer and probe after Adam state exists. Do not generalize a paging failure to all QLoRA.
 
 ### 2026-09-14 - CUDA plugin coordination is not automatic incremental GPU capture
-**Finding**: The inspected upstream [cuda_plugin.c:359–373](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L359-L373) temporarily resumes NVIDIA's helper thread to stage device state while coordinating frozen application threads. Its [initialization at lines 525–529](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L525-L529) disables CUDA checkpoint handling during CRIU pre-dump.
-**Impact**: Explain the helper-thread handoff when teaching CPU/GPU consistency. Do not present CRIU pre-dump or a rotating latest directory as an existing incremental GPU checkpoint optimization; verify installed-version behavior before proposing it.
+**Finding**: Pinned `cuda_plugin.c:359–373` resumes NVIDIA’s helper while coordinating application threads. Lines 525–529 disable CUDA handling during CRIU pre-dump.
+**Impact**: Explain this handoff. Neither CPU pre-dump nor a rotating latest directory establishes incremental GPU capture.

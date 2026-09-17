@@ -12,6 +12,7 @@ from verify_cpu import read_events, verify
 
 
 def events(paused: bool) -> list[dict]:
+    """Build one expected counter trace, with optional capture-boundary markers."""
     result = [{"event": "started", "step": 0, "offset": 0, "token": "original-memory"}]
     for step in range(1, 26):
         state = {"step": step, "offset": step * 5, "token": "original-memory"}
@@ -24,7 +25,11 @@ def events(paused: bool) -> list[dict]:
 
 class EvidenceTests(unittest.TestCase):
     def test_live_counter_waits_and_continues_without_loading_state(self) -> None:
-        """AC3: readiness fixes step/file position until release; this is not a CRIU test."""
+        """AC3 representative: readiness holds both counter and open-file position.
+
+        Exercise a real child process and the release marker; no CRIU restoration
+        happens in this CPU-only controller check.
+        """
         script = Path(__file__).resolve().parents[1] / "experiments/cpu/cpu_counter.py"
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
@@ -34,6 +39,8 @@ class EvidenceTests(unittest.TestCase):
             with (run_dir / "process.jsonl").open("w") as output:
                 process = subprocess.Popen([sys.executable, str(script), "--run-dir", directory, "--mode", "pause"], stdout=output, stderr=subprocess.PIPE)
                 try:
+                    # A marker file is a control signal: it says the child has
+                    # reached its waiting point, but contains no saved state.
                     deadline = time.monotonic() + 10
                     while not (run_dir / "ready").exists():
                         if process.poll() is not None or time.monotonic() > deadline:
@@ -47,13 +54,18 @@ class EvidenceTests(unittest.TestCase):
                     _, stderr = process.communicate(timeout=10)
                     self.assertEqual(process.returncode, 0, stderr.decode())
                 finally:
+                    # A failed assertion must not leave the child running. After
+                    # killing it, communicate() also collects its exit status.
                     if process.poll() is None:
                         process.kill()
                     process.communicate()
             self.assertTrue(verify(read_events(run_dir / "baseline.jsonl"), read_events(run_dir / "process.jsonl"))["state_matches"])
 
     def test_continuation_and_restarted_process_are_distinguished(self) -> None:
-        """AC1: accept continuous state; reject a fresh process or repeated training."""
+        """AC1 representative: reject a fresh process or repeated training.
+
+        Matching counter values alone cannot establish continued in-memory state.
+        """
         baseline, restored = events(False), events(True)
         self.assertTrue(verify(baseline, restored)["state_matches"])
         restarted = copy.deepcopy(restored)
@@ -65,7 +77,7 @@ class EvidenceTests(unittest.TestCase):
             verify(baseline, restored[:22] + restored[1:])
 
     def test_wrong_restored_file_position_is_rejected(self) -> None:
-        """AC2: a matching counter alone cannot hide a lost open-file position."""
+        """AC2 representative: reject a lost open-file position even with a matching counter."""
         restored = events(True)
         next(event for event in restored if event["event"] == "after")["offset"] = 0
         with self.assertRaisesRegex(ValueError, "offset"):

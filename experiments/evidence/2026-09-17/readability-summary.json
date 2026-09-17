@@ -1,0 +1,1792 @@
+{
+  "analysis_source_sha256": {
+    "metrics.py": "ba38617075c936c86b27dd384f192222876971762ebd2b771cd9fe967de6eec9",
+    "report.py": "b1558c17139b11aa8ac328712e9276bde89a3d21a413b42f2a881be99b2c71a8"
+  },
+  "keys": {
+    "07780e23dcf7111c45a776bf65be28463ec9812e13d62863a77ab057bc989f64": {
+      "config": {
+        "lora": {
+          "bias": "none",
+          "lora_alpha": 16,
+          "r": 8,
+          "target_modules": [
+            "q_proj",
+            "v_proj"
+          ]
+        },
+        "max_tokens": 128,
+        "model": "Qwen/Qwen2.5-0.5B",
+        "optimizer": {
+          "betas": [
+            0.9,
+            0.999
+          ],
+          "eps": 1e-08,
+          "foreach": false,
+          "fused": false,
+          "lr": 0.001,
+          "weight_decay": 0
+        },
+        "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+        "seed": 2026,
+        "updates": 4
+      },
+      "dropout": 0.1,
+      "environment": {
+        "allocator": "native",
+        "cuda": "12.8",
+        "gpu": "NVIDIA A10G, GPU-75bd90e1-ab34-9347-a945-c2f8ae6f477d, 570.172.08, 23028 MiB",
+        "kernel": "6.8.0-1036-aws",
+        "packages": {
+          "accelerate": "1.15.0",
+          "annotated-doc": "0.0.5",
+          "anyio": "4.15.1",
+          "certifi": "2026.7.22",
+          "exceptiongroup": "1.3.1",
+          "filelock": "3.32.6",
+          "fsspec": "2026.7.0",
+          "h11": "0.16.0",
+          "hf-xet": "1.6.0",
+          "httpcore": "1.0.9",
+          "httpx": "0.28.1",
+          "huggingface_hub": "1.3.5",
+          "idna": "3.19",
+          "jinja2": "3.1.6",
+          "markdown-it-py": "4.2.0",
+          "markupsafe": "3.0.3",
+          "mdurl": "0.1.2",
+          "mpmath": "1.3.0",
+          "networkx": "3.4.2",
+          "numpy": "2.2.6",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cuda-cupti-cu12": "12.8.90",
+          "nvidia-cuda-nvrtc-cu12": "12.8.93",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cudnn-cu12": "9.10.2.21",
+          "nvidia-cufft-cu12": "11.3.3.83",
+          "nvidia-cufile-cu12": "1.13.1.3",
+          "nvidia-curand-cu12": "10.3.9.90",
+          "nvidia-cusolver-cu12": "11.7.3.90",
+          "nvidia-cusparse-cu12": "12.5.8.93",
+          "nvidia-cusparselt-cu12": "0.7.1",
+          "nvidia-nccl-cu12": "2.27.3",
+          "nvidia-nvjitlink-cu12": "12.8.93",
+          "nvidia-nvtx-cu12": "12.8.90",
+          "packaging": "26.3",
+          "peft": "0.18.1",
+          "pip": "22.0.2",
+          "psutil": "7.2.2",
+          "pygments": "2.21.0",
+          "pyyaml": "6.0.3",
+          "regex": "2026.9.10",
+          "rich": "15.0.0",
+          "safetensors": "0.6.2",
+          "setuptools": "59.6.0",
+          "shellingham": "1.5.4",
+          "sympy": "1.14.0",
+          "tokenizers": "0.22.2",
+          "torch": "2.8.0",
+          "tqdm": "4.70.1",
+          "transformers": "5.0.0",
+          "triton": "3.4.0",
+          "typer": "0.27.2",
+          "typer-slim": "0.24.0",
+          "typing_extensions": "4.16.0"
+        },
+        "python": "3.10.12",
+        "torch": "2.8.0+cu128"
+      },
+      "identity": {
+        "examples_sha256": "c80d2380cb9a2740ce16cc56ffabb1b02f54dbf0f7ee1cad6c1711be5b49a25d",
+        "files": {
+          "config.json": "479dcf0c5286339e41ad3992cd08ae88a467c4187587936248e2b7c96283484b",
+          "generation_config.json": "8c970692323e3ea0e9b8b0a4dca79388d31226e41f83c9fd6014804280ebf6e8",
+          "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+          "model.safetensors": "88c142557820ccad55bb59756bfcfcf891de9cc6202816bd346445188a0ed342",
+          "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+          "tokenizer_config.json": "c91efca15ceff6e9ee9424db58a6f59cd41294e550a86cbd07e3c1fb500b34f9",
+          "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        },
+        "model": "Qwen/Qwen2.5-0.5B",
+        "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+        "tokens_sha256": "db028e026dc86909d8a08647a0c22cd92c2e8ba39318f943a6c2ead3dde9d7f5"
+      },
+      "sources": {
+        "experiments/criu/session.py": "4b8a43ea201737c573fbae232b627c41b37b0236494fdb37e1435e303bb57b37",
+        "experiments/finetuning/application_pipeline.py": "03f3bc13953349cd90d98d4a07bcd35974287e6fc3fd9b086d619d7aa6e3e475",
+        "experiments/finetuning/criu_pipeline.py": "0b1249fd2d84c2bfbb3351d58ad9e228195f6cb231fe625136d0bf0535c4080d",
+        "experiments/finetuning/job_b.py": "cfa9c5b8df49d5bd3220a42c8e0ee58498e9f31e0f9b9f1fcf7173336ad25d75",
+        "experiments/finetuning/metrics.py": "ba38617075c936c86b27dd384f192222876971762ebd2b771cd9fe967de6eec9",
+        "experiments/finetuning/pipeline.py": "2c8881e9bf0f035616d7fd17f9a43478e175397a9b2ce7756ee3370e6d7c4e2a",
+        "experiments/finetuning/prepare.py": "bf8d5bcff211d04d9ad0f85c0b228305e835e5b01299b9a5a7aa8aed6dcad5bc",
+        "experiments/finetuning/reference_pipeline.py": "3e3217cc51ddf6cf1ee573b82634ca4215073258a3b710710052cd5aaedf5fb4",
+        "experiments/finetuning/report.py": "b1558c17139b11aa8ac328712e9276bde89a3d21a413b42f2a881be99b2c71a8",
+        "experiments/finetuning/run.py": "47abd5e468fdab8d209d4899d78860857f4f8faa24b3f441bd0876b0f9ae19e9",
+        "experiments/finetuning/state.py": "ffd0812eef6f10842d6411a942ec436c28cc4f5cae3097b60e84ff5c4ac37ddd",
+        "experiments/finetuning/train.py": "71ecbda24e86ea0a019374bb1ac790075a321831ca16596e3799b8053b10382d"
+      },
+      "tool_commits": {
+        "criu-4.2.1": "9539417f3e3cfa4eb84c319cd71f4d52f1f08645",
+        "cuda-checkpoint": "00d5cce84c628088d6caa203fc4af40c1538b6f7"
+      },
+      "tool_sha256": {
+        "criu-4.2.1/criu/criu": "5076105288115ca094f7e62a23df421378b26eca9b56aab0515e8e844b37970a",
+        "criu-4.2.1/plugins/cuda/cuda_plugin.so": "65e7cc4245673d8839e91695af9bc94b46a9ce5a81a3af43b22721ffc2b2f0c3",
+        "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint": "707fa7f54136824d6c1d6dd724b9b1717610f831033c00d06da474de363a06db"
+      },
+      "until": 4
+    },
+    "f065c178900aa464312fea2191b6ed64a4b61f425c5fb3a0f2ed3d2e973d6bc1": {
+      "config": {
+        "lora": {
+          "bias": "none",
+          "lora_alpha": 16,
+          "r": 8,
+          "target_modules": [
+            "q_proj",
+            "v_proj"
+          ]
+        },
+        "max_tokens": 128,
+        "model": "Qwen/Qwen2.5-0.5B",
+        "optimizer": {
+          "betas": [
+            0.9,
+            0.999
+          ],
+          "eps": 1e-08,
+          "foreach": false,
+          "fused": false,
+          "lr": 0.001,
+          "weight_decay": 0
+        },
+        "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+        "seed": 2026,
+        "updates": 4
+      },
+      "dropout": 0.0,
+      "environment": {
+        "allocator": "native",
+        "cuda": "12.8",
+        "gpu": "NVIDIA A10G, GPU-75bd90e1-ab34-9347-a945-c2f8ae6f477d, 570.172.08, 23028 MiB",
+        "kernel": "6.8.0-1036-aws",
+        "packages": {
+          "accelerate": "1.15.0",
+          "annotated-doc": "0.0.5",
+          "anyio": "4.15.1",
+          "certifi": "2026.7.22",
+          "exceptiongroup": "1.3.1",
+          "filelock": "3.32.6",
+          "fsspec": "2026.7.0",
+          "h11": "0.16.0",
+          "hf-xet": "1.6.0",
+          "httpcore": "1.0.9",
+          "httpx": "0.28.1",
+          "huggingface_hub": "1.3.5",
+          "idna": "3.19",
+          "jinja2": "3.1.6",
+          "markdown-it-py": "4.2.0",
+          "markupsafe": "3.0.3",
+          "mdurl": "0.1.2",
+          "mpmath": "1.3.0",
+          "networkx": "3.4.2",
+          "numpy": "2.2.6",
+          "nvidia-cublas-cu12": "12.8.4.1",
+          "nvidia-cuda-cupti-cu12": "12.8.90",
+          "nvidia-cuda-nvrtc-cu12": "12.8.93",
+          "nvidia-cuda-runtime-cu12": "12.8.90",
+          "nvidia-cudnn-cu12": "9.10.2.21",
+          "nvidia-cufft-cu12": "11.3.3.83",
+          "nvidia-cufile-cu12": "1.13.1.3",
+          "nvidia-curand-cu12": "10.3.9.90",
+          "nvidia-cusolver-cu12": "11.7.3.90",
+          "nvidia-cusparse-cu12": "12.5.8.93",
+          "nvidia-cusparselt-cu12": "0.7.1",
+          "nvidia-nccl-cu12": "2.27.3",
+          "nvidia-nvjitlink-cu12": "12.8.93",
+          "nvidia-nvtx-cu12": "12.8.90",
+          "packaging": "26.3",
+          "peft": "0.18.1",
+          "pip": "22.0.2",
+          "psutil": "7.2.2",
+          "pygments": "2.21.0",
+          "pyyaml": "6.0.3",
+          "regex": "2026.9.10",
+          "rich": "15.0.0",
+          "safetensors": "0.6.2",
+          "setuptools": "59.6.0",
+          "shellingham": "1.5.4",
+          "sympy": "1.14.0",
+          "tokenizers": "0.22.2",
+          "torch": "2.8.0",
+          "tqdm": "4.70.1",
+          "transformers": "5.0.0",
+          "triton": "3.4.0",
+          "typer": "0.27.2",
+          "typer-slim": "0.24.0",
+          "typing_extensions": "4.16.0"
+        },
+        "python": "3.10.12",
+        "torch": "2.8.0+cu128"
+      },
+      "identity": {
+        "examples_sha256": "c80d2380cb9a2740ce16cc56ffabb1b02f54dbf0f7ee1cad6c1711be5b49a25d",
+        "files": {
+          "config.json": "479dcf0c5286339e41ad3992cd08ae88a467c4187587936248e2b7c96283484b",
+          "generation_config.json": "8c970692323e3ea0e9b8b0a4dca79388d31226e41f83c9fd6014804280ebf6e8",
+          "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+          "model.safetensors": "88c142557820ccad55bb59756bfcfcf891de9cc6202816bd346445188a0ed342",
+          "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+          "tokenizer_config.json": "c91efca15ceff6e9ee9424db58a6f59cd41294e550a86cbd07e3c1fb500b34f9",
+          "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        },
+        "model": "Qwen/Qwen2.5-0.5B",
+        "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+        "tokens_sha256": "db028e026dc86909d8a08647a0c22cd92c2e8ba39318f943a6c2ead3dde9d7f5"
+      },
+      "sources": {
+        "experiments/criu/session.py": "4b8a43ea201737c573fbae232b627c41b37b0236494fdb37e1435e303bb57b37",
+        "experiments/finetuning/application_pipeline.py": "03f3bc13953349cd90d98d4a07bcd35974287e6fc3fd9b086d619d7aa6e3e475",
+        "experiments/finetuning/criu_pipeline.py": "0b1249fd2d84c2bfbb3351d58ad9e228195f6cb231fe625136d0bf0535c4080d",
+        "experiments/finetuning/job_b.py": "cfa9c5b8df49d5bd3220a42c8e0ee58498e9f31e0f9b9f1fcf7173336ad25d75",
+        "experiments/finetuning/metrics.py": "ba38617075c936c86b27dd384f192222876971762ebd2b771cd9fe967de6eec9",
+        "experiments/finetuning/pipeline.py": "2c8881e9bf0f035616d7fd17f9a43478e175397a9b2ce7756ee3370e6d7c4e2a",
+        "experiments/finetuning/prepare.py": "bf8d5bcff211d04d9ad0f85c0b228305e835e5b01299b9a5a7aa8aed6dcad5bc",
+        "experiments/finetuning/reference_pipeline.py": "3e3217cc51ddf6cf1ee573b82634ca4215073258a3b710710052cd5aaedf5fb4",
+        "experiments/finetuning/report.py": "b1558c17139b11aa8ac328712e9276bde89a3d21a413b42f2a881be99b2c71a8",
+        "experiments/finetuning/run.py": "47abd5e468fdab8d209d4899d78860857f4f8faa24b3f441bd0876b0f9ae19e9",
+        "experiments/finetuning/state.py": "ffd0812eef6f10842d6411a942ec436c28cc4f5cae3097b60e84ff5c4ac37ddd",
+        "experiments/finetuning/train.py": "71ecbda24e86ea0a019374bb1ac790075a321831ca16596e3799b8053b10382d"
+      },
+      "tool_commits": {
+        "criu-4.2.1": "9539417f3e3cfa4eb84c319cd71f4d52f1f08645",
+        "cuda-checkpoint": "00d5cce84c628088d6caa203fc4af40c1538b6f7"
+      },
+      "tool_sha256": {
+        "criu-4.2.1/criu/criu": "5076105288115ca094f7e62a23df421378b26eca9b56aab0515e8e844b37970a",
+        "criu-4.2.1/plugins/cuda/cuda_plugin.so": "65e7cc4245673d8839e91695af9bc94b46a9ce5a81a3af43b22721ffc2b2f0c3",
+        "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint": "707fa7f54136824d6c1d6dd724b9b1717610f831033c00d06da474de363a06db"
+      },
+      "until": 4
+    }
+  },
+  "runs": {
+    "application-dropout": {
+      "application_bytes": 6710199,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760163501425481,
+          "pid": 908305
+        },
+        {
+          "event": "capture_requested",
+          "generation": 2,
+          "monotonic_ns": 760174561814535
+        },
+        {
+          "event": "application_save_completed",
+          "generation": 2,
+          "monotonic_ns": 760174712539759
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 2,
+          "monotonic_ns": 760175477665342,
+          "pid": 908305
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 2,
+          "monotonic_ns": 760175477734654
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 2,
+          "monotonic_ns": 760175509836663
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 2,
+          "monotonic_ns": 760175541875182
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 2,
+          "monotonic_ns": 760175541918493
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 2,
+          "monotonic_ns": 760177560281891
+        },
+        {
+          "event": "restore_requested",
+          "generation": 2,
+          "monotonic_ns": 760177560352533
+        },
+        {
+          "event": "restore_returned",
+          "generation": 2,
+          "monotonic_ns": 760177560851683,
+          "pid": 908615
+        },
+        {
+          "event": "continuation_permitted",
+          "generation": 2,
+          "monotonic_ns": 760184452045363
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760189439195634,
+          "pid": 908615
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760189464972537
+        }
+      ],
+      "image_bytes": 0,
+      "key_sha256": "07780e23dcf7111c45a776bf65be28463ec9812e13d62863a77ab057bc989f64",
+      "latencies": [
+        {
+          "capture_command_seconds": 0.150725224,
+          "capture_to_gpu_observed_seconds": 0.948022128,
+          "capture_to_original_exit_seconds": 0.915850807,
+          "capture_to_sync_seconds": 0.980060647,
+          "generation": 2,
+          "job_b_seconds": 2.018363398,
+          "post_exit_observation_window_seconds": 0.032171321,
+          "restore_command_seconds": 0.00049915,
+          "restore_to_next_update_seconds": 7.455961373,
+          "trainer_to_controller_clock_ns": 0
+        }
+      ],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 11144077312,
+        "host_min_available_bytes": 22234845184,
+        "process_peak_hwm_bytes": 3644989440,
+        "process_peak_rss_bytes": 3555631104,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "application",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-0.json": "7cdd5304b55471a455a252403728ab2a27e8ee1d35da5ca8251d3b02c264b018",
+        "state-1.json": "64995a3c5224548a9cd3217555740c56e37289c9a131c322567c984877f9cee0",
+        "state-2.json": "c80cd55b711c530962cd4d9d7b4fdfbf85d2efa8bd78387f9936ba1d6835e282",
+        "state-3.json": "e965c4bbb12d25c3b523671f8dbf6e1247a4d03f44ac55c8856ae5ea6883cd6d",
+        "state-4.json": "2ff7ae935784aa2e4d9da691f6abf08d92cd05ead2812b90f272c36f85a57cf4"
+      },
+      "timing": false,
+      "trainer_memory": {
+        "VmHWM": "3559560 kB",
+        "VmRSS": "1496076 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2117907456,
+        "peak_reserved_vram": 2243952640,
+        "reserved_vram": 2243952640
+      },
+      "trainer_monotonic_offsets_ns": {
+        "2": 0
+      },
+      "trial_seconds": 25.964143989,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760170870356746,
+          "cuda_rng_changed": true,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 536294167
+        },
+        {
+          "completed_ns": 760172771635617,
+          "cuda_rng_changed": true,
+          "loss": 1.7310601472854614,
+          "update": 2,
+          "update_ns": 167818902
+        },
+        {
+          "completed_ns": 760185016313906,
+          "cuda_rng_changed": true,
+          "loss": 1.1042274236679077,
+          "update": 3,
+          "update_ns": 549373132
+        },
+        {
+          "completed_ns": 760186890407415,
+          "cuda_rng_changed": true,
+          "loss": 1.4893455505371094,
+          "update": 4,
+          "update_ns": 162621403
+        }
+      ],
+      "verification_scope": "all_update_boundaries_and_losses",
+      "warnings": []
+    },
+    "application-zero": {
+      "application_bytes": 6705655,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760079827612893,
+          "pid": 906840
+        },
+        {
+          "event": "capture_requested",
+          "generation": 2,
+          "monotonic_ns": 760090781388767
+        },
+        {
+          "event": "application_save_completed",
+          "generation": 2,
+          "monotonic_ns": 760090881875044
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 2,
+          "monotonic_ns": 760091697255409,
+          "pid": 906840
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 2,
+          "monotonic_ns": 760091697317420
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 2,
+          "monotonic_ns": 760091729312523
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 2,
+          "monotonic_ns": 760091745146110
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 2,
+          "monotonic_ns": 760091745182701
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 2,
+          "monotonic_ns": 760093713179126
+        },
+        {
+          "event": "restore_requested",
+          "generation": 2,
+          "monotonic_ns": 760093713241358
+        },
+        {
+          "event": "restore_returned",
+          "generation": 2,
+          "monotonic_ns": 760093713703357,
+          "pid": 907101
+        },
+        {
+          "event": "continuation_permitted",
+          "generation": 2,
+          "monotonic_ns": 760100605289973
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760105642476935,
+          "pid": 907101
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760105668068421
+        }
+      ],
+      "image_bytes": 0,
+      "key_sha256": "f065c178900aa464312fea2191b6ed64a4b61f425c5fb3a0f2ed3d2e973d6bc1",
+      "latencies": [
+        {
+          "capture_command_seconds": 0.100486277,
+          "capture_to_gpu_observed_seconds": 0.947923756,
+          "capture_to_original_exit_seconds": 0.915866642,
+          "capture_to_sync_seconds": 0.963757343,
+          "generation": 2,
+          "job_b_seconds": 1.967996425,
+          "post_exit_observation_window_seconds": 0.032057114,
+          "restore_command_seconds": 0.000461999,
+          "restore_to_next_update_seconds": 7.478141192,
+          "trainer_to_controller_clock_ns": 0
+        }
+      ],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 9476947968,
+        "host_min_available_bytes": 22402699264,
+        "process_peak_hwm_bytes": 3644817408,
+        "process_peak_rss_bytes": 3593408512,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "application",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-0.json": "89f81903bfa187d94122963cb7f1e2cfbca04d005076d8628d9501f6ab01980a",
+        "state-1.json": "b8d978a4b43cb632210b65f68171296487a16632310f895f07593a70f2896dee",
+        "state-2.json": "7bcc1a6e1b32b8a93293b8bff6dc7085a8ba210305221435f68ddee4119e7347",
+        "state-3.json": "1f02efe997102cb04b4b52c39180b2a01b04d7c7e2f181679393fe12a45ef539",
+        "state-4.json": "537778a64f497cb21cbc1f7f9c29ed20f4fb2b824c7954465e7846c3ba75312e"
+      },
+      "timing": false,
+      "trainer_memory": {
+        "VmHWM": "3559364 kB",
+        "VmRSS": "1512092 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2115981312,
+        "peak_reserved_vram": 2241855488,
+        "reserved_vram": 2241855488
+      },
+      "trainer_monotonic_offsets_ns": {
+        "2": 0
+      },
+      "trial_seconds": 25.84103738,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760087079790432,
+          "cuda_rng_changed": false,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 527340612
+        },
+        {
+          "completed_ns": 760089007438099,
+          "cuda_rng_changed": false,
+          "loss": 1.6738166809082031,
+          "update": 2,
+          "update_ns": 161960263
+        },
+        {
+          "completed_ns": 760101191382550,
+          "cuda_rng_changed": false,
+          "loss": 1.0504302978515625,
+          "update": 3,
+          "update_ns": 548657819
+        },
+        {
+          "completed_ns": 760103091163901,
+          "cuda_rng_changed": false,
+          "loss": 1.458910584449768,
+          "update": 4,
+          "update_ns": 163556978
+        }
+      ],
+      "verification_scope": "all_update_boundaries_and_losses",
+      "warnings": []
+    },
+    "criu-dropout": {
+      "application_bytes": 0,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760191395807499,
+          "pid": 908869
+        },
+        {
+          "event": "capture_requested",
+          "generation": 2,
+          "monotonic_ns": 760202351081139
+        },
+        {
+          "event": "dump_completed",
+          "generation": 2,
+          "monotonic_ns": 760210852154335
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 2,
+          "monotonic_ns": 760210853063504,
+          "pid": 908869
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 2,
+          "monotonic_ns": 760210853097905
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 2,
+          "monotonic_ns": 760211067512723
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 2,
+          "monotonic_ns": 760233720970429
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 2,
+          "monotonic_ns": 760233721075342
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 2,
+          "monotonic_ns": 760235789562341
+        },
+        {
+          "event": "restore_requested",
+          "generation": 2,
+          "monotonic_ns": 760235789648273
+        },
+        {
+          "event": "restore_returned",
+          "generation": 2,
+          "monotonic_ns": 760238982791996,
+          "pid": 908869
+        },
+        {
+          "event": "continuation_permitted",
+          "generation": 2,
+          "monotonic_ns": 760240802428257
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760245425269782,
+          "pid": 908869
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760245458406535
+        }
+      ],
+      "image_bytes": 3743823304,
+      "key_sha256": "07780e23dcf7111c45a776bf65be28463ec9812e13d62863a77ab057bc989f64",
+      "latencies": [
+        {
+          "capture_command_seconds": 8.501073196,
+          "capture_to_gpu_observed_seconds": 8.716431584,
+          "capture_to_original_exit_seconds": 8.501982365,
+          "capture_to_sync_seconds": 31.36988929,
+          "generation": 2,
+          "job_b_seconds": 2.068486999,
+          "post_exit_observation_window_seconds": 0.214449219,
+          "restore_command_seconds": 3.193143723,
+          "restore_to_next_update_seconds": 5.187854784,
+          "trainer_to_controller_clock_ns": 25378467229
+        }
+      ],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 13465681920,
+        "host_min_available_bytes": 20832464896,
+        "process_peak_hwm_bytes": 4184289280,
+        "process_peak_rss_bytes": 4184289280,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "criu",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-0.json": "7cdd5304b55471a455a252403728ab2a27e8ee1d35da5ca8251d3b02c264b018",
+        "state-1.json": "64995a3c5224548a9cd3217555740c56e37289c9a131c322567c984877f9cee0",
+        "state-2.json": "c80cd55b711c530962cd4d9d7b4fdfbf85d2efa8bd78387f9936ba1d6835e282",
+        "state-3.json": "e965c4bbb12d25c3b523671f8dbf6e1247a4d03f44ac55c8856ae5ea6883cd6d",
+        "state-4.json": "2ff7ae935784aa2e4d9da691f6abf08d92cd05ead2812b90f272c36f85a57cf4"
+      },
+      "timing": false,
+      "trainer_memory": {
+        "VmHWM": "3728592 kB",
+        "VmRSS": "1211748 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2117907456,
+        "peak_reserved_vram": 2243952640,
+        "reserved_vram": 2243952640
+      },
+      "trainer_monotonic_offsets_ns": {
+        "2": -25378467229
+      },
+      "trial_seconds": 54.078552049,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760198705693166,
+          "cuda_rng_changed": true,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 570142585
+        },
+        {
+          "completed_ns": 760200628470165,
+          "cuda_rng_changed": true,
+          "loss": 1.7310601472854614,
+          "update": 2,
+          "update_ns": 161553927
+        },
+        {
+          "completed_ns": 760215599035828,
+          "cuda_rng_changed": true,
+          "loss": 1.1042274236679077,
+          "update": 3,
+          "update_ns": 167105034
+        },
+        {
+          "completed_ns": 760217499989119,
+          "cuda_rng_changed": true,
+          "loss": 1.4893455505371094,
+          "update": 4,
+          "update_ns": 166650574
+        }
+      ],
+      "verification_scope": "all_update_boundaries_and_losses",
+      "warnings": [
+        "(08.061044) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 908875 with interrupted system call"
+      ]
+    },
+    "criu-repeated": {
+      "application_bytes": 0,
+      "capture": [
+        2,
+        3
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760247416915190,
+          "pid": 909831
+        },
+        {
+          "event": "capture_requested",
+          "generation": 2,
+          "monotonic_ns": 760258371249707
+        },
+        {
+          "event": "dump_completed",
+          "generation": 2,
+          "monotonic_ns": 760266971207932
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 2,
+          "monotonic_ns": 760266972087530,
+          "pid": 909831
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 2,
+          "monotonic_ns": 760266972123931
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 2,
+          "monotonic_ns": 760267004141004
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 2,
+          "monotonic_ns": 760289707488978
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 2,
+          "monotonic_ns": 760289707566180
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 2,
+          "monotonic_ns": 760291725769028
+        },
+        {
+          "event": "restore_requested",
+          "generation": 2,
+          "monotonic_ns": 760291725832910
+        },
+        {
+          "event": "restore_returned",
+          "generation": 2,
+          "monotonic_ns": 760294918020631,
+          "pid": 909831
+        },
+        {
+          "event": "continuation_permitted",
+          "generation": 2,
+          "monotonic_ns": 760296739051191
+        },
+        {
+          "event": "capture_requested",
+          "generation": 3,
+          "monotonic_ns": 760298704045058
+        },
+        {
+          "event": "dump_completed",
+          "generation": 3,
+          "monotonic_ns": 760307351077411
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 3,
+          "monotonic_ns": 760307371553335,
+          "pid": 909831
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 3,
+          "monotonic_ns": 760307371595356
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 3,
+          "monotonic_ns": 760307403718913
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 3,
+          "monotonic_ns": 760330109245350
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 3,
+          "monotonic_ns": 760330109316552
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 3,
+          "monotonic_ns": 760332077708219
+        },
+        {
+          "event": "restore_requested",
+          "generation": 3,
+          "monotonic_ns": 760332077775660
+        },
+        {
+          "event": "restore_returned",
+          "generation": 3,
+          "monotonic_ns": 760335272992452,
+          "pid": 909831
+        },
+        {
+          "event": "continuation_permitted",
+          "generation": 3,
+          "monotonic_ns": 760337092579830
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760339855891108,
+          "pid": 909831
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760339886603862
+        }
+      ],
+      "image_bytes": 7465187572,
+      "key_sha256": "07780e23dcf7111c45a776bf65be28463ec9812e13d62863a77ab057bc989f64",
+      "latencies": [
+        {
+          "capture_command_seconds": 8.599958225,
+          "capture_to_gpu_observed_seconds": 8.632891297,
+          "capture_to_original_exit_seconds": 8.600837823,
+          "capture_to_sync_seconds": 31.336239271,
+          "generation": 2,
+          "job_b_seconds": 2.018202848,
+          "post_exit_observation_window_seconds": 0.032053474,
+          "restore_command_seconds": 3.192187721,
+          "restore_to_next_update_seconds": 5.204500037,
+          "trainer_to_controller_clock_ns": 25191666796
+        },
+        {
+          "capture_command_seconds": 8.647032353,
+          "capture_to_gpu_observed_seconds": 8.699673855,
+          "capture_to_original_exit_seconds": 8.667508277,
+          "capture_to_sync_seconds": 31.405200292,
+          "generation": 3,
+          "job_b_seconds": 1.968391667,
+          "post_exit_observation_window_seconds": 0.032165578,
+          "restore_command_seconds": 3.195216792,
+          "restore_to_next_update_seconds": 5.235169099,
+          "trainer_to_controller_clock_ns": 50331277905
+        }
+      ],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 14291238912,
+        "host_min_available_bytes": 20810571776,
+        "process_peak_hwm_bytes": 4169281536,
+        "process_peak_rss_bytes": 4169281536,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "criu",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-0.json": "7cdd5304b55471a455a252403728ab2a27e8ee1d35da5ca8251d3b02c264b018",
+        "state-1.json": "64995a3c5224548a9cd3217555740c56e37289c9a131c322567c984877f9cee0",
+        "state-2.json": "c80cd55b711c530962cd4d9d7b4fdfbf85d2efa8bd78387f9936ba1d6835e282",
+        "state-3.json": "e965c4bbb12d25c3b523671f8dbf6e1247a4d03f44ac55c8856ae5ea6883cd6d",
+        "state-4.json": "2ff7ae935784aa2e4d9da691f6abf08d92cd05ead2812b90f272c36f85a57cf4"
+      },
+      "timing": false,
+      "trainer_memory": {
+        "VmHWM": "3720108 kB",
+        "VmRSS": "1197924 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2117907456,
+        "peak_reserved_vram": 2243952640,
+        "reserved_vram": 2243952640
+      },
+      "trainer_monotonic_offsets_ns": {
+        "2": -25191666796,
+        "3": -50331277905
+      },
+      "trial_seconds": 92.506174056,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760254701745343,
+          "cuda_rng_changed": true,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 551020697
+        },
+        {
+          "completed_ns": 760256635953707,
+          "cuda_rng_changed": true,
+          "loss": 1.7310601472854614,
+          "update": 2,
+          "update_ns": 166391569
+        },
+        {
+          "completed_ns": 760271738666151,
+          "cuda_rng_changed": true,
+          "loss": 1.1042274236679077,
+          "update": 3,
+          "update_ns": 179111271
+        },
+        {
+          "completed_ns": 760286981666854,
+          "cuda_rng_changed": true,
+          "loss": 1.4893455505371094,
+          "update": 4,
+          "update_ns": 173259032
+        }
+      ],
+      "verification_scope": "all_update_boundaries_and_losses",
+      "warnings": [
+        "(08.163725) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 909844 with interrupted system call",
+        "(08.237655) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 909844 with interrupted system call"
+      ]
+    },
+    "criu-zero": {
+      "application_bytes": 0,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760107596058133,
+          "pid": 907341
+        },
+        {
+          "event": "capture_requested",
+          "generation": 2,
+          "monotonic_ns": 760118654328747
+        },
+        {
+          "event": "dump_completed",
+          "generation": 2,
+          "monotonic_ns": 760126703472177
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 2,
+          "monotonic_ns": 760126704373336,
+          "pid": 907341
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 2,
+          "monotonic_ns": 760126704409267
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 2,
+          "monotonic_ns": 760126736412331
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 2,
+          "monotonic_ns": 760149990922015
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 2,
+          "monotonic_ns": 760149990975416
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 2,
+          "monotonic_ns": 760152009234195
+        },
+        {
+          "event": "restore_requested",
+          "generation": 2,
+          "monotonic_ns": 760152009293786
+        },
+        {
+          "event": "restore_returned",
+          "generation": 2,
+          "monotonic_ns": 760155201934889,
+          "pid": 907341
+        },
+        {
+          "event": "continuation_permitted",
+          "generation": 2,
+          "monotonic_ns": 760156970989489
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760161540896241,
+          "pid": 907341
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760161566157124
+        }
+      ],
+      "image_bytes": 3740692974,
+      "key_sha256": "f065c178900aa464312fea2191b6ed64a4b61f425c5fb3a0f2ed3d2e973d6bc1",
+      "latencies": [
+        {
+          "capture_command_seconds": 8.04914343,
+          "capture_to_gpu_observed_seconds": 8.082083584,
+          "capture_to_original_exit_seconds": 8.050044589,
+          "capture_to_sync_seconds": 31.336593268,
+          "generation": 2,
+          "job_b_seconds": 2.018258779,
+          "post_exit_observation_window_seconds": 0.032038995,
+          "restore_command_seconds": 3.192641103,
+          "restore_to_next_update_seconds": 5.145630825,
+          "trainer_to_controller_clock_ns": 25731883160
+        }
+      ],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 12686618624,
+        "host_min_available_bytes": 20830187520,
+        "process_peak_hwm_bytes": 4180779008,
+        "process_peak_rss_bytes": 4180779008,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "criu",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-0.json": "89f81903bfa187d94122963cb7f1e2cfbca04d005076d8628d9501f6ab01980a",
+        "state-1.json": "b8d978a4b43cb632210b65f68171296487a16632310f895f07593a70f2896dee",
+        "state-2.json": "7bcc1a6e1b32b8a93293b8bff6dc7085a8ba210305221435f68ddee4119e7347",
+        "state-3.json": "1f02efe997102cb04b4b52c39180b2a01b04d7c7e2f181679393fe12a45ef539",
+        "state-4.json": "537778a64f497cb21cbc1f7f9c29ed20f4fb2b824c7954465e7846c3ba75312e"
+      },
+      "timing": false,
+      "trainer_memory": {
+        "VmHWM": "3725484 kB",
+        "VmRSS": "1208124 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2115981312,
+        "peak_reserved_vram": 2241855488,
+        "reserved_vram": 2241855488
+      },
+      "trainer_monotonic_offsets_ns": {
+        "2": -25731883160
+      },
+      "trial_seconds": 53.986386735,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760114949678735,
+          "cuda_rng_changed": false,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 554995842
+        },
+        {
+          "completed_ns": 760116874248756,
+          "cuda_rng_changed": false,
+          "loss": 1.6738166809082031,
+          "update": 2,
+          "update_ns": 160996281
+        },
+        {
+          "completed_ns": 760131423041451,
+          "cuda_rng_changed": false,
+          "loss": 1.0504302978515625,
+          "update": 3,
+          "update_ns": 160708531
+        },
+        {
+          "completed_ns": 760133298001595,
+          "cuda_rng_changed": false,
+          "loss": 1.458910584449768,
+          "update": 4,
+          "update_ns": 165393490
+        }
+      ],
+      "verification_scope": "all_update_boundaries_and_losses",
+      "warnings": [
+        "(07.622466) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 907379 with interrupted system call"
+      ]
+    },
+    "reference-dropout": {
+      "application_bytes": 0,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760046755304356,
+          "pid": 906192
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760062341602286,
+          "pid": 906192
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760077914755258
+        }
+      ],
+      "image_bytes": 0,
+      "key_sha256": "07780e23dcf7111c45a776bf65be28463ec9812e13d62863a77ab057bc989f64",
+      "latencies": [],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 9450512384,
+        "host_min_available_bytes": 22234705920,
+        "process_peak_hwm_bytes": 3644727296,
+        "process_peak_rss_bytes": 3499343872,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "reference",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-0.json": "7cdd5304b55471a455a252403728ab2a27e8ee1d35da5ca8251d3b02c264b018",
+        "state-1.json": "64995a3c5224548a9cd3217555740c56e37289c9a131c322567c984877f9cee0",
+        "state-2.json": "c80cd55b711c530962cd4d9d7b4fdfbf85d2efa8bd78387f9936ba1d6835e282",
+        "state-3.json": "e965c4bbb12d25c3b523671f8dbf6e1247a4d03f44ac55c8856ae5ea6883cd6d",
+        "state-4.json": "2ff7ae935784aa2e4d9da691f6abf08d92cd05ead2812b90f272c36f85a57cf4"
+      },
+      "timing": false,
+      "trainer_memory": {
+        "VmHWM": "3559304 kB",
+        "VmRSS": "1508496 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2117907456,
+        "peak_reserved_vram": 2243952640,
+        "reserved_vram": 2243952640
+      },
+      "trainer_monotonic_offsets_ns": {},
+      "trial_seconds": 31.160204988,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760054165380350,
+          "cuda_rng_changed": true,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 560566346
+        },
+        {
+          "completed_ns": 760056043772618,
+          "cuda_rng_changed": true,
+          "loss": 1.7310601472854614,
+          "update": 2,
+          "update_ns": 165151013
+        },
+        {
+          "completed_ns": 760057927445978,
+          "cuda_rng_changed": true,
+          "loss": 1.1042274236679077,
+          "update": 3,
+          "update_ns": 167698087
+        },
+        {
+          "completed_ns": 760059843162555,
+          "cuda_rng_changed": true,
+          "loss": 1.4893455505371094,
+          "update": 4,
+          "update_ns": 166635663
+        }
+      ],
+      "verification_scope": "all_update_boundaries_and_losses",
+      "warnings": []
+    },
+    "reference-zero": {
+      "application_bytes": 0,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760013504888436,
+          "pid": 905613
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760029085192703,
+          "pid": 905613
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760044703616823
+        }
+      ],
+      "image_bytes": 0,
+      "key_sha256": "f065c178900aa464312fea2191b6ed64a4b61f425c5fb3a0f2ed3d2e973d6bc1",
+      "latencies": [],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 9450819584,
+        "host_min_available_bytes": 22387556352,
+        "process_peak_hwm_bytes": 3644903424,
+        "process_peak_rss_bytes": 3629461504,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "reference",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-0.json": "89f81903bfa187d94122963cb7f1e2cfbca04d005076d8628d9501f6ab01980a",
+        "state-1.json": "b8d978a4b43cb632210b65f68171296487a16632310f895f07593a70f2896dee",
+        "state-2.json": "7bcc1a6e1b32b8a93293b8bff6dc7085a8ba210305221435f68ddee4119e7347",
+        "state-3.json": "1f02efe997102cb04b4b52c39180b2a01b04d7c7e2f181679393fe12a45ef539",
+        "state-4.json": "537778a64f497cb21cbc1f7f9c29ed20f4fb2b824c7954465e7846c3ba75312e"
+      },
+      "timing": false,
+      "trainer_memory": {
+        "VmHWM": "3559476 kB",
+        "VmRSS": "1480100 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2115981312,
+        "peak_reserved_vram": 2241855488,
+        "reserved_vram": 2241855488
+      },
+      "trainer_monotonic_offsets_ns": {},
+      "trial_seconds": 31.199343534,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760020963735601,
+          "cuda_rng_changed": false,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 542849364
+        },
+        {
+          "completed_ns": 760022831704438,
+          "cuda_rng_changed": false,
+          "loss": 1.6738166809082031,
+          "update": 2,
+          "update_ns": 157823848
+        },
+        {
+          "completed_ns": 760024731027389,
+          "cuda_rng_changed": false,
+          "loss": 1.0504302978515625,
+          "update": 3,
+          "update_ns": 161437515
+        },
+        {
+          "completed_ns": 760026590144369,
+          "cuda_rng_changed": false,
+          "loss": 1.458910584449768,
+          "update": 4,
+          "update_ns": 156768276
+        }
+      ],
+      "verification_scope": "all_update_boundaries_and_losses",
+      "warnings": []
+    },
+    "timing-application": {
+      "application_bytes": 6705655,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760342582709951,
+          "pid": 911644
+        },
+        {
+          "event": "capture_requested",
+          "generation": 2,
+          "monotonic_ns": 760347760705210
+        },
+        {
+          "event": "application_save_completed",
+          "generation": 2,
+          "monotonic_ns": 760347861545333
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 2,
+          "monotonic_ns": 760348677102447,
+          "pid": 911644
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 2,
+          "monotonic_ns": 760348677183519
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 2,
+          "monotonic_ns": 760348709339803
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 2,
+          "monotonic_ns": 760348725293027
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 2,
+          "monotonic_ns": 760348725358849
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 2,
+          "monotonic_ns": 760350693374339
+        },
+        {
+          "event": "restore_requested",
+          "generation": 2,
+          "monotonic_ns": 760350693449441
+        },
+        {
+          "event": "restore_returned",
+          "generation": 2,
+          "monotonic_ns": 760350693944321,
+          "pid": 911807
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760358394845089,
+          "pid": 911807
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760358401112271
+        }
+      ],
+      "image_bytes": 0,
+      "key_sha256": "f065c178900aa464312fea2191b6ed64a4b61f425c5fb3a0f2ed3d2e973d6bc1",
+      "latencies": [
+        {
+          "capture_command_seconds": 0.100840123,
+          "capture_to_gpu_observed_seconds": 0.948634593,
+          "capture_to_original_exit_seconds": 0.916397237,
+          "capture_to_sync_seconds": 0.964587817,
+          "generation": 2,
+          "job_b_seconds": 1.96801549,
+          "post_exit_observation_window_seconds": 0.032237356,
+          "restore_command_seconds": 0.00049488,
+          "restore_to_next_update_seconds": 4.98926858,
+          "trainer_to_controller_clock_ns": 0
+        }
+      ],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 12691738624,
+        "host_min_available_bytes": 22288728064,
+        "process_peak_hwm_bytes": 3642744832,
+        "process_peak_rss_bytes": 3629244416,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "application",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-4.json": "537778a64f497cb21cbc1f7f9c29ed20f4fb2b824c7954465e7846c3ba75312e"
+      },
+      "timing": true,
+      "trainer_memory": {
+        "VmHWM": "3557308 kB",
+        "VmRSS": "1481940 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2115981312,
+        "peak_reserved_vram": 2241855488,
+        "reserved_vram": 2241855488
+      },
+      "trainer_monotonic_offsets_ns": {
+        "2": 0
+      },
+      "trial_seconds": 15.819044773,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760347540359662,
+          "cuda_rng_changed": false,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 561814356
+        },
+        {
+          "completed_ns": 760347713096682,
+          "cuda_rng_changed": false,
+          "loss": 1.6738166809082031,
+          "update": 2,
+          "update_ns": 170000063
+        },
+        {
+          "completed_ns": 760355682718021,
+          "cuda_rng_changed": false,
+          "loss": 1.0504302978515625,
+          "update": 3,
+          "update_ns": 526948758
+        },
+        {
+          "completed_ns": 760355844843369,
+          "cuda_rng_changed": false,
+          "loss": 1.458910584449768,
+          "update": 4,
+          "update_ns": 160957473
+        }
+      ],
+      "verification_scope": "final_state_and_all_losses",
+      "warnings": []
+    },
+    "timing-criu": {
+      "application_bytes": 0,
+      "capture": [
+        2
+      ],
+      "compatibility": "qualified: sharing ownership and any resource warnings require interpretation",
+      "controller_monotonic_offset_ns": 0,
+      "events": [
+        {
+          "event": "launched",
+          "monotonic_ns": 760361103763969,
+          "pid": 912020
+        },
+        {
+          "event": "capture_requested",
+          "generation": 2,
+          "monotonic_ns": 760366176582674
+        },
+        {
+          "event": "dump_completed",
+          "generation": 2,
+          "monotonic_ns": 760374185777363
+        },
+        {
+          "event": "original_exit_verified",
+          "generation": 2,
+          "monotonic_ns": 760374186682803,
+          "pid": 912020
+        },
+        {
+          "event": "gpu_observation_started",
+          "generation": 2,
+          "monotonic_ns": 760374186717234
+        },
+        {
+          "event": "gpu_observed_after_exit",
+          "generation": 2,
+          "monotonic_ns": 760374218900045
+        },
+        {
+          "event": "filesystem_synced",
+          "generation": 2,
+          "monotonic_ns": 760397223817771
+        },
+        {
+          "event": "job_b_requested",
+          "generation": 2,
+          "monotonic_ns": 760397223880232
+        },
+        {
+          "event": "job_b_completed",
+          "generation": 2,
+          "monotonic_ns": 760399241950732
+        },
+        {
+          "event": "restore_requested",
+          "generation": 2,
+          "monotonic_ns": 760399242028624
+        },
+        {
+          "event": "restore_returned",
+          "generation": 2,
+          "monotonic_ns": 760402386802778,
+          "pid": 912020
+        },
+        {
+          "event": "final_exit_verified",
+          "monotonic_ns": 760405299816414,
+          "pid": 912020
+        },
+        {
+          "event": "verification_passed",
+          "monotonic_ns": 760405306130406
+        }
+      ],
+      "image_bytes": 3688456355,
+      "key_sha256": "f065c178900aa464312fea2191b6ed64a4b61f425c5fb3a0f2ed3d2e973d6bc1",
+      "latencies": [
+        {
+          "capture_command_seconds": 8.009194689,
+          "capture_to_gpu_observed_seconds": 8.042317371,
+          "capture_to_original_exit_seconds": 8.010100129,
+          "capture_to_sync_seconds": 31.047235097,
+          "generation": 2,
+          "job_b_seconds": 2.0180705,
+          "post_exit_observation_window_seconds": 0.032217242,
+          "restore_command_seconds": 3.144774154,
+          "restore_to_next_update_seconds": 3.346337498,
+          "trainer_to_controller_clock_ns": 25503470054
+        }
+      ],
+      "lifecycle_passed": true,
+      "memory_samples": {
+        "cgroup": "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope",
+        "cgroup_limits": {
+          "/sys/fs/cgroup/user.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice": "max",
+          "/sys/fs/cgroup/user.slice/user-1000.slice/session-731.scope": "max"
+        },
+        "cgroup_peak_bytes": 14301171712,
+        "host_min_available_bytes": 21022572544,
+        "process_peak_hwm_bytes": 4126838784,
+        "process_peak_rss_bytes": 4126838784,
+        "sampling_interval_seconds": 0.1
+      },
+      "mode": "criu",
+      "numerical_passed": true,
+      "state_file_sha256": {
+        "state-4.json": "537778a64f497cb21cbc1f7f9c29ed20f4fb2b824c7954465e7846c3ba75312e"
+      },
+      "timing": true,
+      "trainer_memory": {
+        "VmHWM": "3674540 kB",
+        "VmRSS": "1171136 kB",
+        "allocated_vram": 2050449920,
+        "peak_allocated_vram": 2115981312,
+        "peak_reserved_vram": 2241855488,
+        "reserved_vram": 2241855488
+      },
+      "trainer_monotonic_offsets_ns": {
+        "2": -25503470054
+      },
+      "trial_seconds": 44.218353034,
+      "unqualified_compatibility": false,
+      "updates": [
+        {
+          "completed_ns": 760365977399624,
+          "cuda_rng_changed": false,
+          "loss": 2.6493842601776123,
+          "update": 1,
+          "update_ns": 525264138
+        },
+        {
+          "completed_ns": 760366143388631,
+          "cuda_rng_changed": false,
+          "loss": 1.6738166809082031,
+          "update": 2,
+          "update_ns": 163198606
+        },
+        {
+          "completed_ns": 760377084896068,
+          "cuda_rng_changed": false,
+          "loss": 1.0504302978515625,
+          "update": 3,
+          "update_ns": 168463817
+        },
+        {
+          "completed_ns": 760377246918109,
+          "cuda_rng_changed": false,
+          "loss": 1.458910584449768,
+          "update": 4,
+          "update_ns": 160836216
+        }
+      ],
+      "verification_scope": "final_state_and_all_losses",
+      "warnings": [
+        "(07.564061) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 912039 with interrupted system call"
+      ]
+    }
+  },
+  "scope": "same-host, warm cached assets; numerical success is separate from compatibility",
+  "timing_summary": {
+    "application": {
+      "capture_to_gpu_observed_seconds": {
+        "individual": [
+          0.948634593
+        ],
+        "max": 0.948634593,
+        "median": 0.948634593,
+        "min": 0.948634593
+      },
+      "capture_to_sync_seconds": {
+        "individual": [
+          0.964587817
+        ],
+        "max": 0.964587817,
+        "median": 0.964587817,
+        "min": 0.964587817
+      },
+      "job_b_seconds": {
+        "individual": [
+          1.96801549
+        ],
+        "max": 1.96801549,
+        "median": 1.96801549,
+        "min": 1.96801549
+      },
+      "restore_to_next_update_seconds": {
+        "individual": [
+          4.98926858
+        ],
+        "max": 4.98926858,
+        "median": 4.98926858,
+        "min": 4.98926858
+      }
+    },
+    "criu": {
+      "capture_to_gpu_observed_seconds": {
+        "individual": [
+          8.042317371
+        ],
+        "max": 8.042317371,
+        "median": 8.042317371,
+        "min": 8.042317371
+      },
+      "capture_to_sync_seconds": {
+        "individual": [
+          31.047235097
+        ],
+        "max": 31.047235097,
+        "median": 31.047235097,
+        "min": 31.047235097
+      },
+      "job_b_seconds": {
+        "individual": [
+          2.0180705
+        ],
+        "max": 2.0180705,
+        "median": 2.0180705,
+        "min": 2.0180705
+      },
+      "restore_to_next_update_seconds": {
+        "individual": [
+          3.346337498
+        ],
+        "max": 3.346337498,
+        "median": 3.346337498,
+        "min": 3.346337498
+      }
+    }
+  },
+  "validation": {
+    "cpu_command": "PYTHONPATH=experiments/cpu:experiments/finetuning:experiments/criu runs/finetuning/venv/bin/python -m unittest discover -s tests -v",
+    "cpu_contract_tests_passed": 14,
+    "date": "2026-09-17",
+    "executable_code_commit": "631ffb6c62c7803a8e652ce3b953fd5a86046084",
+    "experiment_functions_with_docstrings": 65,
+    "final_cleanup": {
+      "checked_at_utc": "2026-09-17T10:35:47.302838+00:00",
+      "gpu_compute_processes": [],
+      "recorded_trainer_pids_absent": [
+        905613,
+        906192,
+        906840,
+        907101,
+        907341,
+        908305,
+        908615,
+        908869,
+        909831,
+        911644,
+        911807,
+        912020
+      ],
+      "remaining_workload_processes": []
+    },
+    "gpu_validation_cases": 9,
+    "purpose": "Validate readable dedicated pipelines and the exited-child cleanup regression fix.",
+    "python_files_parsed": 16,
+    "scope": "Same host, same GPU, warm cached assets. External or driver-side sharing ownership and retained warnings remain qualified.",
+    "shell_scripts_syntax_checked": 4,
+    "source_fingerprints_match_worktree": true,
+    "timing_interpretation": "One timing case per method checks the refactored path. This is not a new paired benchmark; retain the September 14 three-pair results as dated performance evidence."
+  }
+}

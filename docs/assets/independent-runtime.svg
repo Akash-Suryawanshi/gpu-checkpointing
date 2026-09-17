@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="380" height="210" viewBox="0 0 380 210" role="img" aria-labelledby="title desc">
+<title id="title">Independent capture and restore</title><desc id="desc">Execution order: trainer pauses after an update. A separate capture worker dumps and persists the snapshot, then exits. Later a restore worker reconstructs, verifies, and releases the trainer.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#375f83"/></marker></defs>
+<style>text{font-family:Georgia,"Times New Roman",serif;font-size:16px;fill:#242424}.label{font-size:13px;fill:#375f83}</style>
+<rect width="380" height="210" fill="#faf9f6"/>
+<rect x="10" y="10" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="29" text-anchor="middle">1. Trainer pauses</text>
+<text x="190" y="47" text-anchor="middle">Complete update; synchronize CUDA</text>
+<path d="M26 58V79" stroke="#375f83" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="label" x="42" y="74">Ready acknowledgement</text>
+<rect x="10" y="82" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="101" text-anchor="middle">2. Capture worker</text>
+<text x="190" y="119" text-anchor="middle">CRIU dump → fsync → COMPLETE → exit</text>
+<path d="M26 130V151" stroke="#375f83" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="label" x="42" y="146">Saved artifacts connect independent workers</text>
+<rect x="10" y="154" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="173" text-anchor="middle">3. Later restore worker</text>
+<text x="190" y="191" text-anchor="middle">Reconstruct → verify → continue → exit</text>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="380" height="282" viewBox="0 0 380 282" role="img" aria-labelledby="title desc">
+<title id="title">Memory to persistent storage</title><desc id="desc">Data path: NVIDIA stages VRAM in host RAM; CRIU writes image files, potentially buffered in Linux page cache. Fsync requests and waits for storage writeback acknowledgement.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#375f83"/></marker></defs>
+<style>text{font-family:Georgia,"Times New Roman",serif;font-size:16px;fill:#242424}.label{font-size:13px;fill:#375f83}</style>
+<rect width="380" height="282" fill="#faf9f6"/>
+<rect x="10" y="10" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="38" text-anchor="middle">GPU memory (VRAM)</text>
+<path d="M26 58V79" stroke="#375f83" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="label" x="42" y="74">NVIDIA stages GPU data</text>
+<rect x="10" y="82" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="110" text-anchor="middle">Host RAM + CPU state</text>
+<path d="M26 130V151" stroke="#375f83" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="label" x="42" y="146">CRIU writes image files</text>
+<rect x="10" y="154" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="182" text-anchor="middle">Linux page cache (RAM)</text>
+<path d="M26 202V223" stroke="#375f83" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="label" x="42" y="218">Writeback; fsync waits for acknowledgement</text>
+<rect x="10" y="226" width="360" height="46" rx="3" fill="#f0eee9" stroke="#b2afa6"/>
+<text x="190" y="254" text-anchor="middle">Backing storage volume</text>
+</svg>

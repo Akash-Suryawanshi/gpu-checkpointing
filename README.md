@@ -1,58 +1,53 @@
 # Learning CPU and GPU checkpointing
 
-A running program can become saved files and later become a running program again. This repository studies what must be saved to make that possible, how Linux and NVIDIA cooperate, and what an experiment can actually prove. The scope is a bounded learning POC: one Linux host, one process, and one NVIDIA GPU.
+This POC captures a running LoRA trainer as files, ends the original process,
+and restores it to continue training. The scope is one Linux host, one process,
+and one NVIDIA GPU. The docs assume basic programming; OS concepts are introduced
+where needed.
 
 ## Start with the machine
 
-The **CPU** executes a program's general instructions: running Python, deciding which batch comes next, and asking for GPU calculations. **RAM**, also called host memory, holds the objects and working data that the CPU accesses. A **GPU** executes many numerical operations in parallel. Its device memory, commonly called **VRAM**, holds tensors and other data used by those calculations.
+The **CPU** runs Python and submits numerical work to the **GPU**. CPU-side objects
+live in **RAM**; GPU tensors live in **VRAM**. **Storage** holds checkpoint files.
+A **process** is a running program, including its memory and execution position.
+Linux's **kernel** manages these resources; NVIDIA's **driver** manages the GPU.
 
-**Storage** holds files: program code, datasets, and saved checkpoints. RAM and VRAM are live working memory; their contents do not by themselves survive losing the machine. Storage can outlive a process, but a local disk does not necessarily survive removal of a cloud instance. A durable checkpoint needs both a completed write and storage that survives the failure it is meant to protect against.
+![GPU data is staged in host RAM, written through the Linux page cache, and synchronized to storage.](docs/assets/snapshot-memory-storage.svg)
 
-A **program** is a set of instructions, such as a Python script on disk. A **process** is a running instance of that program, with current memory, execution positions, and resources. Two processes can run the same program while holding different data. Its **state** is the information needed to describe where it has reached and continue its work.
-
-The **operating system**, Linux on our execution host, manages CPU scheduling, memory, files, and access to devices. Its central privileged component is the **kernel**. Applications request services through operating-system interfaces rather than managing all hardware themselves. A **library** supplies reusable code; PyTorch is one example. A **driver** is software that manages a device and exposes operations applications can use. NVIDIA's driver manages the GPU's memory and execution state.
-
-```mermaid
-flowchart TB
-    A["Application: Python training process"]
-    subgraph CPU["CPU and host-memory lane"]
-      C["Python and ordinary libraries"] --> O["Linux: scheduling, memory, files"]
-      O --> H["CPU execution and host RAM"]
-    end
-    subgraph GPU["GPU execution lane"]
-      P["PyTorch and CUDA libraries"] --> D["CUDA interfaces and NVIDIA driver"]
-      D --> G["GPU execution and VRAM"]
-    end
-    A --> C
-    A --> P
-    D -. "Uses Linux device support and host memory" .-> O
-    H -. "Checkpoint tools write saved state" .-> S[("Storage: checkpoint files")]
-    G -. "NVIDIA stages GPU state in RAM" .-> H
-```
-
-These are cooperating paths, not a single ladder with a GPU beneath the CPU and a disk beneath the GPU. The application runs on the CPU and submits GPU work through libraries and the driver. Storage is the destination for saved state, not another execution layer.
+*Arrows show the data path. RAM and VRAM are live memory; file visibility alone
+does not prove that writes reached storage.*
 
 ## Why model weights are only part of the state
 
-Imagine training has completed update 20. The model's learned numbers may be in VRAM, while Python's counter and the choice of the next input batch live in RAM. The optimizer also remembers information from earlier updates; a random-number generator affects later data and calculations. Linux tracks open files, and the CPU has an execution position. These pieces must agree about which work has completed.
-
-An **application checkpoint** saves values chosen by the program, for example model weights, optimizer state, random-generator state, and data position. A fresh program loads them and reconstructs training. A weights-only save is usually insufficient for equivalent training continuation.
-
-A **process checkpoint**, or transparent snapshot, instead aims to reconstruct the running process and its supported resources. It must preserve memory and the execution context as well as GPU state. “Transparent” describes the restore mechanism; our experiments can still use an explicit waiting point to make the saved boundary observable. Neither approach automatically rolls back external files, remote services, or the whole machine.
+Training also depends on optimizer history, random-generator state, input position,
+and learning-rate schedule. An **application checkpoint** saves selected values
+and loads them into a fresh trainer. A **process snapshot** reconstructs the
+running process and supported resources. Neither automatically restores external
+files or services.
 
 ## Reading path
 
-1. [CPU checkpointing](docs/01-cpu-checkpointing.md): memory, threads, files, CRIU's nine capture/restore stages, and how DMTCP differs.
-2. [GPU checkpointing](docs/02-gpu-checkpointing.md): asynchronous CUDA work, NVIDIA's state transitions, CPU/GPU coordination, costs, limitations, and useful comparisons.
+| Read | Purpose |
+| --- | --- |
+| [CPU checkpointing](docs/01-cpu-checkpointing.md) | Memory, execution state, Linux resources, and CRIU restoration. |
+| [GPU checkpointing](docs/02-gpu-checkpointing.md) | CUDA staging, CPU/GPU coordination, limitations, and cost. |
+| [Run the experiment](experiments/finetuning/README.md) | Setup, commands, code walkthrough, and reporting. |
+| [Results](experiments/results.md) | Dated evidence, measurements, and qualifications. |
+| [Workload contract](docs/implementation-plan.md) | Implemented configuration and acceptance requirements. |
+| [Next lifecycle plan](docs/independent-lifecycle-plan.md) | Proposed independent trainer, capture, and restore commands. |
 
-The Markdown chapters are the authoritative explanation. The CPU chapter also links to a standalone interactive walkthrough. After the concepts, read the [single-GPU fine-tuning research](research/single-gpu-finetuning.md) for workload choices and open compatibility questions, the [implementation plan](docs/implementation-plan.md) for the proposed experiment, and [experiment results](experiments/results.md) for commands, environment details, and evidence.
+The [research note](research/single-gpu-finetuning.md) compares approaches; the
+[teaching plan](docs/readability-plan.md) tracks remaining explanatory work.
 
 ## What has been observed
 
-As recorded on September 14, 2026, the resumed L4 host reports NVIDIA driver **595.58.03**. The current evidence has three separate outcomes:
+On EC2 A10G, application restart and CRIU restore matched uninterrupted LoRA
+training, including active dropout and repeated capture. The September 17
+[validation](experiments/results.md#readability-refactor-validation--2026-09-17)
+passed after the readability refactor. CRIU resumed faster but saved more slowly
+and produced larger snapshots in the recorded
+[comparison](experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
 
-- **CRIU is blocked in this container:** its capability check and direct CPU dump fail during startup feature detection, before process capture.
-- **NVIDIA GPU-only pause/restore passed:** a 64 MiB tensor returned correctly and another job used the released GPU. The original CPU process remained alive; this was not a saved process image.
-- **DMTCP CPU restore passed, and a complete PyTorch GPU process restored after the original exited:** tensor data and the next GPU operation matched. Anonymous shared-memory warnings remain unresolved, so this is a qualified result. Complete LoRA fine-tuning has not been validated.
-
-The [measured results](experiments/results.md) contain the dated evidence and exact qualifications. Local development is on macOS; NVIDIA CUDA checkpoint validation runs on the compatible Linux host. This repository is not building a production scheduling platform. The fine-tuning plan is a review draft; its experiments have not yet run.
+These are qualified same-host results: shared-resource warnings remain unresolved.
+Spot recovery, replacement-host restoration, and inference cold starts are untested.
+Historical container results are recorded separately.
