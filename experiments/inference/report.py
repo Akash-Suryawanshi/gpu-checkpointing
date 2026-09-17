@@ -28,7 +28,11 @@ def summarize(root):
                 run = measure.read(path / "run.json")
                 if (run["block"], run["route"]) != pair or run["kind"] != "timing":
                     raise ValueError("Run does not match scheduled slot")
-                keys.add(measure.digest(run["key"]))
+                # CLI defaults can be integers while explicit options are floats.
+                # Match the diagnostic gate's numeric equality without changing evidence.
+                key = {k: float(v) if k in ("poll_ms", "sample_ms") else v
+                       for k, v in run["key"].items()}
+                keys.add(measure.digest(key))
                 result = measure.read(path / "result.json")
                 if result["status"] != "passed":
                     raise ValueError(result.get("reason", "Incomplete result"))
@@ -70,7 +74,8 @@ def summarize(root):
         if route != "fresh" and len(pairs) == 3:
             speedups[route] = {"paired": pairs, "median": statistics.median(pairs), "min": min(pairs), "max": max(pairs)}
     return {"rows": rows, "aggregates": aggregates, "speedups": speedups,
-            "limitations": "Uncontrolled local file cache; three trials do not establish tail latency. "
+            "limitations": "Asset validation reads model files before launch; file-cache residency remains uncontrolled. "
+                            "Three trials do not establish tail latency. "
                             "Sampled peaks can miss short spikes. Same-host recovery is not host-loss recovery."}
 
 
@@ -118,14 +123,14 @@ def main(args):
                         for route, s in summary["speedups"].items()) or "No aggregate speedup: three complete matching block pairs are required."
     (args.output / "index.html").write_text(f'''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Learning inference snapshots</title>
-<style>body{{font:19px/1.7 Georgia,'Times New Roman',serif;background:#faf9f6;color:#242424;max-width:900px;margin:40px auto;padding:0 20px}}h1,h2{{font-weight:400}}a{{color:#54768a}}img{{width:100%}}table{{border-collapse:collapse;width:100%;font-size:16px}}td,th{{text-align:left;border-bottom:1px solid #ccc;padding:8px;overflow-wrap:anywhere}}p{{margin:1.4em 0}}</style>
+<style>body{{font:19px/1.7 Georgia,'Times New Roman',serif;background:#faf9f6;color:#242424;max-width:900px;margin:40px auto;padding:0 20px}}h1,h2{{font-weight:400}}a{{color:#54768a}}figure{{margin:28px 0}}.chart{{overflow-x:auto}}img{{display:block;width:100%;min-width:750px}}table{{border-collapse:collapse;width:100%;font-size:16px}}td,th{{text-align:left;border-bottom:1px solid #ccc;padding:8px;overflow-wrap:anywhere}}td:nth-child(-n+2),th:nth-child(-n+2){{overflow-wrap:normal}}p{{margin:1.4em 0}}</style>
 <h1>Learning inference snapshots</h1><p>Each accepted time ends when the controller receives token one.
 Fresh starts before launching a worker; resident starts before publishing its request;
 RAM starts before restoring GPU state; disk starts before launching the independent restore command, including validation.</p>
-<figure><img src="latency.svg" alt="Individual accepted latency measurements"><figcaption>Durable file messages use the recorded poll interval; inspection is never subtracted.</figcaption></figure>
+<figure><div class="chart"><img src="latency.svg" alt="Individual accepted latency measurements"></div><figcaption>Durable file messages use the recorded poll interval; inspection is never subtracted. Scroll charts sideways on narrow screens.</figcaption></figure>
 <table><tr><th>Block</th><th>Route</th><th>Status</th><th>Seconds or failure</th></tr>{rows}</table>
 <table><tr><th>Route</th><th>Count</th><th>Median seconds</th><th>Min–max seconds</th></tr>{stats}</table>
-<p>{html.escape(speedups)}</p><figure><img src="resources.svg" alt="Host memory retained while idle"><figcaption>RAM parking keeps a live CPU process. Disk can end that process but retains image files and external dependencies.</figcaption></figure>
+<p>Paired ratios divide fresh time by route time within each block; above 1 means faster. {html.escape(speedups)}</p><figure><div class="chart"><img src="resources.svg" alt="Retained host RAM, GPU memory and snapshot storage"></div><figcaption>RAM parking keeps a live CPU process. Disk can end that process but retains image files and external dependencies. All routes still require local model files; the chart excludes those common files.</figcaption></figure>
 <p>Job B's reuse claim, preparation and save durations, sampled GPU/RSS peaks, image bytes, and the separate health-request latency are in the downloadable records. A small availability probe does not prove a previously impossible allocation.</p>
 <p>{html.escape(summary['limitations'])}</p><p><a href="summary.json">Summary JSON</a> · <a href="runs.csv">All rows as CSV</a></p></html>''')
 

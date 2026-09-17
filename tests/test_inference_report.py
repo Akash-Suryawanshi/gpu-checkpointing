@@ -123,3 +123,22 @@ class ReportTests(unittest.TestCase):
             summary = report.summarize(root)
             self.assertEqual(summary["speedups"], {})
             self.assertEqual(sum(r["status"] == "failed" for r in summary["rows"]), 1)
+
+    def test_equivalent_numeric_options_share_a_comparison_key(self):
+        """REGRESSION (CLI defaults): 100 and explicit 100.0 are the same interval."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            diagnostic, _ = fixture(root / "diagnostic")
+            proof = measure.diagnostic_record(root / "diagnostic", diagnostic["key"], "fresh")
+            schedule = []
+            for block in (1, 2):
+                path = root / f"b{block}"
+                run, result = fixture(path, "timing", proof, block=block)
+                if block == 2:
+                    run["key"]["sample_ms"] = 100.0
+                    write(path / "run.json", run)
+                    result["run_sha256"] = measure.file_hash(path / "run.json")
+                    write(path / "result.json", result)
+                schedule.append({"block": block, "route": "fresh", "run": path.name})
+            write(root / "schedule.json", schedule)
+            self.assertEqual(report.summarize(root)["aggregates"]["fresh"]["n"], 2)
