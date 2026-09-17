@@ -23,6 +23,10 @@ Commit each implementation milestone on a feature branch. Never commit directly 
 
 ## Knowledge Updates
 
+### 2026-09-17 - PR body updates can bypass an obsolete CLI query
+**Finding**: This host's `gh pr edit` fails while querying the retired GraphQL `repository.pullRequest.projectCards` field, before updating the PR. Updating PR #2 through `gh api repos/Akash-Suryawanshi/gpu-checkpointing/pulls/2 --method PATCH --input <json-file>` succeeded using the same personal CLI profile.
+**Impact**: If that exact CLI error recurs, send the body as a JSON string through the REST endpoint and verify the returned PR state and head. Keep the personal authentication profile; changing accounts does not fix this query failure.
+
 ### 2026-09-17 - Zombie cleanup needs the raw command-line bytes
 **Finding**: An exited Linux child has an empty `/proc/<pid>/cmdline`, but splitting `b''` on the argument separator produces the truthy list `[b'']`. The original cleanup path therefore skipped reaping an already-exited child; `experiments/criu/session.py:112` now checks raw bytes and exited state, and `tests/test_criu_session.py` reproduces the case with a real child without polling it through `Popen` first. A still-running child can briefly expose an empty command line during launch, so emptiness alone is insufficient.
 **Impact**: A running child still needs a matching run-directory argument before cleanup signals or waits for it; an exited child needs its status collected. Keep both the real-zombie regression and the live-child ownership check when changing cleanup.
