@@ -1,7 +1,8 @@
 # Plan: independent capture and restore
 
-**Proposed; awaiting approval.** Review and merge the current PR first; the user
-then creates a new implementation branch. Commit each milestone after validation.
+**Implementation authorized and in validation on `feat/independent-lifecycle`.**
+Commit validated milestones separately; prepare small dependent review branches.
+The user reviews and merges.
 
 ## Architecture
 

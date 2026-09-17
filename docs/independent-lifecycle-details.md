@@ -1,7 +1,7 @@
 # Independent lifecycle: implementation contract
 
-**Proposed.** Read the [plan](independent-lifecycle-plan.md) first. Implement on a
-new branch after approval and merge of the current PR.
+**Implemented contract; validation is recorded with the [plan](independent-lifecycle-plan.md).**
+Use the [runbook](../experiments/finetuning/README.md#independent-commands) for commands.
 
 ## Files and interface
 
@@ -16,7 +16,7 @@ and never initialize a model or CUDA context in a worker. Include new executable
 sources in reference fingerprints. Explain non-obvious blocks concisely; link
 [OS fundamentals](readability-plan.md) rather than repeating them here.
 
-Proposed commands, using the pinned interpreter from `experiments/finetuning/`:
+Commands, using the pinned interpreter from `experiments/finetuning/`:
 
 ```bash
 python train.py --assets ASSETS --run-dir JOB --external-control --until 4
@@ -65,7 +65,8 @@ Under the per-job operation lock:
 Rename provides atomic visibility on the same filesystem; synchronization
 provides the storage barrier. Do not replace sync with sleeps or ignore directory
 sync errors. [Linux fsync](https://man7.org/linux/man-pages/man2/fsync.2.html).
-The existing `sync -f` barrier remains until its replacement is validated.
+Independent capture uses this per-snapshot barrier. The application comparison
+retains its separate `sync -f` barrier.
 
 Write/sync failures reject success and preserve the previous snapshot. A crash
 around final publication may leave visible `COMPLETE` without acknowledged
@@ -89,8 +90,9 @@ filename. Support only capture A → restore A → capture B → restore B.
 
 Acknowledge requests after initialized Adam and the complete update boundary:
 optimizer/scheduler, cleared gradients/temporaries, counters/cursor, CUDA sync.
-Record the actual update. Automate requests from progress events to avoid manual
-races with the four-update workload. Wait without consuming training RNG.
+Record the actual update. The harness queues a target update before it can pass,
+avoiding manual timing races; request-to-ready includes this waiting time.
+Wait without consuming training RNG.
 
 The launch shell/service reaps the original trainer—collects its exit status.
 An unrelated capture worker only observes exit/removal. Recheck PID identity

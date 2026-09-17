@@ -12,8 +12,8 @@ The [README](../README.md) provides orientation; the [CPU](01-cpu-checkpointing.
 and [GPU](02-gpu-checkpointing.md) chapters explain mechanisms. The
 [runbook](../experiments/finetuning/README.md) owns commands and the code-reading
 path; [results](../experiments/results.md) owns measured evidence. The
-[workload contract](implementation-plan.md) and [next lifecycle plan](independent-lifecycle-plan.md)
-separate implemented requirements from proposed work.
+[workload contract](implementation-plan.md) and [lifecycle contract](independent-lifecycle-plan.md)
+describe the workload and independent worker requirements.
 
 ## Teach prerequisites in this order
 
