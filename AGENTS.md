@@ -5,11 +5,20 @@ platform is being built.
 
 ## Learning audience
 
-Write concise, clear technical prose for a CS student without assumed OS knowledge.
-Define unfamiliar terms at first use; link to existing explanations instead of
-repeating them. Chapters own mechanisms, the runbook owns commands, results owns
-evidence, and plans own requirements. Keep diagrams compact and comments focused
-on non-obvious operations. Follow the [teaching plan](docs/readability-plan.md).
+Write clear technical prose for a CS student without assumed OS knowledge.
+Define unfamiliar terms at first use; shortening must not turn explanations into jargon.
+
+## Documentation style
+
+- Keep files short and paragraphs to 1–3 short sentences. Cut repetition and filler.
+- Pair every conceptual or process explanation with a compact diagram showing
+  sequence, state, data movement, or relationships. Use SVG, Mermaid, or plain
+  text; label arrows and add a brief caption or text equivalent.
+- Link to existing explanations and diagrams instead of repeating them.
+  Chapters own mechanisms, the runbook owns commands, results owns evidence,
+  and plans own requirements.
+- Keep necessary definitions, runnable commands, evidence, and limitations.
+  Comments explain non-obvious operations; follow the [teaching plan](docs/readability-plan.md).
 
 ## Optional local context
 
