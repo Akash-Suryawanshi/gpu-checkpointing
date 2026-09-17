@@ -69,21 +69,15 @@ training settings match their manifest; otherwise regenerate both references.
 
 ## 2. Files and responsibilities
 
-| Files in `experiments/finetuning/` | Responsibility |
-| --- | --- |
-| `prepare.py`, configuration/data/lock files | Pin environment/assets and tokenize examples |
-| `train.py`, `state.py` | Training, observable state, application save/load |
-| `run.py` | Validate inputs, select experiment, write verdict |
-| `reference_pipeline.py` | Two independently initialized references |
-| `application_pipeline.py` | Save state, then start a fresh trainer |
-| `criu_pipeline.py` | Capture and restore the existing process |
-| `pipeline.py` | Shared lifecycle steps and process ownership |
-| `job_b.py`, `metrics.py`, `report.py` | GPU handoff check, measurement, curated reports |
+`train.py` and `state.py` provide one training loop and state contract.
+`run.py` selects a dedicated reference, application, or CRIU pipeline; shared
+lifecycle operations live in `pipeline.py`. See the
+[runbook's module map](../experiments/finetuning/README.md#read-one-pipeline-from-start-to-finish)
+for the complete reading path.
 
-`experiments/criu/session.py` owns privileged CRIU/process operations; `build.sh`
-pins the tools. The current controller launches and collects the trainer's exit
-status. Independent workers require the different ownership protocol in the
-[proposed contract](independent-lifecycle-details.md#control-and-process-ownership).
+`experiments/criu/session.py` owns privileged process operations; `build.sh`
+pins tools. The current controller owns the trainer's exit status. Independent
+workers require the proposed [ownership contract](independent-lifecycle-details.md#control-and-process-ownership).
 
 ### Implementation style
 
