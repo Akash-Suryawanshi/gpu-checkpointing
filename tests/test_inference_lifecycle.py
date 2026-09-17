@@ -87,3 +87,65 @@ class LifecycleTests(unittest.TestCase):
                     if child.poll() is None:
                         child.kill()
                     child.wait()
+
+    def test_restore_helper_failure_after_release_transfers_cleanup_to_supervisor(self):
+        """AC6: inject failure after actual release and before result; reap the orphan."""
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        import lifecycle
+        import control
+        lifecycle.session.adopt_restored_children()
+        with tempfile.TemporaryDirectory() as folder:
+            run = Path(folder)
+            (run / "snapshot").mkdir()
+            (run / "control").mkdir()
+            (run / "attempts/c").mkdir(parents=True)
+            job = {"job_id": "j", "run": str(run), "identity": {"pid": -1}}
+            control.write(run / "job.json", job)
+            control.write(run / "snapshot/manifest.json", {"run": str(run), "capture_id": "c", "job": job, "update": 1})
+            control.write(run / "snapshot/before.json", {"weights": "untouched"})
+            # A separate helper uses the real restore/release code. Only CRIU and
+            # its admission are replaced; the child/adoption/registration are real.
+            script = '''
+import sys, subprocess
+from pathlib import Path
+from argparse import Namespace
+import restore, control
+run = Path(sys.argv[1])
+manifest = control.read(run / "snapshot/manifest.json")
+control.validate = lambda *args: manifest
+original_write = control.write
+def fail_result(path, value):
+    if path.name == "result.json":
+        raise RuntimeError("injected after release")
+    original_write(path, value)
+control.write = fail_result
+def reconstruct(*args, **kwargs):
+    attempt = kwargs["attempt"]
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", str(run)],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    (attempt / f"restored-{attempt.name}.pid").write_text(str(child.pid))
+    original_write(attempt / "after.json", {"weights": "untouched"})
+    original_write(attempt / "inspected.json", {"attempt_id": attempt.name})
+    return child.pid
+restore.session.criu = reconstruct
+restore.restore(Namespace(snapshot=run / "snapshot", tools=run, timeout=5))
+'''
+            helper = subprocess.run([sys.executable, "-c", script, str(run)], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(helper.returncode, 0)
+            self.assertIn("injected after release", helper.stderr)
+            phase = control.read(run / "control/phase.json")
+            attempt = run / "attempts" / phase["attempt_id"]
+            identity = control.read(run / "job.json")["identity"]
+            try:
+                self.assertTrue((attempt / "continue.json").exists())
+                self.assertFalse((attempt / "result.json").exists())
+                self.assertTrue(lifecycle.session.matches(identity))
+                lifecycle.cleanup(run)
+                self.assertFalse(Path(f"/proc/{identity['pid']}").exists())
+            finally:
+                if lifecycle.session.matches(identity):
+                    lifecycle.session.kill_identified(identity)
+                    lifecycle.session.reap(identity["pid"], timeout=5)

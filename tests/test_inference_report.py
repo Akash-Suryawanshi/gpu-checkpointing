@@ -16,10 +16,10 @@ def write(path, value):
     path.write_text(json.dumps(value))
 
 
-def fixture(path, kind="diagnostic", diagnostic=None):
+def fixture(path, kind="diagnostic", diagnostic=None, route="fresh", block=1):
     path.mkdir(parents=True)
     key = {"assets": {"identity": {"model": "test"}}, "sample_ms": 100}
-    run = {"run_id": "run", "route": "fresh", "kind": kind, "block": 1, "key": key, "diagnostic": diagnostic}
+    run = {"run_id": "run", "route": route, "kind": kind, "block": block, "key": key, "diagnostic": diagnostic}
     write(path / "run.json", run)
     reference = {"tokens": [1, 2], "text": "ok", "first_token": 1}
     write(path / "reference.json", reference)
@@ -104,3 +104,22 @@ class ReportTests(unittest.TestCase):
                                            {"block": 1, "route": "ram", "run": "two"}])
             with self.assertRaisesRegex(ValueError, "Mixed"):
                 report.summarize(root)
+
+    def test_speedup_requires_all_three_matching_pairs(self):
+        """AC7: losing one accepted pair removes the aggregate speedup, not its row."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            schedule = []
+            for route in ("fresh", "resident"):
+                run, _ = fixture(root / "diagnostics" / route, route=route)
+                proof = measure.diagnostic_record(root / "diagnostics" / route, run["key"], route)
+                for block in (1, 2, 3):
+                    name = f"b{block}-{route}"
+                    fixture(root / name, "timing", proof, route, block)
+                    schedule.append({"block": block, "route": route, "run": name})
+            write(root / "schedule.json", schedule)
+            self.assertEqual(report.summarize(root)["speedups"]["resident"]["paired"], [1, 1, 1])
+            write(root / "b2-resident/result.json", {"status": "failed", "reason": "injected"})
+            summary = report.summarize(root)
+            self.assertEqual(summary["speedups"], {})
+            self.assertEqual(sum(r["status"] == "failed" for r in summary["rows"]), 1)
