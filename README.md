@@ -2,6 +2,8 @@
 
 A running program can become saved files and later become a running program again. This repository studies what must be saved to make that possible, how Linux and NVIDIA cooperate, and what an experiment can actually prove. The scope is a bounded learning POC: one Linux host, one process, and one NVIDIA GPU.
 
+Start here if you know basic programming but have not taken an operating-systems course. The chapters introduce the machine and OS concepts used by the experiments; the code explains non-obvious operations beside their use. The [teaching plan](docs/readability-plan.md) identifies the remaining explanations and their prerequisite order.
+
 ## Start with the machine
 
 The **CPU** executes a program's general instructions: running Python, deciding which batch comes next, and asking for GPU calculations. **RAM**, also called host memory, holds the objects and working data that the CPU accesses. A **GPU** executes many numerical operations in parallel. Its device memory, commonly called **VRAM**, holds tensors and other data used by those calculations.

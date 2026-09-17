@@ -1,23 +1,34 @@
-"""Compare uninterrupted training, application restart, and CRIU process restoration."""
+"""Validate inputs, select one explicit pipeline, and retain its evidence.
+
+Read reference_pipeline.py, application_pipeline.py, or criu_pipeline.py for
+the route itself. This entry point keeps the shared admission checks and result
+writing together, including evidence from failed trials.
+"""
 
 import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import time
 
 from prepare import environment, file_hash, write_json
+from pipeline import ROOT, Trial, compare_run, event, session
+import application_pipeline
+import criu_pipeline
+import reference_pipeline
 import state
 import metrics
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "experiments/criu"))
-import session
-
 
 def reference_key(args):
+    """Fingerprint everything that must match a reference or correctness run.
+
+    Source hashes include every fine-tuning module, including the dedicated
+    pipelines. A code change therefore invalidates earlier admission evidence.
+    Tool commits identify the pinned sources; binary hashes identify the actual
+    built programs and CUDA plugin used for this trial.
+    """
     manifest = json.loads((args.assets / "manifest.json").read_text())
     state.compare(manifest["environment"], environment(), "environment")
     sources = list((ROOT / "experiments/finetuning").glob("*.py")) + [ROOT / "experiments/criu/session.py"]
@@ -34,16 +45,16 @@ def reference_key(args):
             "sources": {str(p.relative_to(ROOT)): file_hash(p) for p in sorted(sources)}}
 
 
-def compare_run(reference, actual, until, timing=False):
-    for update in ([until] if timing else range(until + 1)):
-        state.compare(json.loads((reference / f"state-{update}.json").read_text()),
-                      json.loads((actual / f"state-{update}.json").read_text()))
-    expected = [json.loads(s)["loss"] for s in (reference / "updates.jsonl").read_text().splitlines()]
-    observed = [json.loads(s)["loss"] for s in (actual / "updates.jsonl").read_text().splitlines()]
-    state.compare(expected, observed, "losses")
-
-
 def run(args):
+    """Run an admitted trial, retain execution results, and clean up an owned child.
+
+    Admission checks happen before trainer launch. Timing is permitted only
+    for the same inputs, code, mode, and capture boundaries as a successful
+    diagnostic run. Trial owns the current PID so exceptions cannot hide a
+    still-running original or restored trainer from the finally block.
+    """
+    # Images may contain the complete process memory. Keep all new files private
+    # and reject an existing run directory to avoid accidentally reusing markers.
     os.umask(0o077)
     args.run_dir = args.run_dir.resolve()
     args.assets = args.assets.resolve()
@@ -56,6 +67,8 @@ def run(args):
     env = session.child_environment(args.tools / "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")
     key = reference_key(args)
     write_json(output / "key.json", key)
+    # A single reference can match by accident; require its independently
+    # repeated run to have passed before accepting it as comparison evidence.
     if args.mode != "reference":
         if args.reference is None or not (args.reference / "verified").exists():
             raise ValueError("A verified pair of references is required")
@@ -69,121 +82,56 @@ def run(args):
                 or validated.get("timing") or validated["mode"] != args.mode
                 or validated["capture"] != args.capture):
             raise ValueError("Matching full correctness run did not pass")
+        # Timing trainers skip large asset re-hashes. Check the actual files here
+        # before launch so that omission cannot silently admit different weights.
         manifest = json.loads((args.assets / "manifest.json").read_text())
         for name, digest in key["identity"]["files"].items():
             state.compare(digest, file_hash(Path(manifest["model_path"]) / name), f"asset.{name}")
+    # CRIU creates the restored trainer, then detaches from it. Ask Linux to
+    # make this controller its adopting parent so it can wait for the final exit.
     session.adopt_restored_children()
-    events = []
+    trial = Trial(args, tools, env)
     result = {"mode": args.mode, "timing": args.timing, "capture": args.capture,
               "verification_scope": "final_state_and_all_losses" if args.timing else "all_update_boundaries_and_losses",
               "lifecycle_passed": False, "numerical_passed": False,
-              "unqualified_compatibility": False, "events": events}
-    pid = None
-    process = None
-    stop_sampling = metrics.sample_memory(lambda: pid)
-
-    def event(name, **values):
-        row = {"event": name, "monotonic_ns": time.monotonic_ns(), **values}
-        events.append(row)
-        print(json.dumps(row), flush=True)
-
-    def launch(directory, pause=(), extra=()):
-        arguments = ["--assets", args.assets, "--run-dir", directory,
-                     "--dropout", args.dropout, "--until", args.until]
-        if pause:
-            arguments += ["--pause-at", ",".join(map(str, pause))]
-        if args.timing:
-            arguments += ["--timing"]
-        return session.launch(sys.executable, ROOT / "experiments/finetuning/train.py", [*arguments, *extra], directory, env)
+              "unqualified_compatibility": False, "events": trial.events}
+    # Sampling follows changes of PID across application relaunch or CRIU restore.
+    stop_sampling = metrics.sample_memory(lambda: trial.pid)
 
     try:
-        checkpoint = output / "application.pt"
-        process = launch(output, args.capture if args.mode != "reference" else (),
-                         ["--save", checkpoint] if args.mode == "application" else [])
-        pid = process.pid
-        event("launched", pid=pid)
-        if args.mode != "reference":
-            for generation in args.capture:
-                session.wait_marker(output / f"ready-{generation}", pid, 300)
-                expected = None
-                if not args.timing:
-                    expected = json.loads((args.reference / f"state-{generation}.json").read_text())
-                    state.compare(expected, json.loads((output / f"state-{generation}.json").read_text()))
-                event("capture_requested", generation=generation)
-                if args.mode == "criu":
-                    session.criu("dump", output, generation, tools, env, pid)
-                    event("dump_completed", generation=generation)
-                else:
-                    (output / f"save-{generation}").touch(exist_ok=False)
-                    session.wait_marker(output / f"saved-{generation}", pid)
-                    event("application_save_completed", generation=generation)
-                code = session.reap(pid, process)
-                if args.mode == "application" and code != 0:
-                    raise RuntimeError("Application save process failed")
-                event("original_exit_verified", generation=generation, pid=pid)
-                # Keep the old PID for failure cleanup: this CRIU route restores that numeric PID.
-                process = None
-                event("gpu_observation_started", generation=generation)
-                session.command(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader"],
-                                output / f"gpu-after-exit-{generation}.csv", env)
-                if (output / f"gpu-after-exit-{generation}.csv").read_text().strip():
-                    raise RuntimeError("GPU compute processes remain after original exit")
-                event("gpu_observed_after_exit", generation=generation)
-                session.command(["sync", "-f", output], output / f"sync-{generation}.log", env)
-                event("filesystem_synced", generation=generation)
-                event("job_b_requested", generation=generation)
-                session.command([sys.executable, "-c", "import torch; x=torch.ones(1024*1024,device='cuda'); s=x.sum().item(); assert s==1048576; print(s)"],
-                                output / f"job-b-{generation}.log", env, timeout=60)
-                event("job_b_completed", generation=generation)
-                event("restore_requested", generation=generation)
-                if args.mode == "criu":
-                    pid = session.criu("restore", output, generation, tools, env)
-                else:
-                    process = launch(output, extra=["--load", checkpoint])
-                    pid = process.pid
-                event("restore_returned", generation=generation, pid=pid)
-                if not args.timing:
-                    (output / f"restored-{generation}.maps").write_text(Path(f"/proc/{pid}/maps").read_text())
-                if args.mode == "criu":
-                    (output / f"inspect-{generation}").touch(exist_ok=False)
-                if not args.timing:
-                    session.wait_marker(output / f"inspected-{generation}", pid)
-                    session.release_verified(output, generation, expected)
-                    event("continuation_permitted", generation=generation)
-        session.wait_marker(output / "done", pid, 300)
-        if session.reap(pid, process) != 0:
-            raise RuntimeError("Trainer did not exit successfully")
-        event("final_exit_verified", pid=pid)
-        pid, process = None, None
+        # Each file spells out one route in execution order, with shared lifecycle
+        # phases in pipeline.py. There is no alternate restore backend in a route.
+        pipelines = {"reference": reference_pipeline.run,
+                     "application": application_pipeline.run, "criu": criu_pipeline.run}
+        pipelines[args.mode](trial)
         result["lifecycle_passed"] = True
         if args.mode == "reference":
-            repeat = output / "repeat"
-            repeat.mkdir()
-            process = launch(repeat)
-            pid = process.pid
-            session.wait_marker(repeat / "done", pid, 300)
-            if session.reap(pid, process) != 0:
-                raise RuntimeError("Second reference failed")
-            pid, process = None, None
-            compare_run(output, repeat, args.until)
+            # Both processes have exited. Numerical agreement is a separate
+            # verdict; publish this admission marker only after it is proven.
+            compare_run(output, output / "repeat", args.until)
             (output / "verified").touch(exist_ok=False)
         else:
             compare_run(args.reference, output, args.until, args.timing)
         result["numerical_passed"] = True
-        event("verification_passed")
+        event(trial, "verification_passed")
     except Exception as error:
         result["error"] = str(error)
         raise
     finally:
         result["memory_samples"] = stop_sampling()
-        if pid:
-            session.cleanup(pid, output if args.mode != "reference" or not (output / "repeat").exists() else output / "repeat", process)
+        if trial.pid:
+            session.cleanup(trial.pid, trial.directory, trial.process)
+        # Preserve warnings even for successful numerical runs. Equal state does
+        # not establish every resource-sharing or future-host compatibility claim.
         result["warnings"] = session.warnings(output)
         result["compatibility"] = "qualified: sharing ownership and any resource warnings require interpretation"
         result["image_bytes"] = sum(p.stat().st_size for p in output.glob("images-*/*.img"))
         result["application_bytes"] = (output / "application.pt").stat().st_size if (output / "application.pt").exists() else 0
-        if events:
-            result["trial_seconds"] = (time.monotonic_ns() - events[0]["monotonic_ns"]) / 1e9
+        if trial.events:
+            result["trial_seconds"] = (time.monotonic_ns() - trial.events[0]["monotonic_ns"]) / 1e9
+        # A Linux time namespace can give the restored trainer a different clock
+        # offset. metrics.finish converts it before comparing trainer/controller
+        # timestamps; raw events remain available to audit reported latencies.
         metrics.finish(result, output)
         write_json(output / "result.json", result)
 
@@ -201,6 +149,7 @@ if __name__ == "__main__":
     parser.add_argument("--until", type=int, choices=(2, 4), default=4)
     parser.add_argument("--capture", type=lambda s: [int(n) for n in s.split(",")], default=[2])
     args = parser.parse_args()
+    # Reject ambiguous or impossible boundaries before creating any run files.
     if args.mode != "reference" and (args.capture != sorted(set(args.capture)) or any(n < 1 or n >= args.until for n in args.capture)):
         parser.error("Capture updates must be increasing, unique, and before the final update")
     if args.mode == "application" and len(args.capture) != 1:

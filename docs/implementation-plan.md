@@ -77,7 +77,12 @@ experiments/finetuning/
   prepare.py             Freeze assets and environment; tokenize the fixture
   train.py               One training loop and the checkpoint waiting points
   state.py               Named state records, fingerprints, application save/load
-  run.py                 Run the comparisons and write the combined verdict
+  run.py                 Validate inputs, select a pipeline, write its verdict
+  reference_pipeline.py  Run two independently initialized references
+  application_pipeline.py Save training state and launch a fresh trainer
+  criu_pipeline.py       Capture and restore the existing trainer process
+  pipeline.py            Shared lifecycle steps and current-process ownership
+  job_b.py               Tiny independent GPU workload during the handoff
   metrics.py             Sample memory and derive latency from explicit events
   report.py              Curate run evidence and paired timing statistics
   config.json            Explicit workload settings from section 1
@@ -98,6 +103,7 @@ Reuse the small lifecycle operations established by the existing CPU checkpoint 
 
 - Use one explicit training loop and small, plainly named functions for state inspection and process lifecycle. Keep the update and capture/restore sequence readable in execution order.
 - Keep modules focused on the responsibilities above. Extract helpers for actual reuse or a clear responsibility; avoid speculative abstractions, class hierarchies, and a generic checkpoint-backend interface.
+- Give each comparison pipeline its own file. Explain non-obvious blocks for a CS student without assumed OS knowledge; follow the [teaching plan](readability-plan.md) for the longer prerequisites and diagrams.
 - Implement the pinned CRIU route and the required application-checkpoint comparison. Add configuration only for the planned experiments; do not build automatic backend selection, a dashboard, or a training framework.
 - Use explicit inputs, straightforward control flow, and errors that identify the failed phase or state field. Comments should explain checkpoint invariants and tool-specific behavior.
 - Preserve synchronization, bounded waits, image completion, verified exit, restore inspection, and targeted cleanup. These checks are necessary evidence even in a small POC. Review each milestone for unnecessary code before extending it.

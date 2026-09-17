@@ -13,6 +13,11 @@ import run as experiment
 
 class TimingTests(unittest.TestCase):
     def test_restored_time_namespace_is_converted_before_comparing_clocks(self):
+        """REGRESSION (2026-09-14 clock mismatch): align restored and controller timestamps.
+
+        Linux can shift the restored process's monotonic clock. Subtracting its
+        raw timestamp from the controller's gave a negative restoration latency.
+        """
         times = {'capture_requested': 10, 'original_exit_verified': 13,
                  'gpu_observed_after_exit': 13.1, 'filesystem_synced': 15,
                  'job_b_requested': 15, 'job_b_completed': 30,
@@ -20,6 +25,8 @@ class TimingTests(unittest.TestCase):
         events = [{'event': name, 'generation': 2, 'monotonic_ns': int(second * 1e9)}
                   for name, second in times.items()]
         updates = [{'update': 3, 'completed_ns': 17_700_000_000}]
+        # The trainer reads 17.7 s while the controller reads 42 s at the same
+        # instant: its restored clock offset is -24.3 s, written as -25 s + 0.7 s.
         with self.assertRaisesRegex(ValueError, 'clock domain'):
             metrics.latencies(events, updates)
         with tempfile.TemporaryDirectory() as folder:
@@ -33,6 +40,7 @@ class TimingTests(unittest.TestCase):
             self.assertEqual(result['trainer_monotonic_offsets_ns'][2], -24_300_000_000)
 
     def test_timing_cannot_launch_from_failed_correctness_evidence(self):
+        """Critical: timing must not skip inspections without matching passed diagnostics."""
         with tempfile.TemporaryDirectory() as folder:
             parent = Path(folder)
             reference = parent / 'reference'
@@ -49,6 +57,11 @@ class TimingTests(unittest.TestCase):
                 launch.assert_not_called()
 
     def test_hashing_and_job_b_do_not_enter_restore_latency(self):
+        """Critical: restoration latency ends at the next update and excludes separate work.
+
+        Image sync, original exit, GPU observation, and job B each have their own
+        intervals; later verification must not lengthen the restoration result.
+        """
         times = {"capture_requested": 10, "original_exit_verified": 13,
                  "gpu_observed_after_exit": 13.1, "filesystem_synced": 15,
                  "job_b_requested": 15, "job_b_completed": 30,

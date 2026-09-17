@@ -1,4 +1,8 @@
-"""Curate run evidence and paired timing statistics without publishing raw images/logs."""
+"""Turn selected run directories into a reviewable JSON evidence report.
+
+This reporting pipeline reads existing measurements; it never launches training
+or restores a process. Raw images and logs remain private in ignored runs/.
+"""
 
 import argparse
 import hashlib
@@ -9,18 +13,22 @@ import metrics
 
 
 def main():
+    """Reanalyze selected trials, preserve provenance, and summarize passed timings."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('runs', nargs='+', type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--controller-clock-offset-ns', type=int,
                         help='Required only to reanalyze older runs that did not record the controller clock offset')
     args = parser.parse_args()
+    # Analysis source can change after training (for example, a clock correction).
+    # Record those hashes separately from the code hashes in each original key.
     report = {'scope': 'same-host, warm cached assets; numerical success is separate from compatibility',
               'keys': {}, 'runs': {}, 'timing_summary': {},
               'analysis_source_sha256': {name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
                                          for name in ('metrics.py', 'report.py')}}
     for run in args.runs:
         key = json.loads((run / 'key.json').read_text())
+        # Deduplicate identical environment/configuration records by stable digest.
         digest = hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
         report['keys'][digest] = key
         result = json.loads((run / 'result.json').read_text())
@@ -29,12 +37,16 @@ def main():
         original = result.get('latencies')
         metrics.finish(result, run, args.controller_clock_offset_ns)
         if original != result['latencies']:
+            # Keep the superseded calculation so a correction is auditable.
             result['superseded_latencies'] = original
         result['key_sha256'] = digest
+        # Publish fingerprints of state records, not their full tensor contents.
         result['state_file_sha256'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                                       for p in sorted(run.glob('state-*.json'))}
         report['runs'][run.name] = result
     for mode in ('application', 'criu'):
+        # Diagnostic trials include extra inspection work and must not enter the
+        # headline timing summary. The caller supplies matching paired trials.
         trials = [r for r in report['runs'].values() if r['mode'] == mode and r['timing']]
         if not trials:
             continue
@@ -43,6 +55,7 @@ def main():
         summary = {}
         for metric in ('capture_to_sync_seconds', 'restore_to_next_update_seconds',
                        'capture_to_gpu_observed_seconds', 'job_b_seconds'):
+            # Headline trials contain one capture; repeated-capture runs are diagnostic.
             values = [r['latencies'][0][metric] for r in trials]
             summary[metric] = {'individual': values, 'median': statistics.median(values),
                                'min': min(values), 'max': max(values)}

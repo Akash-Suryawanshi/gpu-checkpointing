@@ -12,6 +12,7 @@ import state
 
 
 def trainer(seed):
+    """Build a tiny CPU trainer with genuine dropout and Adam state for round trips."""
     torch.manual_seed(seed)
     random.seed(seed)
     model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Dropout(0.1), torch.nn.Linear(4, 1))
@@ -21,6 +22,7 @@ def trainer(seed):
 
 
 def update(model, optimizer, scheduler, progress):
+    """Finish one update and move the data cursor to the next example."""
     loss = model(torch.ones(2, 4)).square().mean()
     loss.backward()
     optimizer.step()
@@ -33,6 +35,7 @@ def update(model, optimizer, scheduler, progress):
 
 class StateTests(unittest.TestCase):
     def test_failed_save_preserves_previous_completed_checkpoint(self):
+        """Critical: a failed save must preserve the last completed application checkpoint."""
         model, optimizer, scheduler = trainer(7)
         progress = {"update": 0, "next_example_index": 0}
         update(model, optimizer, scheduler, progress)
@@ -47,6 +50,11 @@ class StateTests(unittest.TestCase):
             self.assertFalse(path.with_suffix(".temp").exists())
 
     def test_application_roundtrip_preserves_the_next_stochastic_update(self):
+        """AC4 representative: explicit state loading reproduces the next stochastic update.
+
+        The fresh trainer starts from another seed. Exact next-loss and complete
+        state comparisons require restoration of optimizer, schedule, and RNG.
+        """
         torch.set_num_threads(1)
         model, optimizer, scheduler = trainer(7)
         progress = {"update": 0, "next_example_index": 0}
@@ -57,6 +65,8 @@ class StateTests(unittest.TestCase):
             state.save_application(path, model, optimizer, scheduler, progress, {}, {})
             expected_loss = update(model, optimizer, scheduler, progress)
             expected = state.inspect(model, optimizer, scheduler, progress, {}, {})
+            # Rebuilding with another seed prevents untouched initialization from
+            # accidentally standing in for restored model and random-generator state.
             restored, restored_opt, restored_sched = trainer(99)
             resumed = state.load_application(path, restored, restored_opt, restored_sched, {}, {})
             state.compare(before, state.inspect(restored, restored_opt, restored_sched, resumed, {}, {}))
@@ -64,6 +74,7 @@ class StateTests(unittest.TestCase):
             state.compare(expected, state.inspect(restored, restored_opt, restored_sched, resumed, {}, {}))
 
     def test_corruption_is_identified_even_when_adapter_weights_match(self):
+        """Critical: matching weights must not conceal corrupted training continuation state."""
         model, optimizer, scheduler = trainer(7)
         progress = {"update": 0, "next_example_index": 0}
         update(model, optimizer, scheduler, progress)

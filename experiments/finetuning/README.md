@@ -1,8 +1,15 @@
 # Four-update LoRA snapshot experiment
 
-Use the EC2 host execution context with GPU access and working sudo. The restricted
-tool sandbox does not expose the GPU. Keep all assets, environments, and run output
-under ignored `runs/`.
+Use the EC2 host with GPU access and working `sudo`, which lets this experiment
+invoke CRIU with Linux administrator privileges. The tool sandbox is a restricted
+execution environment inside the host; it does not expose the GPU. Keep all
+assets, environments, and run output under ignored `runs/`.
+
+The **trainer** and **controller** are separate processes: running programs with
+their own memory. The trainer performs the updates; the controller manages when
+it may continue and asks CRIU to capture or reconstruct it. If these concepts are
+new, start with the [machine overview](../../README.md#start-with-the-machine)
+and the [CPU chapter](../../docs/01-cpu-checkpointing.md).
 
 Create an isolated environment, then prepare the pinned local model and tokens:
 
@@ -58,6 +65,69 @@ Results contain separate lifecycle/numerical verdicts and compatibility warnings
 References are reused only when their environment, assets, settings, and code
 fingerprints match. Full state evidence is read only by the verifier. The restored
 trainer waits until the controller compares it before allowing another update.
+Even a comments-only source edit changes the source fingerprint, so create a new
+reference pair after editing code. Old results remain historical evidence.
+
+## Read one pipeline from start to finish
+
+The command-line interface stays in [run.py](run.py). It checks that assets,
+configuration, tools, and reference evidence agree, then selects one file:
+
+| File | Follow this sequence |
+| --- | --- |
+| [reference_pipeline.py](reference_pipeline.py) | Launch a trainer, collect its exit, then repeat in a fresh process. `run.py` compares both runs before marking the reference usable. |
+| [application_pipeline.py](application_pipeline.py) | Request an explicit training-state save, verify exit, run job B, launch a fresh trainer, and inspect its loaded state. |
+| [criu_pipeline.py](criu_pipeline.py) | Capture the waiting trainer, verify exit, run job B, restore its process image, and inspect it before continuing. Repeat for each requested capture. |
+
+Shared phases live in [pipeline.py](pipeline.py). Its `Trial` record holds the
+current process identity so memory sampling and failure cleanup can find it even
+when a pipeline raises an exception. It contains no model or optimizer.
+[session.py](../criu/session.py) handles Linux process operations and the CRIU
+command; [job_b.py](job_b.py) is the separate 4 MiB GPU allocation and sum.
+
+For a diagnostic CRIU run, follow these named operations:
+
+1. `train.main()` finishes update 2, clears gradients, synchronizes CUDA, writes
+   `state-2.json`, and creates `ready-2`. A **marker** is a file whose existence
+   communicates an event between processes; it contains no model state.
+2. `pipeline.capture_boundary()` waits for that marker and compares the saved
+   observation with the reference. `session.criu("dump", ...)` then captures the
+   process into `images-2/` through the CUDA plugin.
+3. `pipeline.handoff()` uses `session.reap()` to collect the original process's
+   exit status, checks GPU availability, syncs the filesystem, and runs job B.
+   **Reaping** removes the exited child's remaining Linux process record; it is
+   distinct from merely noticing that training stopped.
+4. `session.criu("restore", ...)` reconstructs the process. Creating `inspect-2`
+   releases its saved wait, so `train.inspect_restored()` can observe state before
+   any further training. It writes `after-2.json` and `inspected-2`, then waits.
+5. `session.release_verified()` compares reference, pre-capture, and restored
+   observations. Only a match permits `continue-2`; the trainer then performs
+   updates 3–4. `pipeline.compare_run()` compares their state and losses too.
+
+```mermaid
+sequenceDiagram
+    participant C as Controller
+    participant T as Trainer
+    participant R as CRIU + CUDA plugin
+    T-->>C: ready-2 marker: update 2 is complete
+    C->>R: dump request
+    Note over R,T: Capture process/GPU state; original exits
+    Note over C: Verify exit, GPU availability, sync; run job B
+    C->>R: restore request
+    Note over R,T: Reconstruct saved trainer
+    C-->>T: inspect-2 marker: observe restored state
+    T-->>C: after-2 evidence + inspected-2 marker
+    C-->>T: continue-2 marker, only after comparison passes
+    T->>T: Complete updates 3–4
+```
+
+The arrows above are control requests and observations, not RAM/VRAM transfers.
+The [GPU chapter](../../docs/02-gpu-checkpointing.md) explains that data movement.
+The application route instead uses `state.save_application()` and
+`state.load_application()` to reconstruct explicitly saved values in a new
+trainer. The CRIU route never supplies `--load` or an application checkpoint.
+
+## Measure after correctness passes
 
 After the full correctness run passes, measure a separate trial:
 

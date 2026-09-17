@@ -71,14 +71,15 @@ the refactor is complete.
 
 | File | One responsibility |
 | --- | --- |
-| `experiments/finetuning/run.py` | Parse and validate arguments, identify inputs, and select a pipeline. |
-| `reference_pipeline.py` | Run two uninterrupted references and compare them. |
+| `experiments/finetuning/run.py` | Validate inputs, select a pipeline, and decide final lifecycle/numerical verdicts. |
+| `reference_pipeline.py` | Run two uninterrupted references; the controller compares them before permitting reuse. |
 | `application_pipeline.py` | Save explicit training state, exit, and construct a fresh trainer from that save. |
 | `criu_pipeline.py` | Capture and reconstruct the existing trainer with the native CRIU CUDA plugin. |
 | `pipeline.py` | Share actual lifecycle operations: boundary, handoff, inspection, and final comparison. |
 | `train.py` and `state.py` | Perform updates; describe, compare, save, and load the training state. |
 | `experiments/criu/session.py` | Launch processes, invoke CRIU, wait, collect exit status, and clean up. |
 | `metrics.py` and `report.py` | Calculate measurements and collect the selected evidence. |
+| `job_b.py` | Allocate GPU memory and check a reduction while the trainer is absent. |
 
 Keep one straight-through function for each pipeline. Extract a helper when it
 names a meaningful operation, removes real duplication, or isolates a subtle

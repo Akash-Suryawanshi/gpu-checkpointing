@@ -14,12 +14,14 @@ from pathlib import Path
 
 def command(args: list[str], log: Path, timeout: int = 90,
             check: bool = True) -> subprocess.CompletedProcess:
+    """Run a bounded tool command, appending both output streams to its log."""
     with log.open("ab") as output:
         return subprocess.run(args, stdout=output, stderr=subprocess.STDOUT,
                               timeout=timeout, check=check)
 
 
 def wait_marker(path: Path, process: subprocess.Popen, timeout: int = 90) -> None:
+    """Wait for a control file while watching the child for exit or timeout."""
     deadline = time.monotonic() + timeout
     while not path.exists():
         if process.poll() is not None:
@@ -30,6 +32,12 @@ def wait_marker(path: Path, process: subprocess.Popen, timeout: int = 90) -> Non
 
 
 def main() -> None:
+    """Run one historical DMTCP capture/restore and retain qualified evidence.
+
+    DMTCP inserts checkpoint support into the launched program. Its coordinator
+    is a separate control process; the CUDA plugin manages GPU transitions. This
+    probe does not establish the compatibility of the later LoRA workload.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["cpu", "gpu"])
     parser.add_argument("run_dir", type=Path)
@@ -40,6 +48,8 @@ def main() -> None:
     tool = args.dmtcp_root.resolve()
     run = args.run_dir.resolve()
     os.umask(0o077)
+    # A private, fresh directory protects logs/images and prevents stale markers
+    # from accidentally releasing a new workload before restoration is complete.
     run.mkdir()
     for child in ("images", "tmp"):
         (run / child).mkdir()
@@ -56,12 +66,17 @@ def main() -> None:
     events = []
 
     def launch(binary: str, arguments: list[str], phase: str) -> tuple[subprocess.Popen, Path]:
+        """Start a workload/restart with its own coordinator and file-backed logs."""
+        # Port 0 asks the OS to choose a free communication port. The port file
+        # tells dmtcp_command how to address this coordinator, not another run's.
         port = run / f"{phase}.port"
         port_files.append(port)
         common = [str(tool / "bin" / binary), "--new-coordinator", "--coord-port", "0",
                   "--port-file", str(port), "--ckptdir", str(run / "images"),
                   "--tmpdir", str(run / "tmp"), "--coord-logfile", str(run / f"{phase}.coordinator.log")]
         with (run / "process.jsonl").open("ab") as out, (run / f"{phase}.stderr").open("wb") as err:
+            # No terminal or pipe must survive capture. Append mode lets the
+            # restored process continue writing after the original's log records.
             process = subprocess.Popen(common + arguments, stdin=subprocess.DEVNULL,
                                        stdout=out, stderr=err, env=env, cwd=root,
                                        start_new_session=True)
@@ -69,6 +84,8 @@ def main() -> None:
         return process, port
 
     try:
+        # Reuse the small CPU/file-position or GPU/tensor workload. Here the
+        # surrounding DMTCP lifecycle, not the workload, supplies process restore.
         if args.mode == "cpu":
             (run / "input.txt").write_text("".join(f"{i:04d}\n" for i in range(1, 26)))
             target = ["python3", str(root / "experiments/cpu/cpu_counter.py"), "--mode", "pause", "--run-dir", str(run)]
@@ -79,13 +96,18 @@ def main() -> None:
         wait_marker(run / "ready", original)
         wait_marker(port, original)
         events.append({"event": "ready", "real_pid": original.pid})
+        # /proc/PID/maps lists virtual-address ranges and their backing objects.
+        # Kernel-owned anonymous objects may need more than copying their bytes.
+        # This guard does not prove that every other shared mapping is supported.
         maps = Path(f"/proc/{original.pid}/maps").read_text()
         (run / "original.maps").write_text(maps)
         if "anon_inode:" in maps:
             raise RuntimeError("Anonymous kernel-backed mapping needs explicit support; refusing acceptance")
         start = time.monotonic()
         command([str(tool / "bin/dmtcp_command"), "--coord-port", port.read_text().strip(), "--checkpoint"], controller)
-        # Regression: this revision returns before the image is finalized.
+        # This pinned revision can return from the request before image completion.
+        # In its normal uncompressed path, a .temp image becomes .dmtcp after the
+        # write barrier. The final name matters here, not a guessed file-size delay.
         deadline = time.monotonic() + 90
         images = []
         while not images:
@@ -99,13 +121,20 @@ def main() -> None:
             raise RuntimeError(f"Expected exactly one process image, found {len(images)}")
         events.append({"event": "image_written", "bytes": images[0].stat().st_size,
                        "command_seconds": time.monotonic() - start})
+        # Writing the image can resume the original and reacquire GPU resources.
+        # End it explicitly, collect its exit status, and verify its /proc record
+        # is gone before claiming a handoff to a different GPU job.
         command([str(tool / "bin/dmtcp_command"), "--coord-port", port.read_text().strip(), "--quit"], controller)
         original.wait(timeout=15)
         if Path(f"/proc/{original.pid}").exists():
             raise RuntimeError("Original process still exists")
         events.append({"event": "original_gone", "real_pid": original.pid})
+        # Ask the filesystem to flush pending writes. This is local persistence,
+        # not proof of survival after instance deletion or a move to another host.
         command(["sync", "-f", str(images[0])], controller)
         if args.mode == "gpu":
+            # Inspect GPU ownership after exit and run independent GPU work. An
+            # earlier drop in monitored memory could have been only temporary.
             command(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader"], run / "gpu-after-original-exit.txt")
             command(["python3", "-c", "import torch; x=torch.ones(1024*1024,device='cuda'); value=x.sum().item(); assert value==1048576; print(value)"], run / "job-b.txt")
         restored, restored_port = launch("dmtcp_restart", [str(images[0])], "restored")
@@ -118,6 +147,7 @@ def main() -> None:
         if code != 0:
             raise RuntimeError(f"Restored process exited {code}")
         rows = [json.loads(line) for line in (run / "process.jsonl").read_text().splitlines() if line.startswith("{")]
+        # Check continuation from the saved boundary, not merely exit code zero.
         if args.mode == "gpu":
             ready = [r for r in rows if r["event"] == "ready"]
             done = [r for r in rows if r["event"] == "done"]
@@ -131,6 +161,8 @@ def main() -> None:
             if [r["step"] for r in rows if r["event"] == "step"] != list(range(1,26)):
                 raise RuntimeError("CPU continuation mismatch")
         for path in run.rglob("*"):
+            # Successful numerical continuation does not excuse a warning that
+            # an underlying resource was unsupported. Keep the raw logs as evidence.
             if path.is_file() and path.suffix in (".log", ".stderr"):
                 content = path.read_text(errors="replace").lower()
                 if "not supported" in content or "unsupported" in content:
@@ -138,6 +170,8 @@ def main() -> None:
         events.append({"event": "restored_verified", "real_pid": restored.pid})
         print(json.dumps({"passed": True, "mode": args.mode, "events": events}))
     finally:
+        # Preserve events even after failure. Ask each private coordinator to
+        # quit, then force any remaining child to exit and collect its status.
         (run / "controller-events.json").write_text(json.dumps(events, indent=2))
         for port in port_files:
             if port.exists():
