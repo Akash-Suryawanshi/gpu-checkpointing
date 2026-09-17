@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-17",
+  "code_commit": "90319f444b91c1f39e1b157cb22429f2f65af9e0",
+  "code_tree": "38e29d86040323a76835d6caa93529ceaf69f101",
+  "gpu": "NVIDIA A10G",
+  "driver": "570.172.08",
+  "criu": "4.2.1, pinned 9539417f",
+  "cpu_tests_passed": 30,
+  "matrix_cases_passed": 15,
+  "capture_generations": 13,
+  "recorded_pids_absent": true,
+  "recorded_pid_count": 20,
+  "standalone": {
+    "all_boundaries_and_losses_match_reference": true,
+    "capture_worker_and_launcher_gone_before_restore": true,
+    "completed_updates": 2,
+    "gpu_empty_after_completion": true,
+    "restore_worker_exited": true,
+    "snapshot_payload_unchanged": true,
+    "trainer_completed_and_reaped": true
+  },
+  "source_sha256": {
+    "experiments/criu/session.py": "b37226f4fdc3d111e00e42d0278aa1a35334c63e823a49768ba73303db684d1e",
+    "experiments/finetuning/application_pipeline.py": "e84e222f2859e9e2bfb3f6cf905fb1f2272de3cb794986c7b9cd97944fc32a5a",
+    "experiments/finetuning/checkpoint.py": "42203ccce8d900341401bbede5bf7cb0499364acf847f48d2a2edf4c0101b6ad",
+    "experiments/finetuning/control.py": "8b5d961fdc94a2c324a37b52c8e5d5638ef32e8683c5c9aa9272877a3b0cfe77",
+    "experiments/finetuning/criu_pipeline.py": "e267f973088365e6eb227c96771e7b8d690655f4ddb8f8036c5810e389295d74",
+    "experiments/finetuning/job_b.py": "cfa9c5b8df49d5bd3220a42c8e0ee58498e9f31e0f9b9f1fcf7173336ad25d75",
+    "experiments/finetuning/metrics.py": "e62fdd31903775baa23e97b83ef7decdffee3b59fc9c341feee9e609e6f9c634",
+    "experiments/finetuning/pipeline.py": "02a7beeb96894d4c83997748f895e368e67b3f00aecf59652c40cb48c8cfee04",
+    "experiments/finetuning/prepare.py": "e7a3924f0d5fb9d8f6475e2bc3b23497ad644a14727e82846b2087c9f4de4618",
+    "experiments/finetuning/reference_pipeline.py": "3e3217cc51ddf6cf1ee573b82634ca4215073258a3b710710052cd5aaedf5fb4",
+    "experiments/finetuning/report.py": "f15e66591a2c9a61da09fb0901155844c946aeee48fdd26041f2a8d7eca49fca",
+    "experiments/finetuning/restore.py": "147223126c7074dcaac665a0ce0509b391966d382ba154b89a013e5dd2a445bf",
+    "experiments/finetuning/run.py": "a43d2f6ebe8007ea2f793ecf53dd78ab5b36b9d8aa0f883aef113005e7cf0d60",
+    "experiments/finetuning/state.py": "ffd0812eef6f10842d6411a942ec436c28cc4f5cae3097b60e84ff5c4ac37ddd",
+    "experiments/finetuning/train.py": "866b19fdeb41bd6f0b60e33ab55acb4f8ef0ed5288f7757104d69aeb9927ee12"
+  },
+  "warnings": [
+    "CRIU interrupted-system-call warning retained; successful continuation does not establish arbitrary resource compatibility."
+  ],
+  "scope": [
+    "Same host, boot, dependencies, and persistent local volume.",
+    "Payload hashes checked after restore by every matrix trial and standalone verification.",
+    "Ordered fsync tested; no power-loss, volume-deletion, replacement-host, or spot-recovery experiment.",
+    "Application timing defers inspection; CRIU timing includes untouched-state inspection.",
+    "CRIU request is queued at launch; request-to-ready includes initialization and updates."
+  ]
+}
