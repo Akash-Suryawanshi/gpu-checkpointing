@@ -8,6 +8,18 @@ import control
 
 
 class RestoreTests(unittest.TestCase):
+    def test_mismatched_inspection_never_releases_continuation(self):
+        """Critical: an independent restore compares untouched evidence before permission."""
+        import restore
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            control.write(root / "before.json", {"rng": "original"})
+            control.write(root / "after.json", {"rng": "changed"})
+            control.write(root / "inspected.json", {"attempt_id": "r"})
+            restoration = {"capture_id": "c", "attempt_id": "r"}
+            with self.assertRaisesRegex(ValueError, "rng"):
+                restore.release(root, root, restoration, root / "continue.json")
+            self.assertFalse((root / "continue.json").exists())
 
     def test_corrupt_or_ambiguous_snapshot_is_rejected_before_criu(self):
         """AC4: missing completion, corruption, stale phase, and drift block admission."""
