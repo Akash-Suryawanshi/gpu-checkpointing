@@ -7,8 +7,9 @@ Explain training terms such as adapters, optimizer history, and random-generator
 state on first use too.
 
 This is a teaching and code-organization change. Preserve the bounded experiment,
-its command-line interface, evidence fields, and qualified conclusions. It does
-not add inference experiments or establish any new restoration result.
+its command-line interface, evidence fields, and qualified conclusions. Record
+measured validation separately from planned work; inference experiments remain
+outside this change.
 
 ## What is already explained, and what is missing
 
@@ -48,10 +49,10 @@ original, restore, inspect, and then permit update 3.
 | --- | --- | --- |
 | README, “Start with the machine” | Distinguish application execution in user space from privileged kernel work. A system call requests a kernel service. A driver manages device operations; importing a Python library does not itself grant permission to control another process. | `session.launch()`, `session.criu()` |
 | CPU chapter, “A process is more than its variables” | Introduce a PID as Linux's process identifier and explain parent/child creation. Define a page as a block of memory managed by the OS. Extend the existing pointer explanation with private versus shared mappings: two processes may refer to the same underlying bytes, so copying their contents separately can lose a relationship. | `session.alive()`, `/proc/<pid>/maps`, the shared-memory qualifications in results |
-| CPU chapter, “State held by Linux” | Show a file descriptor pointing to an open-file description containing the current position. Distinguish that kernel-held record from the file's bytes. Define a pipe, socket, and standard input/output/error before their use in process launch. | `session.launch()`, `session.command()`, `cpu_counter.run()` |
+| CPU chapter, “State held by Linux” | Show a file descriptor pointing to an open-file description containing the current position. Distinguish that kernel-held record from the file's bytes. Define a pipe, socket, and standard input/output/error before their use in process launch. Explain a terminal, process group, and session, including how a controlling terminal connects a session to interactive input and signals. | `session.launch()` and `start_new_session=True`, `session.command()`, `session.criu()` and `--shell-job`, `cpu_counter.run()` |
 | CPU chapter, “The original process can be gone” | Explain running, exited-but-not-collected (zombie), and reaped states. A parent collects an exited child's status with `wait`; exit and removal of its process record are separate events. Explain PID reuse, a detached restored process, and why this controller adopts descendants using a subreaper. | `session.adopt_restored_children()`, `alive()`, `reap()`, `cleanup()` |
 | CPU chapter, next to stopping and cleanup | Define a signal as an OS notification/request to a process; distinguish stopping execution, requesting termination, and forceful termination. Explain that `SIGKILL` in failure cleanup is not the normal save protocol. Explain the run-path identity check before signaling a PID, without claiming it eliminates every possible PID-reuse race. | `session.cleanup()`; CRIU's controlled thread stop versus controller cleanup |
-| CPU chapter, “Permissions and external boundaries” | Define user identity, root, and Linux capabilities as permissions for particular privileged operations. Explain a namespace as an isolated view of an OS resource, such as process IDs or clocks. A container combines mechanisms; it does not own a separate Linux kernel or guarantee permission to restore processes. | `session.criu()`, environment probes, restored time namespace |
+| CPU chapter, “Permissions and external boundaries” | Define user/group identifiers (UID/GID), file ownership, root, and Linux capabilities as permissions for particular privileged operations. Explain read/write/execute bits, directory traversal, `0700` as owner-only access, and how `umask` restricts permissions of newly created files. Explain a namespace as an isolated view of an OS resource, such as process IDs or clocks. A container combines mechanisms; it does not own a separate Linux kernel or guarantee permission to restore processes. | `run.run()` and `os.umask`, `session.criu()` and `chown`, environment probes, restored time namespace |
 | GPU chapter, “Submission is not completion” and coordination | Connect threads, queued GPU work, `torch.cuda.synchronize()`, and the completed-update boundary. Explain why a CUDA helper thread sometimes needs to run while ordinary application threads are controlled. Keep GPU lock, CPU pause, and completed on-disk image distinct. | `train.main()`, `criu_pipeline.run()`, native CRIU CUDA plugin |
 | GPU chapter, “Follow the bytes and the time” | Define user-space buffering, kernel page cache, file publication by rename, file/directory `fsync`, and filesystem `sync`. Explain visibility versus persistence and why local completion alone does not establish survival of instance deletion. | `state.save_application()`, `pipeline.handoff()` |
 | GPU chapter, measurements; runnable README | Explain elapsed time versus calendar time, a monotonic clock, and a namespace clock offset. Derive `controller_time = trainer_time - trainer_offset + controller_offset` using a small numeric example. Explain why durations measured entirely within one process do not need the conversion. | `metrics.latencies()`, `metrics.finish()` |
@@ -65,9 +66,8 @@ source beside the behavior it supports.
 
 ## Keep the implementation small and traceable
 
-The current readability work separates each comparison pipeline into its own
-file. This is the target reading order; integration and validation determine when
-the refactor is complete.
+The readability refactor separates each comparison pipeline into its own file.
+Use this reading order to connect each route to its shared operations.
 
 | File | One responsibility |
 | --- | --- |
@@ -131,25 +131,29 @@ Link to chapter explanations at the exact points where OS concepts enter.
 
 ## Milestones and acceptance
 
-1. **Code organization and inline explanations — current work.** Integrate the
-   dedicated pipeline files and comments across training, state, lifecycle, and
-   measurement code. Review the diff for unintended changes to behavior, CLI,
-   and evidence fields. Commit the completed milestone on a feature branch.
+1. **Code organization and inline explanations — implemented.** Dedicated
+   pipeline files and comments cover training, state, lifecycle, and measurement
+   code. Six agents split implementation, teaching design, and independent review.
+   The code and cleanup regression fix are separate feature-branch commits.
+   Verification is a separate milestone below.
 2. **OS foundations — planned documentation expansion.** Fill the chapter gaps
    above in prerequisite order, including the memory and lifecycle diagrams.
    Accept when a reader can explain why bytes, file positions, execution state,
    sharing relationships, and collected process exit are separately relevant.
-3. **Walkthrough and measurement lesson — planned documentation expansion.**
-   Connect commands, pipeline functions, marker protocol, and evidence fields.
-   Accept when the reader can trace update 2 through restore to update 3 and
-   calculate the reported intervals without assuming shared clock origins.
-4. **Verification and student reading pass.** Run existing relevant CPU contracts
-   after code changes. For changed executable lifecycle paths, repeat the bounded
-   GPU acceptance cases, including active dropout and repeated CRIU capture; old
-   measured results do not automatically validate newly edited code. Read each
-   pipeline without relying on undocumented OS vocabulary, check links and
-   diagrams, and record exactly which checks ran. Commit each finished milestone
-   separately; the user reviews and merges.
+3. **Walkthrough and measurement lesson — partly implemented.** The runnable
+   README now follows commands, pipeline functions, and marker files through one
+   restore. Expand its chapter links and add the longer storage, memory-accounting,
+   and clock lessons. Accept when the reader can trace update 2 through restore
+   to update 3 and calculate intervals without assuming shared clock origins.
+4. **Code validation — completed; full chapter reading pass — planned.** Fourteen
+   CPU checks and nine fresh GPU cases passed on September 17, including active
+   dropout, both restore routes, repeated capture, and the timing paths. See the
+   [validation record](../experiments/results.md#readability-refactor-validation--2026-09-17).
+   Six-agent review checked the code organization and prerequisite coverage;
+   relative document links and source syntax were checked. After the chapter
+   expansion, read each route without relying on unexplained OS vocabulary and
+   check its diagrams and links. Commit each finished milestone separately; the
+   user reviews and merges.
 
 Before modifying or reviewing tests, follow the repository's `writing-tests`
 skill. Comments and prose do not need tests that merely repeat their wording.
@@ -157,5 +161,7 @@ Do not regenerate headline performance claims from a readability pass. Preserve
 dated measurements, compatibility qualifications, and the boundary between
 same-host continuation and untested spot, migration, or inference scenarios.
 
-The inline refactor is underway; this plan does not mark the deeper chapter
-expansion, walkthrough, or post-refactor GPU validation as completed.
+The inline refactor and short code walkthrough are implemented. The deeper OS
+chapter expansion, its additional diagrams, and the full measurement lesson
+remain planned. Record post-refactor validation separately from those teaching
+milestones; a passing workload does not establish that a chapter is understandable.

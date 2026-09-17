@@ -240,6 +240,58 @@ The isolated environment used Python 3.10.12, PyTorch 2.8.0+cu128, Transformers 
 
 Each CRIU dump retained an interrupted-system-call warning. Seven observed shared `/dev/zero (deleted)` ranges retained their addresses and `rw-s` permissions after restore, and no `anon_inode` mapping was observed in those snapshots. This does not prove external or driver-side sharing ownership; unqualified compatibility remains false. The final GPU compute-process listing was empty, and no experiment trainer, controller, or helper remained.
 
+## Readability refactor validation — 2026-09-17
+
+**The refactored pipelines pass fresh numerical and lifecycle checks.** Reference,
+application restart, and CRIU restore now have dedicated files; shared helpers
+name the capture, handoff, inspection, and comparison steps. Six agents worked on
+implementation, explanations, the teaching plan, and independent review.
+[Code walkthrough](finetuning/README.md), [teaching plan](../docs/readability-plan.md),
+[curated validation evidence](evidence/2026-09-17/readability-summary.json).
+
+Fourteen CPU checks pass. Review found that cleanup skipped an already-exited
+child because splitting its empty command-line bytes produced the nonempty list
+`[b'']`. Linux retains an exited child's process record until its parent collects
+the exit status; this remaining record is called a **zombie**. Cleanup now checks
+the raw bytes and exited state before collecting an unidentified child. A real
+child reproduces the regression, and the ownership check also covers a live
+child with an empty command line. The fix and regression test share commit
+`631ffb6`; the pipeline refactor is in `b373c80`.
+
+Every fine-tuning source file and the process helper are fingerprinted, so earlier
+references could not validate edited code. The final sources were held fixed for
+all nine fresh cases on the same EC2 A10G/driver 570.172.08 and isolated environment:
+
+| Validation cases | Count | Result |
+| --- | --- | --- |
+| Independent reference pairs at dropout 0 and 0.1 | 2 | Each pair matched exactly |
+| Application restart and CRIU restore, each at dropout 0 and 0.1 | 4 | Boundary state and continuation matched references |
+| CRIU captures after updates 2 and 3, with dropout 0.1 | 1 | Both restore inspections and subsequent updates matched |
+| One timing run for each restore route | 2 | Final state and all losses matched; timing calculations completed |
+
+The audit checked CUDA RNG advancement on every active-dropout update, the order
+of image/save completion, original exit, post-exit GPU observation, filesystem
+sync, job B, and restore. Each job B completed its GPU allocation and reduction.
+All recorded source hashes matched the final code, all recorded trainer PIDs
+were absent afterward, and the GPU compute-process listing was empty.
+
+Diagnostic application trials took 25.84–25.96 seconds; single-capture CRIU trials
+took 53.99–54.08 seconds; repeated CRIU capture took 92.51 seconds. These warm trial
+durations include diagnostics and handoff. The two single timing checks verify
+the refactored measurement paths; they do not replace the September 14 three-pair
+benchmark. Individual measurements and their clock offsets remain in the JSON.
+
+All 16 experiment Python files parse, all 65 functions have docstrings, and all
+four experiment shell scripts pass syntax checks. Relative document targets were
+checked. The short code walkthrough is implemented; deeper OS chapter expansion
+and its additional diagrams remain planned. These checks are not a substitute
+for that teaching work.
+
+CRIU's interrupted-system-call warnings remain in the evidence. External and
+driver-side sharing ownership remains unresolved; every run keeps unqualified
+compatibility false. This validation establishes continuation only in the
+recorded same-host configuration.
+
 ## Environment history
 
 The initial September 12 host observation reported driver 580.126.20 with CUDA 13.0 and neither `criu` nor `cuda-checkpoint` on `PATH`. After the instance resumed on September 14, it reported driver 595.58.03. Workspace persistence therefore did not imply an unchanged driver environment. Each experiment must record its live GPU, driver, runtime, tools, permissions, and cgroup limits.

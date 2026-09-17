@@ -24,6 +24,8 @@
 
 - Measurement/reporting: three timing pairs pass; medians are 1.30 s save/sync and 7.95 s resume/update for application restart, versus 32.20 s and 4.47 s for CRIU. Corrected CRIU time-namespace clock alignment; thirteen CPU tests pass. Raw measurements and the superseded calculation are retained. [Final evidence](../experiments/evidence/2026-09-14/finetuning-summary.json).
 
+- Readability and teaching plan (September 17): each comparison has a dedicated pipeline file, with non-obvious operations explained in docstrings and grouped comments. Fourteen CPU checks and nine fresh GPU cases pass after the refactor and exited-child cleanup fix. One timing check per route validates execution; the September 14 three-pair benchmark remains the dated performance evidence. [Validation](../experiments/results.md#readability-refactor-validation--2026-09-17), [remaining OS teaching work](readability-plan.md).
+
 ## Global constraints
 
 - This phase is same-host, same-GPU restoration. Real spot interruption and replacement-host recovery require a later experiment.
