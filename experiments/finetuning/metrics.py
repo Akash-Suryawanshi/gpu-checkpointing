@@ -116,12 +116,22 @@ def latencies(events, updates, clock_shifts=None):
             'trainer_to_controller_clock_ns': shift,
             'capture_command_seconds': seconds(capture_completed, phase['capture_requested']),
             'capture_to_sync_seconds': seconds(phase['filesystem_synced'], phase['capture_requested']),
-            'restore_to_next_update_seconds': seconds(next_update, phase['restore_requested']),
+            'restore_to_next_update_seconds': seconds(next_update, phase.get('restore_worker_launched', phase['restore_requested'])),
             'capture_to_original_exit_seconds': seconds(phase['original_exit_verified'], phase['capture_requested']),
             'capture_to_gpu_observed_seconds': seconds(phase['gpu_observed_after_exit'], phase['capture_requested']),
             'post_exit_observation_window_seconds': seconds(phase['gpu_observed_after_exit'], phase['original_exit_verified']),
             'job_b_seconds': seconds(phase['job_b_completed'], phase['job_b_requested']),
             'restore_command_seconds': seconds(phase['restore_returned'], phase['restore_requested'])})
+        if 'local_snapshot_published' in phase:
+            measurements[-1].update({
+                'capture_worker_to_publication_seconds': seconds(phase['local_snapshot_published'], phase['capture_worker_launched']),
+                'request_to_ready_seconds': seconds(phase['ready'], phase['capture_requested']),
+                'payload_hash_seconds': seconds(phase['payload_hash_completed'], phase['gpu_observed_after_exit']),
+                'payload_sync_seconds': seconds(phase['payload_synced'], phase['payload_hash_completed']),
+                'publication_seconds': seconds(phase['local_snapshot_published'], phase['payload_synced']),
+                'between_workers_seconds': seconds(phase['restore_worker_launched'], phase['capture_worker_exited']),
+                'restore_preflight_seconds': seconds(phase['restore_requested'], phase['restore_worker_launched']),
+                'restore_inspection_seconds': seconds(phase['continuation_permitted'], phase['restore_returned'])})
     return measurements
 
 
@@ -156,7 +166,7 @@ def finish(result, output, controller_offset_ns=None):
         generation = event['generation']
         offset = result['controller_monotonic_offset_ns']  # Fresh application children inherit it.
         if result['mode'] == 'criu':
-            log = (output / f'images-{generation}/restore.log').read_text()
+            log = Path(event.get('restore_log', output / f'images-{generation}/restore.log')).read_text()
             matches = re.findall(r'timens: monotonic (-?\d+) (\d+)', log)
             if len(matches) != 1:
                 raise ValueError('Need exactly one recorded CRIU monotonic clock offset')

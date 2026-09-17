@@ -58,7 +58,7 @@ def launch(trial, directory, pause=(), extra=()):
                  "--dropout", args.dropout, "--until", args.until]
     if pause:
         arguments += ["--pause-at", ",".join(map(str, pause))]
-    if args.timing:
+    if args.timing and "--external-control" not in extra:
         arguments += ["--timing"]
     # The directory also identifies the child during guarded failure cleanup.
     trial.directory = directory

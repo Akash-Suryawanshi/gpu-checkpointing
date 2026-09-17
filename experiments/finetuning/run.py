@@ -55,6 +55,7 @@ def run(args):
     """
     # Images may contain the complete process memory. Keep all new files private
     # and reject an existing run directory to avoid accidentally reusing markers.
+    invoked_ns = time.monotonic_ns()
     os.umask(0o077)
     args.run_dir = args.run_dir.resolve()
     args.assets = args.assets.resolve()
@@ -92,9 +93,10 @@ def run(args):
     session.adopt_restored_children()
     trial = Trial(args, tools, env)
     result = {"mode": args.mode, "timing": args.timing, "capture": args.capture,
-              "verification_scope": "final_state_and_all_losses" if args.timing else "all_update_boundaries_and_losses",
+              "verification_scope": "final_state_and_all_losses" if args.timing and args.mode != "criu" else "all_update_boundaries_and_losses",
               "lifecycle_passed": False, "numerical_passed": False,
-              "unqualified_compatibility": False, "events": trial.events}
+              "unqualified_compatibility": False, "events": trial.events,
+              "admission_seconds": (time.monotonic_ns() - invoked_ns) / 1e9}
     # Sampling follows changes of PID across application relaunch or CRIU restore.
     stop_sampling = metrics.sample_memory(lambda: trial.pid)
 
@@ -111,7 +113,7 @@ def run(args):
             compare_run(output, output / "repeat", args.until)
             (output / "verified").touch(exist_ok=False)
         else:
-            compare_run(args.reference, output, args.until, args.timing)
+            compare_run(args.reference, output, args.until, args.timing and args.mode != "criu")
         result["numerical_passed"] = True
         event(trial, "verification_passed")
     except Exception as error:
@@ -125,10 +127,10 @@ def run(args):
         # not establish every resource-sharing or future-host compatibility claim.
         result["warnings"] = session.warnings(output)
         result["compatibility"] = "qualified: sharing ownership and any resource warnings require interpretation"
-        result["image_bytes"] = sum(p.stat().st_size for p in output.glob("images-*/*.img"))
+        result["image_bytes"] = sum(p.stat().st_size for p in output.rglob("*.img"))
         result["application_bytes"] = (output / "application.pt").stat().st_size if (output / "application.pt").exists() else 0
         if trial.events:
-            result["trial_seconds"] = (time.monotonic_ns() - trial.events[0]["monotonic_ns"]) / 1e9
+            result["trial_seconds"] = (time.monotonic_ns() - invoked_ns) / 1e9
         # A Linux time namespace can give the restored trainer a different clock
         # offset. metrics.finish converts it before comparing trainer/controller
         # timestamps; raw events remain available to audit reported latencies.
