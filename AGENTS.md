@@ -142,3 +142,7 @@ merges; do not merge on their behalf.
 ### 2026-09-17 - Killing a direct command does not prove its exit was collected
 **Finding**: An injected SIGTERM during `experiments/criu/session.py:181` reached Python's `KeyboardInterrupt` cleanup, but the child still had a `/proc` entry when the call returned. `experiments/inference/lifecycle.py:22` explicitly stops and reaps owned helper groups.
 **Impact**: Use that owner for inference job B as well as capture/restore; GPU reuse requires completed cleanup, not merely sending a kill signal.
+
+### 2026-09-17 - The isolated CRIU build still needs host build prerequisites
+**Finding**: Pinned `criu/Makefile.packages:30` links UUID and Netlink. `experiments/criu/build.sh` omits UUID development files, and its private `usr/lib` search misses Ubuntu's extracted `lib/libnl-3` layout; the old host supplied both globally.
+**Impact**: The clean container explicitly installs `uuid-dev`/`libnl-3-dev` for building and their runtime libraries. Keep compiler logs; the generic package-check message lists unrelated test dependencies too.

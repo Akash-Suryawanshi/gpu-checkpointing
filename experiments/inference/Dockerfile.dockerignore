@@ -1,0 +1,9 @@
+**
+!experiments/
+!experiments/**
+!tests/
+!tests/**
+experiments/evidence/
+experiments/results.md
+**/__pycache__/
+**/*.pyc
