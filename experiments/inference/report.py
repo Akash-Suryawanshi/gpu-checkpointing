@@ -37,7 +37,9 @@ def summarize(root):
                            image_bytes=result.get("image_bytes", 0), preparation_seconds=result.get("preparation_seconds"),
                            save_seconds=result.get("save_seconds"))
                 memory = measure.read(path / "memory.json")
-                row.update(rss_bytes=memory["rss_bytes"], reserved_vram=memory["reserved_vram"])
+                row.update(rss_bytes=memory["rss_bytes"], reserved_vram=memory["reserved_vram"],
+                           idle_host_rss_bytes=memory["rss_bytes"] if run["route"] == "resident" else 0,
+                           idle_gpu_bytes=memory["reserved_vram"] if run["route"] == "resident" else 0)
                 samples = [json.loads(line) for line in (path / "resources.jsonl").read_text().splitlines()]
                 valid = [sample for sample in samples if "error" not in sample]
                 row.update(sample_interval_ms=run["key"]["sample_ms"],
@@ -45,7 +47,9 @@ def summarize(root):
                            observed_peak_rss_bytes=max((s.get("rss_bytes", 0) for s in valid), default=0))
                 if run["route"] in ("ram", "disk"):
                     row["reuse_claim"] = measure.read(path / "reuse.json")["claim"]
-                    row["idle_host_rss_bytes"] = measure.read(path / "released-resources.json").get("rss_bytes", 0)
+                    released = measure.read(path / "released-resources.json")
+                    row["idle_host_rss_bytes"] = released.get("rss_bytes", 0)
+                    row["idle_gpu_bytes"] = released["gpu_used"]
             except (ValueError, KeyError, FileNotFoundError) as error:
                 row.update(status="failed", reason=str(error))
         rows.append(row)
@@ -97,11 +101,13 @@ def main(args):
         writer.writerows(summary["rows"])
     latency = [(f"block {r['block']} {r['route']}", r["start_to_first_token_seconds"])
                for r in summary["rows"] if r["status"] == "passed"]
-    resources = [(f"{route} idle host RSS", statistics.median(r.get("idle_host_rss_bytes", r["rss_bytes"])
+    resources = [(f"{route} {label}", statistics.median(r.get(field, 0)
                     for r in summary["rows"] if r["route"] == route and r["status"] == "passed") / 1024**3)
-                 for route in measure.ROUTES if route in summary["aggregates"]]
+                 for route in measure.ROUTES if route in summary["aggregates"]
+                 for label, field in (("idle host RSS", "idle_host_rss_bytes"), ("idle GPU", "idle_gpu_bytes"),
+                                      ("image files", "image_bytes"))]
     for name, svg in (("latency.svg", chart(latency, "Observer start to first token", "seconds")),
-                      ("resources.svg", chart(resources, "Median retained host memory", "GiB"))):
+                      ("resources.svg", chart(resources, "Median retained resources", "GiB"))):
         (args.output / name).write_text(svg)
     rows = "".join(f"<tr><td>{r['block']}</td><td>{r['route']}</td><td>{r['status']}</td><td>"
                    + (f"{r['start_to_first_token_seconds']:.4f}" if r['status'] == 'passed' else html.escape(r.get('reason', '')))

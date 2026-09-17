@@ -66,6 +66,16 @@ def validate_run(path, check_diagnostic=True):
         raise ValueError("Incomplete or failed run")
     if result["run_sha256"] != file_hash(path / "run.json"):
         raise ValueError("Run key changed")
+    required = {"reference.json", "tokens.json", "prepared-audit.json", "audit-before.json",
+                "audit-after.json", "observations.json", "memory.json", "resources.jsonl"}
+    if run["route"] in ("ram", "disk"):
+        required.update(("reuse.json", "released-resources.json"))
+    if not required <= result["evidence"].keys():
+        raise ValueError("Required evidence digest missing")
+    for source, saved in (("reference.json", "reference.json"), ("tokens.json", "tokens.json"),
+                          ("audit.json", "prepared-audit.json")):
+        if file_hash(path / saved) != run["key"]["assets"]["artifacts"][source]:
+            raise ValueError("Prepared reference differs from assets key")
     for name, expected in result["evidence"].items():
         if file_hash(path / name) != expected:
             raise ValueError("Evidence changed: " + name)

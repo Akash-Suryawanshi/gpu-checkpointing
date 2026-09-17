@@ -36,6 +36,10 @@ def fixture(path, kind="diagnostic", diagnostic=None):
     write(path / "observations.json", records)
     write(path / "memory.json", {"rss_bytes": 100, "reserved_vram": 200})
     (path / "resources.jsonl").write_text('{"gpu_used": 200, "rss_bytes": 100}\n')
+    key["assets"]["artifacts"] = {source: measure.file_hash(path / saved) for source, saved in
+                                (("reference.json", "reference.json"), ("tokens.json", "tokens.json"),
+                                 ("audit.json", "prepared-audit.json"))}
+    write(path / "run.json", run)
     result = {"status": "passed", "cleanup": "complete", "run_sha256": measure.file_hash(path / "run.json"),
               "durations": measure.durations(records, "run", reference),
               "evidence": {p.name: measure.file_hash(p) for p in path.iterdir() if p.name != "run.json"}}
@@ -67,7 +71,7 @@ class ReportTests(unittest.TestCase):
 
     def test_changed_keys_audits_or_missing_diagnostics_cannot_pass(self):
         """Critical: provenance and immutable-state checks remain enabled in reporting."""
-        for change in ("key", "audit", "missing"):
+        for change in ("key", "audit", "missing", "omitted_hash"):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
                 run, _ = fixture(root / "d")
@@ -79,6 +83,9 @@ class ReportTests(unittest.TestCase):
                     write(root / "t/run.json", trial)
                 elif change == "audit":
                     write(root / "t/audit-after.json", {})
+                elif change == "omitted_hash":
+                    result["evidence"].pop("audit-after.json")
+                    write(root / "t/result.json", result)
                 else:
                     (root / "d/result.json").unlink()
                 with self.assertRaises((ValueError, FileNotFoundError)):

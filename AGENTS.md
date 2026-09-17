@@ -130,3 +130,7 @@ merges; do not merge on their behalf.
 ### 2026-09-17 - Check the installed loader before claiming parallel-loading gains
 **Finding**: Installed Transformers 5.0.0 `core_model_loading.py:1116–1121` uses a thread pool by default; `HF_DEACTIVATE_ASYNC_LOAD` disables it. Its versioned environment-variable documentation instead describes `HF_ENABLE_PARALLEL_LOADING`.
 **Impact**: Benchmark the real default and verify the execution host's implementation; a serial control is not evidence of improvement over the default.
+
+### 2026-09-17 - Inference and training scripts share short module names
+**Finding**: Both experiment directories contain `run.py` and `report.py`; the combined runbook import path can select the wrong module. `tests/test_finetuning_metrics.py:14` and `tests/test_inference_report.py:12` load their target scripts by absolute file location.
+**Impact**: Keep combined-suite imports explicit where script names overlap; changing path order alone can silently test the other controller.

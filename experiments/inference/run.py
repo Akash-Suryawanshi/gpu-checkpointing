@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -237,6 +238,6 @@ if __name__ == "__main__":
         parser.error("Staged actions require disk diagnostics")
     if args.discard_image_after_success and (args.route != "disk" or args.kind != "timing"):
         parser.error("Image discard requires accepted disk timing")
-    if min(args.timeout, args.poll_ms, args.sample_ms) <= 0:
+    if any(not math.isfinite(v) or v <= 0 for v in (args.timeout, args.poll_ms, args.sample_ms)):
         parser.error("Deadlines and intervals must be positive")
     trial(args)
