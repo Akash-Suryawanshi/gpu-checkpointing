@@ -74,6 +74,18 @@ def lock(run, deadline=None):
         yield
 
 
+def monotonic_offset():
+    row = next(line.split() for line in Path("/proc/self/timens_offsets").read_text().splitlines()
+               if line.startswith("monotonic"))
+    return int(row[1]) + int(row[2]) / 1e9
+
+
+def request_expired(request):
+    # Request deadlines use the underlying host clock. A reconstructed trainer
+    # may have a different time-namespace offset from the next capture worker.
+    return time.monotonic() - monotonic_offset() > request["deadline"]
+
+
 def remaining(deadline):
     value = deadline - time.monotonic()
     if value <= 0:
@@ -110,6 +122,85 @@ def attempt(run):
     sync_directory(path.parent)
     sync_directory(run)
     return identifier, path
+
+
+def register(run, assets, until):
+    """Register once before initialization so a fast workload cannot miss a request."""
+    run = Path(run)
+    (run / "control").mkdir(mode=0o700, exist_ok=True)
+    with lock(run):
+        if (run / "job.json").exists():
+            raise ValueError("Job directory already registered")
+        job = {"schema": SCHEMA, "job_id": uuid.uuid4().hex,
+               "run": str(run), "assets": str(Path(assets).resolve()), "until": until,
+               "python": sys.executable, "identity": session.identity(os.getpid())}
+        write(run / "job.json", job)
+        phase(run, "idle")
+        for directory in run.parents:
+            sync_directory(directory)
+    return job
+
+
+def boundary(run, job, update, inspect):
+    """Acknowledge at a complete update and wait without fetching data or RNG.
+
+    Before dump starts, expiry/cancellation releases this request. Once armed,
+    unknown CPU/CUDA state is never resumed automatically after worker failure.
+    """
+    request_path = run / "control/request.json"
+    if not request_path.exists():
+        return
+    request = read(request_path)
+    if request["job_id"] != job["job_id"] or update < request["at"]:
+        return
+    capture = request["capture_id"]
+    folder = run / "attempts" / capture
+    current = read(run / "control/phase.json")
+    if current.get("capture_id") != capture or current["status"] != "requested":
+        return
+    if request_expired(request) or update >= job["until"]:
+        write(folder / "rejected.json", {"reason": "expired or final boundary"})
+        return
+    before = inspect()
+    write(folder / "before.json", before)
+    write(folder / "ready.json", {"capture_id": capture, "job_id": job["job_id"],
+                                 "update": update, "identity": job["identity"]})
+    while True:
+        current = read(run / "control/phase.json")
+        if current.get("capture_id") != capture:
+            raise RuntimeError("Pause ownership changed")
+        if current["status"] == "cancelled":
+            return
+        if current["status"] == "requested" and request_expired(request):
+            # Expiry must not race a live worker changing requested -> dumping.
+            # Only an unowned, still-unarmed request can release itself safely.
+            try:
+                with lock(run):
+                    if read(run / "control/phase.json") == current:
+                        return
+            except RuntimeError:  # A worker still owns the operation.
+                pass
+        signal = folder / "inspect.json"
+        if signal.exists():
+            restoration = read(signal)
+            if restoration["capture_id"] != capture:
+                raise ValueError("Stale inspection request")
+            restored = run / "attempts" / restoration["attempt_id"]
+            refreshed = read(run / "job.json")
+            if refreshed["job_id"] != job["job_id"] or refreshed["identity"]["pid"] != os.getpid():
+                raise ValueError("Restored registration belongs to another job")
+            # Start ticks in /proc are relative to the observer's clock namespace.
+            # The host worker owns identity; do not overwrite it from this restored namespace.
+            job.update(refreshed)
+            write(restored / "after.json", inspect())
+            write(restored / "inspected.json", {"attempt_id": restoration["attempt_id"]})
+            # No deadline from the old clock domain is used after reconstruction.
+            while not (restored / "continue.json").exists():
+                time.sleep(0.05)
+            if read(restored / "continue.json") != restoration:
+                raise ValueError("Wrong continuation identity")
+            return
+        time.sleep(0.05)
 
 
 def storage(path):

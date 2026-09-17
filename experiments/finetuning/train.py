@@ -14,6 +14,7 @@ import random
 import time
 
 from prepare import environment, file_hash, write_json
+import control
 
 
 def memory():
@@ -48,6 +49,7 @@ def main(args):
     run = args.run_dir.resolve()
     run.mkdir(parents=True, exist_ok=True)
     os.umask(0o077)  # Restrict newly created evidence files to their owning user.
+    job = control.register(run, args.assets, args.until) if args.external_control else None
 
     def mappings(stage):
         """Record Linux's list of this process's address ranges at each milestone.
@@ -236,6 +238,9 @@ def main(args):
             ):
                 raise ValueError("Adam state missing")
         evidence(f"state-{update}.json")
+        if args.external_control:
+            control.boundary(run, job, update, lambda: state.inspect(
+                model, optimizer, schedule, progress, identity, config))
         if update in args.pause_at:
             # Generation-specific markers prevent a repeated restore from taking
             # an earlier update's signal as permission to proceed.
@@ -268,4 +273,8 @@ if __name__ == "__main__":
     parser.add_argument("--save", type=Path)
     parser.add_argument("--load", type=Path)
     parser.add_argument("--timing", action="store_true")
-    main(parser.parse_args())
+    parser.add_argument("--external-control", action="store_true")
+    args = parser.parse_args()
+    if args.external_control and (args.pause_at or args.save or args.load or args.timing):
+        parser.error("External control requires full inspection and cannot use legacy pause/save/load")
+    main(args)
