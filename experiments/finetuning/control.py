@@ -93,12 +93,12 @@ def remaining(deadline):
     return value
 
 
-def wait(path, deadline, identity=None):
+def wait(path, deadline, identity=None, poll=0.05):
     while not Path(path).exists():
         remaining(deadline)
         if identity is not None and not session.matches(identity):
             raise RuntimeError("Identified trainer exited while waiting")
-        time.sleep(min(0.05, remaining(deadline)))
+        time.sleep(min(poll, remaining(deadline)))
     remaining(deadline)
     return read(path)
 
@@ -221,6 +221,7 @@ def dependencies(job, tools, deadline):
     assets = Path(job["assets"])
     manifest = read(assets / "manifest.json")
     paths = list((ROOT / "experiments/finetuning").glob("*.py"))
+    paths += list((ROOT / "experiments/inference").glob("*.py"))
     paths += [ROOT / "experiments/criu/session.py", assets / "manifest.json", assets / "tokens.json"]
     paths += [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]]
     paths += [Path(tools) / name for name in (
