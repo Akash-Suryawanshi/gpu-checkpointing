@@ -1,15 +1,15 @@
 # Single-GPU Fine-Tuning Checkpoint Implementation Plan
 
 **Implemented, with qualified same-host compatibility.** This document defines the
-current experiment's contracts. The proposed [independent lifecycle
-plan](independent-lifecycle-plan.md) awaits approval and belongs on a later branch.
+current experiment's contracts. The [independent lifecycle
+plan](independent-lifecycle-plan.md) extends these contracts with separate workers.
 Use the [runbook](../experiments/finetuning/README.md) for commands and
 [results](../experiments/results.md) for dated measurements.
 
 The experiment ends a LoRA trainer after update 2, restores its CPU/GPU process
 image, and compares state and updates 3–4 with uninterrupted training and a complete
-application checkpoint. One trainer loop serves all routes; the controller owns
-capture and verification. CRIU's CUDA plugin alone owns NVIDIA transitions.
+application checkpoint. One trainer loop serves all routes; independent workers own
+CRIU capture and restore verification. CRIU's CUDA plugin alone owns NVIDIA transitions.
 
 ## Implementation milestones
 
@@ -76,8 +76,8 @@ lifecycle operations live in `pipeline.py`. See the
 for the complete reading path.
 
 `experiments/criu/session.py` owns privileged process operations; `build.sh`
-pins tools. The current controller owns the trainer's exit status. Independent
-workers require the proposed [ownership contract](independent-lifecycle-details.md#control-and-process-ownership).
+pins tools. The launch/adoption parent owns the trainer's exit status; independent capture
+only observes removal. See the [ownership contract](independent-lifecycle-details.md#control-and-process-ownership).
 
 ### Implementation style
 
@@ -112,8 +112,9 @@ forward/backward → optimizer → scheduler → clear gradients/temporary outpu
 ```
 
 All gradients must be `None`; readiness permits no next-input work or RNG use.
-The current trainer pauses at configured update numbers. External requests that
-wait for the next boundary belong to the proposed independent lifecycle change.
+Application comparisons pause at configured updates. Independent capture requests
+are acknowledged at a complete boundary; the [protocol](independent-lifecycle-details.md)
+handles cancellation, expiry, and restored clock offsets.
 
 Application saves contain changing state and fixed-base identity. Rebuild the
 pinned model/optimizer/scheduler, load state, then restore RNG **last**, after setup
@@ -164,26 +165,15 @@ original, start a fresh trainer with cached assets, and inspect before update 3.
 
 ### Task 4: Implement full CRIU fine-tuning restoration
 
-```text
-Trainer:    ready-2 → wait for inspect-2
-Controller: terminating dump → verify exit → observe GPU → sync → run job B
-            → restore → publish inspect-2
-Trainer:    write after-2 → inspected-2 → wait for continue-2
-Controller: compare before/after/reference → publish continue-2 only on pass
-Trainer:    updates 3–4
-```
-
-Require successful CRIU completion, image inventory, and CUDA plugin evidence
-for dump and restore. Use regular-file output, disconnected stdin, explicit tool
-paths, and a fresh image directory. Do not use `--leave-running`/`--leave-stopped`
-or append manual NVIDIA restore/unlock. File visibility alone is not completion.
-The current `sync -f` barrier acknowledges filesystem writeback; it does not prove
-survival of volume deletion. The proposed [publication protocol](independent-lifecycle-details.md#exact-local-storage-protocol)
-adds independent snapshot completion records.
+The [runbook sequence](../experiments/finetuning/README.md#read-one-pipeline-from-start-to-finish)
+shows the independent request, capture, publication, restore, and inspection path.
+CRIU's CUDA plugin owns both GPU transitions; no manual restore/unlock follows it.
+The [publication protocol](independent-lifecycle-details.md#exact-local-storage-protocol)
+replaces filesystem-wide sync for this route and preserves older snapshot files.
 
 Collect the original's exit status before restore; CRIU may reuse its numeric
-PID. Initial failure deadlines are 300 s for trainer preparation, 120 s per
-capture/restore, 30 s for exit, and 60 s for job B—not expected runtimes. On
+PID. Initial failure deadlines are 300 s end-to-end per independent
+capture/restore, 30 s for ordinary child exit, and 60 s for job B—not expected runtimes. On
 failure retain evidence, withhold continuation, and clean up only owned processes.
 
 **Gate:** verified original exit, successful job B, image-only restore, untouched
@@ -203,7 +193,9 @@ images until replacements are verified.
 
 ### Task 6: Measure and report
 
-Keep detailed correctness hashing/inspection outside headline timings. Measure:
+Application timing can defer detailed inspection after matched diagnostics.
+Independent CRIU includes mandatory inspection and artifact validation; report
+those costs separately and do not compare the two as equivalent bare startup. Measure:
 
 - Capture request → completed filesystem sync, for both methods.
 - Restore request → next completed update, including application reconstruction.
