@@ -97,7 +97,7 @@ class Runtime:
     """Serve one model through an owned worker; states: ABSENT, ACTIVATING, READY, FAILED."""
 
     def __init__(self, assets, tools, root, route, *, snapshot_run=None, poll_ms=5.0, sample_ms=100.0,
-                 activation_timeout=1800.0, model_policy="strict-v1"):
+                 activation_timeout=1800.0, model_policy="strict-v1", startup_timeout=1800.0):
         self.assets, self.tools, self.root = Path(assets).resolve(), Path(tools).resolve(), Path(root).resolve()
         self.route, self.snapshot_run = route, Path(snapshot_run).resolve() if snapshot_run else None
         if (route == "snapshot") != (self.snapshot_run is not None):
@@ -112,6 +112,9 @@ class Runtime:
         self.active = None  # {"dir", "requests", "run_id", "identity", "process", "index", "sampler"}
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         session.adopt_restored_children()
+        # Fingerprinting the model is benchmark bookkeeping, not serving work, and it
+        # would also warm the file cache a cold trial just evicted. Do it once, now.
+        self.manifest, self.comparison_key = self._key(time.monotonic() + startup_timeout)
 
     def status(self):
         return {"state": self.state, "activation_id": self.activation_id, "last_error": self.last_error,
@@ -146,6 +149,7 @@ class Runtime:
             raise
 
     def _key(self, deadline, **settings):
+        """Validate assets and fingerprint the environment. Startup work, never per request."""
         from prepare_assets import validate_assets
         manifest = validate_assets(self.assets)
         deps = control.dependencies({"assets": str(self.assets), "python": sys.executable}, self.tools, deadline,
@@ -154,7 +158,7 @@ class Runtime:
                                         transport="http", integrity_policy=self.model_policy, **settings)
 
     def _launch(self, folder, activation_id, deadline, events):
-        manifest, key = self._key(deadline)
+        manifest, key = self.manifest, self.comparison_key
         run_id = uuid.uuid4().hex
         control.write(folder / "run.json", {"run_id": run_id, "route": "fresh", "kind": "timing",
                                             "activation_id": activation_id, "key": key})
@@ -209,12 +213,6 @@ class Runtime:
             raise RuntimeError(f"Model is {self.state}")
         active = self.active
         index = active["index"] + 1
-        if index == 2:
-            # The worker audits full weights after response one, outside that response's timing.
-            audit = control.wait(active["requests"] / "audit-after.json", deadline, active["identity"], self.poll)
-            if audit != control.read(active["dir"] / "prepared-audit.json"):
-                self.state, self.last_error = "FAILED", "Immutable model state changed"
-                raise ValueError(self.last_error)
         body = {"run_id": active["run_id"], "request_id": request.get("request_id") or uuid.uuid4().hex,
                 "index": index, "max_new_tokens": request["max_new_tokens"]}
         body["prompt" if "prompt" in request else "input_ids"] = request.get("prompt", request.get("input_ids"))
@@ -238,6 +236,7 @@ class Runtime:
             try:
                 stop_worker(active["requests"], active["run_id"], active["identity"], active["process"], deadline, self.poll)
                 active["identity"] = None
+                self._verify_audit(active)
             except BaseException as error:
                 self.state, self.last_error = "FAILED", f"{type(error).__name__}: {error}"
                 raise
@@ -260,6 +259,16 @@ class Runtime:
             self.state, self.last_error = "FAILED", f"cleanup failed: {error}"
             raise
         self.state = "ABSENT"
+
+    def _verify_audit(self, active):
+        """Compare the worker's post-response full weight audit, after the response pair."""
+        if not active["index"]:
+            return
+        audit = active["requests"] / "audit-after.json"
+        if not audit.exists():
+            raise ValueError("Worker served a request without publishing its weight audit")
+        if control.read(audit) != control.read(active["dir"] / "prepared-audit.json"):
+            raise ValueError("Immutable model state changed")
 
     def _release_attempt(self, run, attempt):
         """Only a completed attempt becomes terminal; restore's own failure record stays."""

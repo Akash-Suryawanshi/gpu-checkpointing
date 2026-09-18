@@ -57,12 +57,12 @@ class RuntimeTests(unittest.TestCase):
                 control.write(assets / name, value)
             script = root / "fake_worker.py"
             script.write_text(FAKE_WORKER % str(Path(runtime.__file__).parent))
-            rt = runtime.Runtime(assets, root / "tools", root / "service", "fresh", poll_ms=5)
-            rt.worker_script = script
             deadline = time.monotonic() + 20
             with patch.object(park, "resources", return_value=IDLE), \
                  patch.object(runtime.Runtime, "_key", return_value=({"model_path": str(root)}, {"k": 1})), \
                  patch.object(park.Sampler, "sample", lambda self: None):
+                rt = runtime.Runtime(assets, root / "tools", root / "service", "fresh", poll_ms=5)
+                rt.worker_script = script
                 self.assertEqual(rt.status()["state"], "ABSENT")
                 activation = rt.ensure_ready(deadline)
                 self.assertEqual(rt.status()["state"], "READY")
@@ -90,3 +90,40 @@ class RuntimeTests(unittest.TestCase):
                 self.assertTrue((root / "service/activations" / second / "completed.json").exists())
             self.assertFalse((root / "service/activations" / second / "trainer.stderr").read_text().strip(),
                              "a stopped worker exits cleanly")
+
+    def test_benchmark_bookkeeping_and_the_weight_audit_stay_out_of_request_timing(self):
+        """REGRESSION (http-ebs-02 b1, 2026-09-18): the first client request measured 145.7 s
+        because ensure_ready() fingerprinted every model file inside it, which also warmed the
+        cache the trial had just evicted; the second request measured 14.1 s because it waited
+        for the worker's full weight audit. The plan puts both outside request timing: the key
+        is server startup work, and audits run after the response pair."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            assets = root / "assets"
+            assets.mkdir()
+            for name, value in (("reference.json", {"tokens": [1, 2]}), ("tokens.json", {"max_new_tokens": 16}),
+                                ("audit.json", {"audit": "prepared"})):
+                control.write(assets / name, value)
+            script = root / "fake_worker.py"
+            script.write_text(FAKE_WORKER % str(Path(runtime.__file__).parent))
+            deadline = time.monotonic() + 20
+            with patch.object(park, "resources", return_value=IDLE), \
+                 patch.object(park.Sampler, "sample", lambda self: None), \
+                 patch.object(runtime.Runtime, "_key", return_value=({"model_path": str(root)}, {"k": 1})) as key:
+                rt = runtime.Runtime(assets, root / "tools", root / "service", "fresh", poll_ms=5)
+                rt.worker_script = script
+                self.assertEqual(key.call_count, 1, "the comparison key is built once, at startup")
+                rt.ensure_ready(deadline)
+                self.assertEqual(key.call_count, 1, "activation must not re-fingerprint the model")
+                rt.generate({"input_ids": [3], "max_new_tokens": 16}, deadline)
+                # The audit appears only after response one; a second request must not wait for it.
+                audit = rt.active["requests"] / "audit-after.json"
+                if audit.exists():
+                    audit.unlink()
+                started = time.monotonic_ns()
+                rt.generate({"input_ids": [4], "max_new_tokens": 16}, deadline)
+                self.assertLess((time.monotonic_ns() - started) / 1e9, 2.0, "second request waited on the audit")
+                control.write(audit, {"audit": "changed"})
+                with self.assertRaises(ValueError):
+                    rt.unload(deadline)  # the audit is still verified, after the pair
+                self.assertEqual(rt.status()["state"], "ABSENT")

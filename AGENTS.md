@@ -171,6 +171,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
 **Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
 
+### 2026-09-18 - Keep benchmark bookkeeping and audits out of the request path
+**Finding**: The first endpoint trial measured 145.7 s for a fresh activation and 14.1 s for a warm follow-up. `Runtime.ensure_ready()` fingerprinted all 15.26 GiB of model files inside the first request, which also warmed the cache the trial had just evicted, and `generate()` waited for the worker's full weight audit before the second. Server phase records isolated both: `received->ready` 145.7 s, then `ready->first_token` 14.1 s with the model already resident.
+**Impact**: Build the comparison key when the server starts, and verify the audit at unload after the response pair, as the plan requires. Start a server before evicting caches, and read the server phase spans before trusting a client number.
+
 ### 2026-09-18 - A listener on the port is not a ready endpoint
 **Finding**: The first endpoint campaign chose port 8090, already held by an unrelated local service that answered `/healthz` with plain `ok`. `api.py` died on bind, the campaign script's `curl -sf` readiness check passed, and the trial failed inside `json.loads`. `/healthz` now returns a per-process `server_id`, model, and route; `bench_http.ready()` requires them.
 **Impact**: Check port ownership before a campaign, and make readiness probes identify the intended server rather than confirm that something is listening. Report a non-JSON reply with its body, not a decoder error.

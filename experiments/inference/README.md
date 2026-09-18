@@ -244,6 +244,12 @@ identifier, model, and route, and the client refuses to trial an endpoint that
 does not identify itself; a plain listener answering on the port is not a ready
 model server. The server prints its identifier when it starts.
 
+Start the server before evicting caches. It fingerprints the model once at
+startup, which reads every weight file; doing that inside a request would both
+inflate the measurement and warm the cache the trial just evicted. The full
+weight audit is verified at unload, after the response pair, so neither request
+waits for it.
+
 ## Container validation
 
 Requires Docker with NVIDIA Container Toolkit configured on the host. The image
