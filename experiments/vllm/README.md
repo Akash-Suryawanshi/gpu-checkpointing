@@ -96,3 +96,27 @@ done
 PYTHONPATH=experiments/inference:experiments/finetuning:experiments/criu:experiments/cpu \
   python3 -m unittest discover -s tests -v
 ```
+
+## Running on other hardware
+
+The result here is storage-bound, so another host can reverse it. Re-derive
+these before trusting any comparison on a new machine.
+
+| Re-derive | Why | How |
+| --- | --- | --- |
+| vLLM version | wheels past 0.19.1 pin a CUDA 13 torch needing driver 580+ | read the wheel's `Requires-Dist` for `nvidia-*-cu12` against `cu13` |
+| volume bandwidth | it decides the answer | read the raw device, as in the [bandwidth measurement](../results.md#both-volumes-are-bandwidth-limited-and-our-loaders-already-saturate-them--2026-09-18) |
+| `--gpu-fraction` | the preallocated key-value cache is image bytes | keep it low, or unmap the cache before capture |
+| compiled-kernel cache | `warm` refuses an empty cache | one throwaway activation first |
+| CRIU tools | built per host | rebuild under `runs/tools` |
+
+The snapshot wins when reading the image costs less than the startup it removes:
+
+```text
+image_bytes / bandwidth  +  restore overhead   <   cold TTFT
+  6.42 GiB / 0.21 GiB/s  +  ~0 s               <   27.65 s      -> 30.6 s, lost
+  6.42 GiB / 2.00 GiB/s  +  ~3 s               <   27.65 s      -> 6.2 s, won
+```
+
+Run a fresh campaign directory and fresh assets: assets record the engine
+configuration, and images are bound to the checkout path that produced them.

@@ -30,6 +30,7 @@ files or services.
 
 | Read | Purpose |
 | --- | --- |
+| [Every experiment in one page](experiments/README.md) | What each experiment asked and answered, with links. |
 | [CPU checkpointing](docs/01-cpu-checkpointing.md) | Memory, execution state, Linux resources, and CRIU restoration. |
 | [GPU checkpointing](docs/02-gpu-checkpointing.md) | CUDA staging, CPU/GPU coordination, limitations, and cost. |
 | [Run the experiment](experiments/finetuning/README.md) | Setup, commands, code walkthrough, and reporting. |
@@ -37,6 +38,7 @@ files or services.
 | [Workload contract](docs/implementation-plan.md) | Implemented configuration and acceptance requirements. |
 | [Next lifecycle plan](docs/independent-lifecycle-plan.md) | Proposed independent trainer, capture, and restore commands. |
 | [Inference snapshot plan](docs/inference-snapshot-plan.md) | Inference comparison requirements and validation gates. |
+| [vLLM snapshot plan](docs/vllm-snapshot-plan.md) | Whether a snapshot pays for an engine whose startup is computation. |
 
 The [research note](research/single-gpu-finetuning.md) compares approaches; the
 [teaching plan](docs/readability-plan.md) tracks remaining explanatory work.
