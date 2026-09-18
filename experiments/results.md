@@ -547,6 +547,33 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## Packed loaders win the data path and lose it again to serialization — 2026-09-18
+
+The installed Transformers default was compared against the two packed loaders on
+a cold file cache, fresh route only. [Curated measurements](evidence/2026-09-18/cold-nvme-loaders.json)
+record source `8769fc8`.
+
+| Loader | Median first token | Trials | Construct | Read, verify, copy |
+| --- | ---: | ---: | ---: | ---: |
+| Transformers default | 54.95 s | 3 | overlapped with loading | — |
+| packed, four readers | 63.08 s | 2 | 9.78 s | 48.78 s |
+| packed, direct I/O | 63.83 s | 3 | 9.60 s | 48.78 s |
+
+The packed data path is faster than the entire default loader, 48.78 s against
+53.29 s, while additionally verifying every 16 MiB chunk with SHA-256, which the
+default never computes. It gives the advantage back by building the empty model
+serially before reading starts; the installed default overlaps construction with
+its own threaded loading.
+
+Bypassing the file cache changed nothing: both packed loaders moved the data in
+the same 48.78 s. On a cold cache there are no pages to avoid, and the volume is
+the limit either way. Every path measured on this volume, including four
+concurrent readers, lands between 0.31 and 0.34 GB/s.
+
+Overlapping construction with the first reads is therefore the available gain,
+roughly ten seconds, and it applies to the route that already wins. One pipelined
+block failed in cold-cache eviction and is retained rather than replaced.
+
 ## A smaller model and a compiled model both fail to help — 2026-09-18
 
 Two hypotheses for making restoration win were tested as single diagnostics on

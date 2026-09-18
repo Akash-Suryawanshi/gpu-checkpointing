@@ -1,0 +1,107 @@
+{
+  "data_cache": "cold",
+  "loaders": {
+    "direct": {
+      "diagnostic_phases": {
+        "bind_tokenizer_seconds": 1.0100678451126441,
+        "construct_seconds": 9.59806424099952,
+        "direct_io": true,
+        "load_call_seconds": 61.082585375988856,
+        "pinned_buffer_bytes": 67108864,
+        "read_verify_copy_seconds": 48.77732294402085
+      },
+      "max": 64.049171767,
+      "median": 63.83498369,
+      "min": 63.692025277,
+      "n_passed": 3,
+      "runs": [
+        {
+          "reason": null,
+          "run": "b1-fresh",
+          "status": "passed",
+          "ttft": 63.692025277
+        },
+        {
+          "reason": null,
+          "run": "b2-fresh",
+          "status": "passed",
+          "ttft": 63.83498369
+        },
+        {
+          "reason": null,
+          "run": "b3-fresh",
+          "status": "passed",
+          "ttft": 64.049171767
+        }
+      ]
+    },
+    "pipelined": {
+      "diagnostic_phases": {
+        "bind_tokenizer_seconds": 1.0567091810517013,
+        "construct_seconds": 9.775312899029814,
+        "direct_io": false,
+        "load_call_seconds": 61.32333197107073,
+        "pinned_buffer_bytes": 67108864,
+        "read_verify_copy_seconds": 48.77622406906448
+      },
+      "max": 63.097283416,
+      "median": 63.08062371,
+      "min": 63.063964004,
+      "n_passed": 2,
+      "runs": [
+        {
+          "reason": null,
+          "run": "b1-fresh",
+          "status": "passed",
+          "ttft": 63.063964004
+        },
+        {
+          "reason": null,
+          "run": "b2-fresh",
+          "status": "passed",
+          "ttft": 63.097283416
+        },
+        {
+          "reason": "RuntimeError: Selected files are still cached; cannot claim a cold start",
+          "run": "b3-fresh",
+          "status": "failed",
+          "ttft": null
+        }
+      ]
+    },
+    "transformers": {
+      "diagnostic_phases": {
+        "load_call_seconds": 53.28744945698418
+      },
+      "max": 54.965598816,
+      "median": 54.952724381,
+      "min": 54.162395126,
+      "n_passed": 3,
+      "runs": [
+        {
+          "reason": null,
+          "run": "b1-fresh",
+          "status": "passed",
+          "ttft": 54.162395126
+        },
+        {
+          "reason": null,
+          "run": "b2-fresh",
+          "status": "passed",
+          "ttft": 54.965598816
+        },
+        {
+          "reason": null,
+          "run": "b3-fresh",
+          "status": "passed",
+          "ttft": 54.952724381
+        }
+      ]
+    }
+  },
+  "model": "Qwen3-8B",
+  "note": "One pipelined block failed in cold-cache eviction and is retained. Packed loaders verify every chunk with SHA-256 during load; the installed default performs no such check.",
+  "route": "fresh",
+  "source_commit": "8769fc8",
+  "storage": "EC2 instance store NVMe (ephemeral)"
+}
