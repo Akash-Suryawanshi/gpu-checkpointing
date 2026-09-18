@@ -163,6 +163,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/inference/park.py:43` compares NVIDIA-reported process IDs with `/proc` identities. The validated container launch in `experiments/inference/README.md` uses `--pid=host` and `--cgroupns=host`, so identity checks and ancestor-memory admission use the host views.
 **Impact**: Keep that tested profile when reproducing these results; changing namespace isolation requires fresh probes and diagnostics, not an assumption that container IDs will match GPU monitoring.
 
+### 2026-09-18 - Snapshot images are bound to their checkout path
+**Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
+**Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
+
 ### 2026-09-18 - A listener on the port is not a ready endpoint
 **Finding**: The first endpoint campaign chose port 8090, already held by an unrelated local service that answered `/healthz` with plain `ok`. `api.py` died on bind, the campaign script's `curl -sf` readiness check passed, and the trial failed inside `json.loads`. `/healthz` now returns a per-process `server_id`, model, and route; `bench_http.ready()` requires them.
 **Impact**: Check port ownership before a campaign, and make readiness probes identify the intended server rather than confirm that something is listening. Report a non-JSON reply with its body, not a decoder error.
