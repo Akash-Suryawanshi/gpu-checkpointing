@@ -11,6 +11,15 @@ import stream_weights
 
 
 class StreamTests(unittest.TestCase):
+    def test_direct_io_buffer_view_is_page_aligned_and_owned(self):
+        """REGRESSION (direct-02): pinned allocation does not imply O_DIRECT alignment."""
+        buffers = [stream_weights.aligned_buffer(17, False) for _ in range(4)]
+        for index, buffer in enumerate(buffers):
+            self.assertEqual(buffer.data_ptr() % 4096, 0)
+            self.assertEqual(buffer.numel(), 17)
+            buffer.fill_(index)
+        self.assertEqual([buffer.tolist() for buffer in buffers], [[i] * 17 for i in range(4)])
+
     def test_verified_read_handles_short_reads_and_rejects_corruption(self):
         """Critical: chunk validation must cover every byte before it is copied to GPU."""
         class ShortReads(io.BytesIO):

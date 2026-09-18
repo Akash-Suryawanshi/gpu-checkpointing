@@ -31,6 +31,10 @@ merges; do not merge on their behalf.
 
 ## Knowledge Updates
 
+### 2026-09-18 - Pinned buffers need explicit alignment for direct I/O
+**Finding**: The first `direct` 8B diagnostic rejected pinned buffers whose addresses were not multiples of 4096. `experiments/inference/stream_weights.py:20` now overallocates and retains an aligned view of the pinned allocation.
+**Impact**: Pinned memory alone does not satisfy `O_DIRECT` alignment. Check buffer addresses, lengths, and file offsets; preserve a failed diagnostic instead of silently using buffered I/O.
+
 ### 2026-09-18 - Disk validation precedes the CRIU restore event
 **Finding**: `experiments/finetuning/restore.py:27` validates before emitting `restore_requested`. In the third 8B timing, controller observations place 137.60 seconds before that event, 139.45 inside the CRIU command, and 0.57 after return; the 4,351,144 restored pages are 16.60 GiB, not 17.8 GiB.
 **Impact**: Join host-clock controller and helper events before attributing latency. Do not interpret the difference between total latency and CRIU duration as post-restore delay.

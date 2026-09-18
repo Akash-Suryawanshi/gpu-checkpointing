@@ -16,6 +16,15 @@ from pathlib import Path
 CHUNK = 16 * 1024 * 1024
 
 
+def aligned_buffer(size, pinned):
+    import torch
+    # Pinned allocations are DMA-safe, but their starting address need not be
+    # page-aligned. A view keeps the backing allocation alive without a copy.
+    storage = torch.empty(size + 4095, dtype=torch.uint8, pin_memory=pinned)
+    offset = -storage.data_ptr() % 4096
+    return storage[offset:offset + size]
+
+
 def metadata(folder):
     record = json.loads((folder / "manifest.json").read_text())
     if record["schema"] != 1 or record["chunk_bytes"] != CHUNK:
@@ -101,7 +110,9 @@ def load(model_path, folder, pipelined=True, direct=False, stats=None):
     stats["construct_seconds"] = time.monotonic() - started
     started = time.monotonic()
     flat = torch.empty(record["bytes"], dtype=torch.uint8, device="cuda:0")
-    buffers = [torch.empty(CHUNK, dtype=torch.uint8, pin_memory=pipelined) for _ in range(4 if pipelined else 1)]
+    buffers = [(aligned_buffer(CHUNK, pipelined) if direct else
+                torch.empty(CHUNK, dtype=torch.uint8, pin_memory=pipelined))
+               for _ in range(4 if pipelined else 1)]
     events = [torch.cuda.Event() for _ in buffers]
     if direct and (record["bytes"] % 4096 or any(buffer.data_ptr() % 4096 for buffer in buffers)):
         raise ValueError("Direct I/O requires page-aligned buffers and file length")
