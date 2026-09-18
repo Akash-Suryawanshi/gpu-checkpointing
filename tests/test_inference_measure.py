@@ -32,3 +32,23 @@ class MeasureTests(unittest.TestCase):
             altered[index][key] = value
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 measure.durations(altered, "run", reference)
+
+    def test_http_trial_with_disordered_clock_or_drifted_output_is_never_accepted(self):
+        """Critical: client-side TTFT evidence needs one ordered clock, a first token that is
+        the first timed event, streamed tokens equal to the final answer, and the reference."""
+        reference = {"tokens": [1, 2], "text": "ab", "first_token": 1}
+        def observed(start):
+            events = [{"event": "token", "token_id": 1, "received_ns": start + 5}, {"event": "token", "token_id": 2, "received_ns": start + 6},
+                      {"event": "done", "tokens": [1, 2], "text": "ab", "received_ns": start + 7}]
+            return {"start_ns": start, "headers_ns": start + 1, "first_ns": start + 5, "done_ns": start + 7, "events": events}
+        record = {"status": "passed", "data_cache": "cold", "cold_cache": [{"resident_after": 0}],
+                  "status_after": {"state": "READY"}, "primary": observed(100), "followup": observed(200)}
+        self.assertEqual(measure.validate_http(record, reference), {"ttft_seconds": 5e-9, "followup_ttft_seconds": 5e-9})
+        bad = [lambda r: r["primary"].__setitem__("first_ns", 50), lambda r: r["primary"]["events"][1].__setitem__("token_id", 9),
+               lambda r: r["primary"]["events"][-1].__setitem__("text", "xx"), lambda r: r["cold_cache"][0].__setitem__("resident_after", 3),
+               lambda r: r["status_after"].__setitem__("state", "FAILED")]
+        for index, change in enumerate(bad):
+            altered = copy.deepcopy(record)
+            change(altered)
+            with self.subTest(case=index), self.assertRaises(ValueError):
+                measure.validate_http(altered, reference)

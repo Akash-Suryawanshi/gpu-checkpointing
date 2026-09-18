@@ -117,3 +117,25 @@ def validate_run(path, check_diagnostic=True):
     if result["durations"] != measured:
         raise ValueError("Stored duration disagrees with raw events")
     return measured
+
+
+def validate_http(record, reference):
+    """Admit one client-observed HTTP trial: ordered client clock, exact reference output."""
+    primary = record["primary"]
+    times = (primary["start_ns"], primary["headers_ns"], primary["first_ns"], primary["done_ns"])
+    if any(type(t) is not int for t in times) or list(times) != sorted(times):
+        raise ValueError("Client events are out of order")
+    events = primary["events"]
+    tokens = [e for e in events if e["event"] == "token"]
+    if not tokens or events[-1]["event"] != "done" or tokens[0]["received_ns"] != primary["first_ns"]:
+        raise ValueError("First token must be the first client-timed event")
+    done = events[-1]
+    if (done["tokens"] != reference["tokens"] or done["text"] != reference["text"]
+            or tokens[0]["token_id"] != reference["first_token"] or [t["token_id"] for t in tokens] != done["tokens"]):
+        raise ValueError("Streamed, final, and reference outputs differ")
+    if record["status"] != "passed" or record.get("status_after", {}).get("state") != "READY":
+        raise ValueError("Trial did not pass its own checks")
+    if record["data_cache"] == "cold" and any(row["resident_after"] for row in record.get("cold_cache", [])):
+        raise ValueError("Cold data-cache condition not established")
+    return {"ttft_seconds": (primary["first_ns"] - primary["start_ns"]) / 1e9,
+            "followup_ttft_seconds": (record["followup"]["first_ns"] - record["followup"]["start_ns"]) / 1e9}

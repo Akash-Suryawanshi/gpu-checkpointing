@@ -232,7 +232,7 @@ the first token event, checks the exact reference output, and sends a warm follo
 "$PY" experiments/inference/bench_http.py trial --url http://127.0.0.1:8090 --route snapshot \
   --assets "$ASSETS" --snapshot-run "$CAMPAIGN/reusable" --block 1 --data-cache cold \
   --output "$CAMPAIGN/http/b1-snapshot"
-"$PY" experiments/inference/bench_http.py summarize --runs "$CAMPAIGN/http" --output "$CAMPAIGN/http/summary"
+"$PY" experiments/inference/bench_http.py summarize --runs "$CAMPAIGN/http" --assets "$ASSETS" --output "$CAMPAIGN/http/summary"
 ```
 
 For `--route fresh`, omit `--snapshot-run`. `POST /admin/models/{id}/unload`

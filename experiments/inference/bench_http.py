@@ -10,6 +10,7 @@ import uuid
 
 import cold_cache
 import io_stats
+import measure
 from worker import control
 
 
@@ -107,10 +108,15 @@ def summarize(args):
     rows = []
     for path in sorted(args.runs.rglob("result.json")):
         record = control.read(path)
-        rows.append({"run": str(path.parent.relative_to(args.runs)), "route": record["route"], "block": record.get("block"),
-                     "status": record["status"], "ttft_seconds": record.get("ttft_seconds"),
-                     "followup_ttft_seconds": record.get("followup_ttft_seconds"),
-                     "device_read_bytes": sum(d["read_bytes"] for d in record.get("io", []))})
+        row = {"run": str(path.parent.relative_to(args.runs)), "route": record["route"], "block": record.get("block"),
+               "device_read_bytes": sum(d["read_bytes"] for d in record.get("io", []))}
+        try:
+            # Accepted rows pass the shared validator; failures stay visible with their reason.
+            reference = control.read(args.assets / "reference.json")
+            row.update(measure.validate_http(record, reference), status="passed")
+        except (ValueError, KeyError) as error:
+            row.update(status="failed", reason=str(error))
+        rows.append(row)
     summary = {"rows": rows, "routes": {}}
     for route in sorted({r["route"] for r in rows}):
         values = sorted(r["ttft_seconds"] for r in rows if r["route"] == route and r["status"] == "passed")
@@ -138,6 +144,7 @@ if __name__ == "__main__":
     run.set_defaults(func=trial)
     total = commands.add_parser("summarize")
     total.add_argument("--runs", type=Path, required=True)
+    total.add_argument("--assets", type=Path, required=True)
     total.add_argument("--output", type=Path, required=True)
     total.set_defaults(func=summarize)
     arguments = parser.parse_args()
