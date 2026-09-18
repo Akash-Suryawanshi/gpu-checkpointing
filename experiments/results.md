@@ -547,6 +547,39 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## The endpoint boundary costs nothing measurable — 2026-09-18
+
+A live HTTP service activated the model on demand, either by launching a worker or
+by restoring a published image. Clients opened a new connection per request and
+timed to the first streamed token. [Curated measurements](evidence/2026-09-18/http-ebs-03.json)
+record source `1441343` on the EBS volume with the strict integrity policy.
+
+| Route | Endpoint median | Command-line median | Difference |
+| --- | ---: | ---: | ---: |
+| fresh | 129.49 s | 131.11 s | −1.6 s |
+| snapshot | 401.21 s | 401.23 s | −0.02 s |
+
+```text
+client --new TCP connection--> API --> launch worker, or restore published image
+  START before connect                        one image, three activations
+  STOP at first token event <--ndjson token--<
+```
+
+Three pairs each, every correctness check passed, headers arriving in 0.001 s.
+The request path therefore adds nothing to either route, so the command-line
+findings transfer directly to a request-triggered deployment.
+
+The snapshot figures come from one published image activated three times in
+sequence, which validates the [activation contract](../docs/inference-activation-contract.md)
+on the host: an image published by one process, restored on demand by a live
+server, served, and released, three times over.
+
+`followup_ttft_seconds` in this campaign is not a warm-request latency. The worker
+fingerprinted every weight straight after the first response and read no request
+meanwhile, which a command-line controller hid by waiting and an HTTP client
+cannot. Fixed after these images were published; warm latency is 0.07 s across
+every command-line campaign.
+
 ## Packed loaders win the data path and lose it again to serialization — 2026-09-18
 
 The installed Transformers default was compared against the two packed loaders on
