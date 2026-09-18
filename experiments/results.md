@@ -547,6 +547,28 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## The container reproduces every host result — 2026-09-18
+
+The whole comparison was repeated inside the pinned container: namespace, CPU and
+GPU restore probes, asset preparation, diagnostics, a capture published from
+inside the container, and six endpoint trials against one reusable image.
+[Curated measurements](evidence/2026-09-18/container-nvme-01.json) record source `ff694fa`.
+
+| Measurement | Container | Host |
+| --- | ---: | ---: |
+| fresh diagnostic, cold cache | 54.72 s | 54.95 s |
+| snapshot diagnostic, cold cache | 178.57 s | 178.35 s |
+| endpoint fresh, median of three | 54.95 s | 54.30 s |
+| endpoint snapshot, median of three | 164.43 s | 164.19 s |
+
+Every trial passed with exact reference output. A container supplies user-space
+software while the kernel and GPU driver stay on the host, so this establishes
+that the pinned image reproduces the measurements, not that a captured process
+survives a different host or driver.
+
+Host and container results are kept separate rather than pooled. The `sudo`
+hostname warnings come from the disabled network and are retained in the logs.
+
 ## Both volumes are bandwidth-limited, and our loaders already saturate them — 2026-09-18
 
 Every loading and restore path measured on local flash returned between 0.31 and
