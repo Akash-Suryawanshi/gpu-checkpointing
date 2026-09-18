@@ -50,7 +50,7 @@ def trial(args):
         key = runtime.comparison_key(deps, manifest, env, poll_ms=args.poll_ms, sample_ms=args.sample_ms,
             loader=args.loader, bundle=bundle, validation_order=args.validation_order,
             validation_workers=args.validation_workers, data_cache=args.data_cache, transport="cli",
-            integrity_policy=args.integrity_policy)
+            integrity_policy=args.integrity_policy, compile_mode=args.compile_mode)
         diagnostic = None
         if args.kind == "timing":
             diagnostic = measure.diagnostic_record(args.validated_run, key, args.route)
@@ -275,6 +275,8 @@ if __name__ == "__main__":
     parser.add_argument("--contract", choices=(control.CONTRACT,), help="Publish a staged capture for repeated activation")
     parser.add_argument("--integrity-policy", choices=control.MODEL_POLICIES, default="strict-v1",
                         help="publication-verified-v1 checks model identity, not content, at activation")
+    parser.add_argument("--compile-mode", choices=("default", "reduce-overhead", "max-autotune"),
+                        help="Compile the model, so activation has derived state a weights file cannot supply")
     args = parser.parse_args()
     if args.contract and args.disk_action != "capture":
         parser.error("A reusable contract applies to a staged disk capture only")

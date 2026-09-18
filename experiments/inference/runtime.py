@@ -18,13 +18,15 @@ from worker import control
 from control import session
 
 HERE = Path(__file__).resolve().parent
-CACHE_KEYS = ("TMPDIR", "HF_HOME", "XDG_CACHE_HOME", "TORCH_HOME", "CUDA_CACHE_PATH")
+CACHE_KEYS = ("TMPDIR", "HF_HOME", "XDG_CACHE_HOME", "TORCH_HOME", "CUDA_CACHE_PATH",
+              "TORCHINDUCTOR_CACHE_DIR")
 
 
 def comparison_key(deps, manifest, env, **settings):
     """Everything that must match between a diagnostic and the runs it admits."""
     return {"dependencies": deps, "assets": manifest, "bundle": None, "loader": "transformers",
             "validation_order": "payload-first", "validation_workers": 1, "data_cache": "uncontrolled",
+            "compile_mode": None,
             # Version the boundary so HTTP and CLI evidence never pool with historical runs.
             # integrity_policy also keeps a weakened model check out of strict campaigns.
             "boundary_schema": 2, "integrity_policy": "strict-v1",

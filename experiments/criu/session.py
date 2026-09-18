@@ -31,7 +31,7 @@ def child_environment(cuda_checkpoint):
             "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "TOKENIZERS_PARALLELISM": "false",
             "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1", "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
             **{key: os.environ[key] for key in ("TMPDIR", "HF_HOME", "XDG_CACHE_HOME",
-               "TORCH_HOME", "CUDA_CACHE_PATH") if key in os.environ}}
+               "TORCH_HOME", "CUDA_CACHE_PATH", "TORCHINDUCTOR_CACHE_DIR") if key in os.environ}}
 
 
 def adopt_restored_children():

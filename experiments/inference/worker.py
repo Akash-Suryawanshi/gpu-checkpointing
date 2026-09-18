@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "finetuning"))
 import control
 
 
-def load(model_path, loader="transformers", bundle=None, stats=None):
+def load(model_path, loader="transformers", bundle=None, stats=None, compile_mode=None):
     # Direct preparation and isolated children must use the same cuBLAS policy.
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     import torch
@@ -28,6 +28,10 @@ def load(model_path, loader="transformers", bundle=None, stats=None):
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True,
         dtype=torch.bfloat16, device_map={"": "cuda:0"}, attn_implementation="sdpa").eval()
+    if compile_mode:
+        # Compiled kernels live in this process. A fresh start must produce them;
+        # a snapshot restores them, which is the state worth capturing.
+        model = torch.compile(model, mode=compile_mode)
     torch.cuda.synchronize()
     return model, tokenizer
 
@@ -64,6 +68,8 @@ def generate(model, tokenizer, inputs, count, first=None, on_token=None):
 
 def inspect(model, kind):
     import state
+    # A compiled module wraps the original; its parameters are the same tensors.
+    model = getattr(model, "_orig_mod", model)
     tensors = model.state_dict()
     if any(m.training for m in model.modules()) or any(t.device.type != "cuda" for t in tensors.values()):
         raise ValueError("Model must be entirely on GPU in evaluation mode")
@@ -151,7 +157,7 @@ def main(args):
     bundle = settings.get("bundle")
     stats, load_started = {}, time.monotonic()
     model, tokenizer = load(manifest["model_path"], settings.get("loader", "transformers"),
-                            bundle["path"] if bundle else None, stats)
+                            bundle["path"] if bundle else None, stats, settings.get("compile_mode"))
     control.write(run / "loading.json", {**stats, "load_call_seconds": time.monotonic() - load_started})
     poll = settings["poll_ms"] / 1000
     wait = lambda path: control.wait(path, time.monotonic() + 7200, poll=poll)
