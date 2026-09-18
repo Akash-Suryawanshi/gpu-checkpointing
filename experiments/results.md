@@ -879,3 +879,119 @@ patched CRIU (native AIO, parallel memfd, `O_DIRECT`) on striped NVMe, with the
 key-value cache unmapped and weights restored outside the image. Our 5.47 GiB
 image is already their size; our read rate is roughly ten times slower. The
 eager control was built and left unrun at the user's request.
+
+## H100 storage arm: the disk stops binding and the snapshot loses by more — 2026-09-18
+
+The same comparison on an H100 80GB host whose volume reads 16x faster. Faster
+storage did not reverse the A10G result: cold improved more than the snapshot
+did, so the gap widened from 2.66 s to 5.96 s.
+[Curated validation](evidence/2026-09-18/vllm-h100-01-validation.json),
+[phase split](evidence/2026-09-18/vllm-h100-01-phases.json),
+[campaign script](evidence/2026-09-18/vllm-h100-01-run-campaign.sh).
+
+Host: NVIDIA H100 80GB HBM3, driver 580.126.20, kernel 5.15.0-171. vLLM 0.19.1
+with torch 2.10.0+cu128, held identical to the A10G arm so only the hardware
+differs. The driver now permits the CUDA 13 wheels that host refused.
+
+| Route | Median TTFT | Range | Device bytes read | A10G median |
+| --- | ---: | --- | ---: | ---: |
+| cold | 15.96 s | 15.95–15.98 | 0.92 GiB | 27.65 s |
+| snapshot | 21.92 s | 21.76–22.16 | 8.29 GiB | 30.31 s |
+
+Eight runs, one comparison key, `--gpu-fraction 0.063` for 9238 key-value blocks
+and a 7.37 GiB image. The fraction is small because the block count was matched,
+not the fraction; see [the image is bigger](#the-image-is-bigger-because-the-block-count-was-matched).
+
+### The bottleneck moved off the disk
+
+[Raw device reads](evidence/2026-09-18/storage-bandwidth-h100.txt) reach 5.4 GB/s
+at eight streams or at `bs=64M` on one, against the A10G's flat 0.32 GB/s. At that
+rate the image is 1.5 s of reading, so a storage-bound snapshot would have won.
+
+It is no longer storage-bound. Splitting the activation shows where the time is:
+
+| Phase | Median | Bound by |
+| --- | ---: | --- |
+| payload validation | 14.24 s | serial 4 MiB read-and-hash |
+| dependency validation | 1.67 s | the same |
+| CRIU restore | 4.63 s | page cache, then PCIe |
+| continuation to first token | 1.30 s | handshake |
+
+```text
+A10G      [====== read image 6.42 GiB at 0.21 GiB/s ======]  30.31 s  disk-bound
+H100      [== hash 7.37 GiB at 0.52 GiB/s ==][CRIU 4.6][..]  21.92 s  hash-bound
+                                              ^^^^^^^^ all the snapshot really costs
+```
+
+Activation time per route. The device improved 16x; validation improved 2.5x,
+because it never read at device speed in the first place.
+
+`control.inventory()` hashes the payload in a plain serial loop, and
+`prepare.file_hash()` reads 4 MiB at a time. Measured in isolation on the real
+`pages-9.img`: 0.78 GB/s to read without hashing, 1.80 GB/s to hash from RAM,
+0.67 GB/s for both together. That is a tenth of what the device can deliver.
+
+CRIU itself is cheap and reads from memory, because validation has just pulled
+the image into a 196 GiB page cache: 7.32 GiB of pages in 3.02 s, then 1.3 s for
+the CUDA plugin to put roughly 5 GiB back on the device. The
+[validation-order fix](#validation-order-decides-whether-criu-reads-the-image-from-cache--2026-09-18)
+is moot here — nothing evicts the image between hashing and CRIU, and device
+counters show one image pass, not two.
+
+### The image is bigger because the block count was matched
+
+`pages-9.img` is 7.32 GiB, 99.3% of the payload. Image size tracks
+`gpu_fraction x GPU memory + host RSS`: 0.15 x 22.49 + 2.0 = 5.4 GiB on the A10G,
+0.063 x 79.65 + 1.93 + 0.32 = 7.3 GiB here.
+
+| Part of the 7.32 GiB | GiB |
+| --- | ---: |
+| live allocations: weights 0.92, key-value cache 1.69, rest | 2.82 |
+| free-but-reserved allocator pool, empty and dumped anyway | 2.25 |
+| host RSS | 1.93 |
+| CUDA context and other mappings | 0.32 |
+
+Holding the block count fixed cost bytes: vLLM's non-key-value reservation is
+3.37 GiB here against roughly 1.70 GiB on the A10G, so the same 1.69 GiB cache
+needed a 5.02 GiB budget instead of 3.37 GiB.
+
+### Crossover arithmetic
+
+The snapshot removes cold's whole 15.93 s of imports and `LLM()`. It must then
+pay for its image. Against the measured 15.96 s cold median:
+
+```text
+image / validation rate + intrinsic restore  <  cold TTFT
+7.37 GiB / 0.52 GiB/s   + 7.69 s             <  15.96 s  -> 21.9 s, lost
+7.37 GiB / 5.00 GiB/s   + 7.69 s             <  15.96 s  ->  9.2 s, won
+```
+
+Solving for image size at the current validation rate gives a 4.82 GiB
+break-even. The live data alone is 4.75 GiB, so trimming the dead allocator pool
+would only tie. On this host the validation throughput has to change, not the
+image.
+
+### What the number includes
+
+Both routes verify their inputs, but not on the same side of the clock.
+`trial.py:93` hashes every model file before the timer starts, for both routes;
+`trial.py:162` hashes the 7.37 GiB image after it starts, for the snapshot only.
+That asymmetry is 16.0 s of the 21.92 s.
+
+| Cost | Seconds | Share |
+| --- | ---: | ---: |
+| intrinsic: CRIU pages, CUDA device resume | 4.63 | 21% |
+| policy: integrity hashing and handshake | 17.29 | 79% |
+
+Excluding validation, the same restore reaches first token in 5.92 s and beats
+cold by 10.04 s. That figure is not comparable with the A10G pair, which paid the
+same check, and it is a different experiment rather than a better reading of this
+one: `integrity_policy` is part of the comparison key, and per
+[what a restored image reopens](#what-a-restored-image-actually-reopens--2026-09-18) a
+weakened check must carry a different label so results never pool.
+
+Scope: this measures one harness under `strict-v1`, not snapshot restore in
+general. The hypothesis still fails here, but for a policy reason rather than a
+physical one. Parallelising or enlarging the reads inside `inventory()` would be
+an implementation fix at the same integrity, and would invalidate every existing
+image through the dependency hash.
