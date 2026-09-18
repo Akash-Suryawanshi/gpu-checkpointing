@@ -1,6 +1,6 @@
 # Running the vLLM snapshot comparison
 
-**Gate 1 passed on this host; gates 2–4 not yet run.** The
+**Complete on Qwen2.5-0.5B: cold 27.65 s, snapshot 30.31 s.** The
 [plan](../../docs/vllm-snapshot-plan.md) owns the requirements and the stop
 conditions; this file owns the commands. Capture, restore, eviction and
 ownership are reused from the [inference runbook](../inference/README.md).
@@ -61,9 +61,15 @@ mkdir -p "$CAMPAIGN"
   --tools "$TOOLS" --timeout 3600
 ```
 
-A refusal inside CRIU's device-mapping handling is the planned stop, not a bug
-to work around: record the log and report it. Run the `cold` and `eager`
-diagnostics the same way before any timing.
+This passes. Nothing extra is needed to make it pass: `engine.py` sets
+`USE_LIBUV=0` and `session.py` dumps with `--tcp-established`, which together
+remove the io_uring ring and the self-connected socket that CRIU refuses. Run
+the `cold` diagnostic the same way before any timing.
+
+Run both diagnostics with the same `--data-cache` setting the timings will use:
+the condition is part of the comparison key, so a cold timing needs a cold
+diagnostic. It matters more than it looks — an image written moments earlier is
+still in the page cache, and a restore that reads it from there measures nothing.
 
 ## Timing blocks
 

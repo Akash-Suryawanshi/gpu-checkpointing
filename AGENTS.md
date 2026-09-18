@@ -31,6 +31,10 @@ merges; do not merge on their behalf.
 
 ## Knowledge Updates
 
+### 2026-09-18 - A serving engine is refused by CRIU for its sockets, not its kernels
+**Finding**: Capturing a warmed vLLM worker failed twice before any GPU mapping was examined. `criu/proc_parse.c:502` rejects the io_uring ring that PyTorch's libuv distributed store opens even at world size one (`USE_LIBUV=0` removes it), then `criu/sk-inet.c:200` rejects the store's connection to itself without `--tcp-established`, whose iptables lock needs `/usr/sbin` in the privileged command's PATH. The CUDA plugin itself checkpointed the devices in about three seconds.
+**Impact**: Probe a new workload's sockets and anonymous inodes before concluding anything about GPU support; `handle_device_vma plugin failed` was the predicted blocker and never appeared. These are PyTorch behaviours, so they apply to any torch job with a process group, not only to vLLM.
+
 ### 2026-09-18 - vLLM past 0.19.1 needs a newer driver than this host has
 **Finding**: Every vLLM from 0.20 on pins `torch>=2.11`, whose wheels depend on `nvidia-*-cu13`; CUDA 13 requires driver 580 or newer, and this host runs 570.172.08. vLLM 0.19.1 pins torch 2.10.0 with `nvidia-cuda-runtime-cu12==12.8.90` and loads here. Its engine core is a second process unless `VLLM_ENABLE_V1_MULTIPROCESSING=0`, and only then does `llm_engine.model_executor` exist; cache geometry is at `llm_engine.vllm_config.cache_config`, not on the engine.
 **Impact**: Read wheel metadata before spending an install on a version check. One process is what CRIU dumps and what `experiments/inference/park.py` attributes to a GPU identity, so the multiprocessing split is not optional here.

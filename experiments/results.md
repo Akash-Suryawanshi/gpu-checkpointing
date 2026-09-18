@@ -840,3 +840,42 @@ warnings were nonfatal. All warnings remain in the evidence.
 
 The [runbook](inference/README.md#container-validation) gives the tested mounts,
 permissions, and probe commands; no smaller model or larger GPU was needed.
+
+## vLLM: a real compile cost, and a snapshot that still loses — 2026-09-18
+
+Qwen2.5-0.5B on the A10G, vLLM 0.19.1, three timing blocks per route with a
+verified cold file cache, all eight runs under one comparison key. The
+[plan](../docs/vllm-snapshot-plan.md) owns the requirements; the
+[runbook](vllm/README.md) owns the commands.
+
+| Route | Median TTFT | Range | Device bytes read |
+| --- | --- | --- | --- |
+| cold | 27.65 s | 27.49–27.69 | 0.92 GiB |
+| snapshot | 30.31 s | 30.24–30.40 | 6.42 GiB |
+
+The engine has the startup cost our own stack never had: weights load in 0.17 s
+while `LLM()` takes 22.3 s with a warm compiled-kernel cache and 47.3 s without.
+That is compilation and CUDA-graph capture, and no file can supply it.
+
+```text
+cold      [read 0.92 GiB][compile + capture graphs ~22 s]   27.65 s
+snapshot  [read 6.42 GiB ................................]  30.31 s
+```
+
+The snapshot removes the computation and pays for it in reads: 6.42 GiB against
+0.92 GiB, at the 0.21 GiB/s these volumes deliver. Restoration is storage-bound
+here, so it loses by 2.66 s in every block. The image also does not replace the
+weight file — CRIU re-reads the 0.93 GiB mapping as well as the 5.47 GiB image.
+
+Capture worked, and not where the plan expected it to fail. `handle_device_vma
+plugin failed` never appeared; the CUDA plugin checkpointed the devices in about
+three seconds. Two PyTorch behaviours blocked the dump first: the libuv
+distributed store's io_uring ring, and its TCP connection to itself. See the
+[knowledge updates](../AGENTS.md#knowledge-updates) for both.
+
+Scope: this disproves the hypothesis **on this hardware with stock CRIU**, not in
+general. NVIDIA's Dynamo Snapshot restores a comparable checkpoint in 2.4 s using
+patched CRIU (native AIO, parallel memfd, `O_DIRECT`) on striped NVMe, with the
+key-value cache unmapped and weights restored outside the image. Our 5.47 GiB
+image is already their size; our read rate is roughly ten times slower. The
+eager control was built and left unrun at the user's request.

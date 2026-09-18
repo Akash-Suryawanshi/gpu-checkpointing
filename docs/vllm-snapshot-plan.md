@@ -1,6 +1,6 @@
 # Plan: vLLM snapshot versus cold start
 
-**Implemented; gates not yet run.** Test one claim: for an engine whose startup
+**Complete; hypothesis disproved on this hardware.** Tested one claim: for an engine whose startup
 compiles kernels and captures CUDA graphs, restoring a saved process beats
 starting cold. Our own stack could not show this, because its startup work is free.
 
@@ -44,13 +44,19 @@ negative result extends to production engines, which is also worth knowing.
 with identical output tokens, and the gap is close to the measured
 compile-and-capture time.
 
-**Disproved if** the snapshot is at or above cold. The image will exceed the
-weights and both volumes cap near 0.32 GB/s, so this is a live outcome and the
-byte accounting has to explain it.
+**Disproved**, and the byte accounting explains it: snapshot 30.31 s against
+cold 27.65 s, reading 6.42 GiB against 0.92 GiB. See the
+[evidence](../experiments/results.md#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18).
 
-**Blocked if** capture refuses vLLM. Stock CRIU already rejects compiled kernels
-with `handle_device_vma plugin failed`; that is a clean finding about stock
-tooling, not a failed experiment.
+**Blocked if** capture refuses vLLM. It did not, and not for the predicted
+reason: `handle_device_vma plugin failed` never appeared, and the CUDA plugin
+checkpointed the devices in about three seconds. Two other refusals had to be
+cleared first, both caused by PyTorch rather than by the engine.
+
+| Refusal | Cause | Cleared by |
+| --- | --- | --- |
+| `Unknown shit 600 (anon_inode:[io_uring])` | PyTorch's libuv distributed store opens an io_uring ring even at world size one | `USE_LIBUV=0` |
+| `inet: Connected TCP socket` | the same store keeps a connection to itself | `--tcp-established`, with `/usr/sbin` on the privileged command's path for its iptables lock |
 
 ## Gates
 
