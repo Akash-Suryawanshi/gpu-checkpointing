@@ -163,6 +163,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/inference/park.py:43` compares NVIDIA-reported process IDs with `/proc` identities. The validated container launch in `experiments/inference/README.md` uses `--pid=host` and `--cgroupns=host`, so identity checks and ancestor-memory admission use the host views.
 **Impact**: Keep that tested profile when reproducing these results; changing namespace isolation requires fresh probes and diagnostics, not an assumption that container IDs will match GPU monitoring.
 
+### 2026-09-18 - A listener on the port is not a ready endpoint
+**Finding**: The first endpoint campaign chose port 8090, already held by an unrelated local service that answered `/healthz` with plain `ok`. `api.py` died on bind, the campaign script's `curl -sf` readiness check passed, and the trial failed inside `json.loads`. `/healthz` now returns a per-process `server_id`, model, and route; `bench_http.ready()` requires them.
+**Impact**: Check port ownership before a campaign, and make readiness probes identify the intended server rather than confirm that something is listening. Report a non-JSON reply with its body, not a decoder error.
+
 ### 2026-09-18 - Published inference images are currently single-use
 **Finding**: `experiments/finetuning/control.py:330` requires the exact published phase; `restore.py:48` changes registration, while validation also rejects old inspection markers and changed captured logs. `experiments/criu/session.py:204` restores the saved PID, and `worker.py:87` retains its captured run path.
 **Impact**: Repeated activation uses `control/activation.json` per attempt plus baseline log copies under `snapshot/external/`, never a phase reset; `control.validate()` resets the consumed marker and registration under the lock. Training keeps the single-use contract; see the [activation contract](docs/inference-activation-contract.md).

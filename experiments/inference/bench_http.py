@@ -24,6 +24,51 @@ def call(url, method, path, body=None):
     return connection, response
 
 
+def decode(response, what):
+    """Fail with the actual body rather than a decoder error on a foreign reply."""
+    body = response.read()
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        raise RuntimeError(f"{what}: HTTP {response.status} with non-JSON body {body[:200]!r}") from None
+
+
+def ready(url, model, route, attempts=150, delay=0.2):
+    """Wait until the endpoint identifies itself as this model and route.
+
+    A listener answering /healthz is not proof the intended server is there:
+    another service may already hold the port while this one died on bind.
+    """
+    failure = "no response"
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(delay)
+        try:
+            connection, response = call(url, "GET", "/healthz")
+        except OSError as error:
+            failure = str(error)
+            continue
+        try:
+            if response.status != 200:
+                failure = f"HTTP {response.status}"
+                continue
+            try:
+                identity = decode(response, "healthz")
+            except RuntimeError as error:
+                failure = str(error)
+                continue
+        finally:
+            response.close()
+            connection.close()
+        if not identity.get("server_id"):
+            failure = f"response did not identify a server: {identity}"
+            continue
+        if identity.get("model") != model or identity.get("route") != route:
+            raise RuntimeError(f"{url} did not identify as model {model!r} route {route!r}: {identity}")
+        return identity
+    raise RuntimeError(f"{url} did not identify a ready server after {attempts} attempts: {failure}")
+
+
 def request(url, model, prompt, max_new_tokens):
     """Time from before the connection opens to the first token event, in one client clock."""
     body = {"model": model, "prompt": prompt, "max_new_tokens": max_new_tokens, "temperature": 0,
@@ -63,8 +108,9 @@ def trial(args):
     reference = control.read(assets / "reference.json")
     record = {"route": args.route, "block": args.block, "url": args.url, "model": args.model,
               "data_cache": args.data_cache, "assets_manifest_sha256": control.file_hash(assets / "manifest.json")}
+    record["server"] = ready(args.url, args.model, args.route)
     connection, response = call(args.url, "POST", f"/admin/models/{args.model}/unload")
-    status = json.loads(response.read())
+    status = decode(response, "unload")
     connection.close()
     if response.status != 200 or status["state"] != "ABSENT":
         raise RuntimeError(f"Could not reset model: {status}")
@@ -82,7 +128,7 @@ def trial(args):
     record["io"] = io_stats.delta(io_before, io_stats.sample(devices))
     followup = request(args.url, args.model, prompt, tokens["max_new_tokens"])
     connection, response = call(args.url, "GET", f"/models/{args.model}")
-    record["status_after"] = json.loads(response.read())
+    record["status_after"] = decode(response, "status")
     connection.close()
     checks = {}
     for name, observed in (("primary", primary), ("followup", followup)):

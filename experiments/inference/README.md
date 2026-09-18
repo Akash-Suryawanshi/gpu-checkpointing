@@ -239,6 +239,11 @@ For `--route fresh`, omit `--snapshot-run`. `POST /admin/models/{id}/unload`
 resets between trials; `GET /models/{id}` reports state and the last error.
 One request at a time: concurrent requests get `429`, nonzero temperature `400`.
 
+Choose a port nothing else holds. `GET /healthz` returns the server's own
+identifier, model, and route, and the client refuses to trial an endpoint that
+does not identify itself; a plain listener answering on the port is not a ready
+model server. The server prints its identifier when it starts.
+
 ## Container validation
 
 Requires Docker with NVIDIA Container Toolkit configured on the host. The image

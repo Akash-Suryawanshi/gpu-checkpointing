@@ -11,6 +11,7 @@ from pathlib import Path
 import select
 import socket
 import time
+import uuid
 
 from runtime import Runtime
 
@@ -57,7 +58,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/healthz":
-            return self._json(200, {"ok": True})
+            # Identifies this server, so a client cannot mistake an unrelated
+            # listener on the same port for a ready model endpoint.
+            return self._json(200, {"ok": True, "server_id": self.server.server_id,
+                                    "model": self.server.model_id, "route": self.runtime.route})
         if self.path == f"/models/{self.server.model_id}":
             return self._json(200, self.runtime.status())
         self._json(404, {"error": "unknown path"})
@@ -139,7 +143,6 @@ def validate(body, model_id):
     unknown = set(body) - {"model", "prompt", "max_new_tokens", "temperature", "request_id"}
     if unknown:
         raise ValueError(f"unsupported settings: {sorted(unknown)}")
-    import uuid
     return {"prompt": body["prompt"], "max_new_tokens": count,
             "request_id": body.get("request_id") or uuid.uuid4().hex}
 
@@ -148,6 +151,7 @@ def serve(runtime, model_id, host, port, request_timeout):
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
     server.runtime, server.model_id, server.request_timeout = runtime, model_id, request_timeout
+    server.server_id = uuid.uuid4().hex
     return server
 
 
@@ -168,7 +172,7 @@ if __name__ == "__main__":
     runtime = Runtime(args.assets, args.tools, args.root, args.route, snapshot_run=args.snapshot_run,
                       poll_ms=args.poll_ms, sample_ms=args.sample_ms, model_policy=args.integrity_policy)
     server = serve(runtime, args.model_id, args.host, args.port, args.request_timeout)
-    print(f"serving {args.route} on http://{args.host}:{args.port}", flush=True)
+    print(f"serving {args.route} on http://{args.host}:{args.port} server_id={server.server_id}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
