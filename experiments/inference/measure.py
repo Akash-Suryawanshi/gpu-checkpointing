@@ -70,6 +70,11 @@ def validate_run(path, check_diagnostic=True):
                 "audit-after.json", "observations.json", "memory.json", "resources.jsonl"}
     if run["route"] in ("ram", "disk"):
         required.update(("reuse.json", "released-resources.json"))
+    if run["key"].get("data_cache") == "cold":
+        required.add("cold-cache.json")
+        cache = read(path / "cold-cache.json")
+        if not cache or any(row["resident_after"] != 0 for row in cache):
+            raise ValueError("Cold data-cache condition not established")
     if not required <= result["evidence"].keys():
         raise ValueError("Required evidence digest missing")
     for source, saved in (("reference.json", "reference.json"), ("tokens.json", "tokens.json"),

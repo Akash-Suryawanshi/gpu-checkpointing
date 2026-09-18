@@ -11,6 +11,7 @@ import sys
 import time
 import uuid
 
+import cold_cache
 import lifecycle
 import measure
 import park
@@ -38,6 +39,8 @@ def trial(args):
         manifest = validate_assets(assets)
         deps = control.dependencies({"assets": str(assets), "python": sys.executable}, tools, deadline)
         key = {"dependencies": deps, "assets": manifest, "poll_ms": args.poll_ms,
+               "validation_order": args.validation_order, "validation_workers": args.validation_workers,
+               "data_cache": args.data_cache,
                "sample_ms": args.sample_ms, "inspection_policy": "full-diagnostic-post-response-timing-v1",
                "cache_paths": {k: env[k] for k in ("TMPDIR", "HF_HOME", "XDG_CACHE_HOME", "TORCH_HOME", "CUDA_CACHE_PATH") if k in env}}
         diagnostic = None
@@ -53,7 +56,7 @@ def trial(args):
             details.update(captured["details"])
         else:
             run = {"run_id": uuid.uuid4().hex, "route": args.route, "kind": args.kind, "block": args.block,
-                   "key": key, "diagnostic": diagnostic, "cache_condition": "uncontrolled local filesystem cache"}
+                   "key": key, "diagnostic": diagnostic, "cache_condition": args.data_cache}
             control.write(output / "run.json", run)
             for source, target in (("reference.json", "reference.json"), ("tokens.json", "tokens.json"),
                                    ("audit.json", "prepared-audit.json")):
@@ -96,8 +99,16 @@ def trial(args):
                 raise ValueError("Job B result differs")
             control.write(output / "reuse.json", {**checked, "claim": claim, "exited": True})
             print(f"job B: {mib} MiB, {claim}, calculation passed, process exited", flush=True)
+        def cold_start(images=()):
+            if args.data_cache == "cold":
+                files = [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]
+                         if name.endswith(".safetensors")]
+                control.write(output / "cold-cache.json", cold_cache.evict([*files, *images]))
+                emit("data_cache_evicted")
         if not staged_restore:
             phase = "launch"
+            if args.route == "fresh":
+                cold_start()
             started = time.monotonic_ns()
             process = session.launch(sys.executable, HERE / "worker.py", ["--assets", assets,
                 "--run-dir", output, "--route", args.route, "--kind", args.kind, "--run-id", run["run_id"]], output, env)
@@ -150,13 +161,16 @@ def trial(args):
             phase = "restore"
             memory = control.read(output / "snapshot/manifest.json")["pre_staging_memory"]
             admit("restore", memory)
+            cold_start(p for p in (output / "snapshot/images").rglob("*") if p.is_file())
             started = time.monotonic_ns()
+            emit("disk_activation_started", start_ns=started)
             original = lifecycle.restore(output, tools, env, deadline)
             sampler.pid = original["pid"]
             details["restore_exited"] = True
             print(f"disk: restore command exited; worker {original['pid']} survived", flush=True)
         phase = "responses"
         wait("ready.json", original)
+        emit("worker_ready_observed")
         observations = []
         for index in (1, 2):
             request = {"run_id": run["run_id"], "request_id": uuid.uuid4().hex,
@@ -199,6 +213,8 @@ def trial(args):
                  "observations.json", "memory.json", "resources.jsonl"]
         if args.route in ("ram", "disk"):
             names += ["reuse.json", "released-resources.json"]
+        if args.data_cache == "cold":
+            names += ["cold-cache.json"]
         result = {"status": "passed", "cleanup": "complete", "run_sha256": measure.file_hash(output / "run.json"),
                   "evidence": {name: measure.file_hash(output / name) for name in names}, **details,
                   "durations": measure.durations(observations, run["run_id"], control.read(output / "reference.json"))}
@@ -242,6 +258,9 @@ if __name__ == "__main__":
     parser.add_argument("--discard-image-after-success", action="store_true")
     parser.add_argument("--poll-ms", type=float, default=5)
     parser.add_argument("--sample-ms", type=float, default=100)
+    parser.add_argument("--validation-order", choices=("payload-first", "dependencies-first"), default="payload-first")
+    parser.add_argument("--validation-workers", type=int, choices=(1, 4), default=1)
+    parser.add_argument("--data-cache", choices=("uncontrolled", "cold"), default="uncontrolled")
     args = parser.parse_args()
     if args.kind == "timing" and (not args.validated_run or not args.block):
         parser.error("Timing requires --validated-run and --block")
@@ -249,6 +268,8 @@ if __name__ == "__main__":
         parser.error("Staged actions require disk diagnostics")
     if args.discard_image_after_success and (args.route != "disk" or args.kind != "timing"):
         parser.error("Image discard requires accepted disk timing")
+    if args.data_cache == "cold" and (args.route not in ("fresh", "disk") or args.disk_action == "capture"):
+        parser.error("Cold data-cache measurement requires fresh or a disk restore")
     if any(not math.isfinite(v) or v <= 0 for v in (args.timeout, args.poll_ms, args.sample_ms)):
         parser.error("Deadlines and intervals must be positive")
     trial(args)

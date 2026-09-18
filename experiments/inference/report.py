@@ -74,7 +74,8 @@ def summarize(root):
         if route != "fresh" and len(pairs) == 3:
             speedups[route] = {"paired": pairs, "median": statistics.median(pairs), "min": min(pairs), "max": max(pairs)}
     return {"rows": rows, "aggregates": aggregates, "speedups": speedups,
-            "limitations": "Asset validation reads model files before launch; file-cache residency remains uncontrolled. "
+            "limitations": "See each run's data_cache setting: cold trials verify weights/images are uncached after preflight; "
+                            "other trials leave file-cache residency uncontrolled. Runtime/library caches are not evicted. "
                             "Three trials do not establish tail latency. "
                             "Sampled peaks can miss short spikes. Same-host recovery is not host-loss recovery."}
 
