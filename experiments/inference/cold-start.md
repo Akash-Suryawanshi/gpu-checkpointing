@@ -72,6 +72,35 @@ Compare defaults against `--validation-order dependencies-first
 Run `"$PY" experiments/inference/disk_profile.py RUN` to locate time before,
 inside, and after CRIU using host-observer events.
 
+## Why an activation reads what it reads
+
+Both routes are limited by storage bandwidth, so their times follow their bytes.
+A fresh start reads the weights once. A snapshot activation can read up to three
+times that, and two of those passes are avoidable.
+
+```text
+weights on disk    15.26 GiB  -> fresh reads this once
+reserved GPU bytes 15.29 GiB  \
+host process RSS    1.39 GiB  /  -> image payload 16.61 GiB
+
+snapshot activation, worst case 48.49 GiB:
+  hash image  16.61  +  hash model 15.26  +  CRIU rereads image 16.61
+              kept      removable          removable
+```
+
+The model pass is removable because the restored process never reopens those
+files; see the [file audit](../results.md#what-a-restored-image-actually-reopens--2026-09-18).
+The second image pass is a cache effect: the host has 30 GiB of memory, so a long
+hashing pass between the first read and CRIU evicts the image. Removing either
+one keeps the image cached, and removing the model pass makes the ordering moot.
+
+The floor is one image pass, 16.61 GiB against a fresh start's 15.26 GiB. A
+snapshot of this workload holds no expensive derived state: its bytes are the
+weights, which already sit on disk in a directly loadable form. Snapshotting
+repays its cost when state is expensive to derive, such as compiled kernels,
+load-time quantization, or training optimizer state. The
+[results chapter](../results.md) owns the measured numbers.
+
 ## Measurement boundary
 
 ```text
