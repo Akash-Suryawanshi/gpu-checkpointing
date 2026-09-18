@@ -2,7 +2,7 @@
 
 **Complete on Qwen2.5-0.5B: cold 27.65 s, snapshot 30.31 s.** Repeated on an
 H100 host with 16x faster storage, where the gap first widens to 5.96 s
-([storage arm](../results.md#h100-storage-arm-the-disk-stops-binding-and-the-snapshot-loses-by-more--2026-09-18))
+([storage arm](../results.md#h100-storage-arm-the-disk-stops-binding-and-our-own-reader-takes-over--2026-09-18))
 and then reverses to a 6.81 s win once the payload hash runs in parallel
 ([payload policies](../results.md#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)). The
 [plan](../../docs/vllm-snapshot-plan.md) owns the requirements and the stop

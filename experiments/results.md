@@ -878,39 +878,37 @@ general. NVIDIA's Dynamo Snapshot restores a comparable checkpoint in 2.4 s usin
 patched CRIU (native AIO, parallel memfd, `O_DIRECT`) on striped NVMe, with the
 key-value cache unmapped and weights restored outside the image. Our 5.47 GiB
 image is already their size; our read rate is roughly ten times slower. That
-rate comparison is misleading, and the [H100 arm](#h100-storage-arm-the-disk-stops-binding-and-the-snapshot-loses-by-more--2026-09-18)
+rate comparison is misleading, and the [H100 arm](#h100-storage-arm-the-disk-stops-binding-and-our-own-reader-takes-over--2026-09-18)
 shows why: most of it is our own integrity check, not reading. The
 eager control was built and left unrun at the user's request.
 
-## H100 storage arm: the disk stops binding and the snapshot loses by more — 2026-09-18
+## H100 storage arm: the disk stops binding, and our own reader takes over — 2026-09-18
 
 The same comparison on an H100 80GB host whose volume reads 16x faster. Faster
-storage did not reverse the A10G result: cold improved more than the snapshot
-did, so the gap widened from 2.66 s to 5.96 s.
-[Curated validation](evidence/2026-09-18/vllm-h100-01-validation.json),
-[phase split](evidence/2026-09-18/vllm-h100-01-phases.json),
-[campaign script](evidence/2026-09-18/vllm-h100-01-run-campaign.sh).
+storage did not reverse the A10G result: the gap widened from 2.66 s to 5.96 s.
+[Validation](evidence/2026-09-18/vllm-h100-01-validation.json),
+[phases](evidence/2026-09-18/vllm-h100-01-phases.json),
+[script](evidence/2026-09-18/vllm-h100-01-run-campaign.sh).
 
-Host: NVIDIA H100 80GB HBM3, driver 580.126.20, kernel 5.15.0-171. vLLM 0.19.1
-with torch 2.10.0+cu128, held identical to the A10G arm so only the hardware
-differs. The driver now permits the CUDA 13 wheels that host refused.
+Driver 580.126.20, kernel 5.15.0-171. vLLM 0.19.1 and torch 2.10.0+cu128 held
+identical to the A10G arm, so only the hardware differs. Eight runs, one key,
+`--gpu-fraction 0.063` for 9238 key-value blocks and a 7.37 GiB image.
 
-| Route | Median TTFT | Range | Device bytes read | A10G median |
+| Route | Median TTFT | Range | Device reads | A10G |
 | --- | ---: | --- | ---: | ---: |
 | cold | 15.96 s | 15.95–15.98 | 0.92 GiB | 27.65 s |
 | snapshot | 21.92 s | 21.76–22.16 | 8.29 GiB | 30.31 s |
 
-Eight runs, one comparison key, `--gpu-fraction 0.063` for 9238 key-value blocks
-and a 7.37 GiB image. The fraction is small because the block count was matched,
-not the fraction; see [the image is bigger](#the-image-is-bigger-because-the-block-count-was-matched).
+Two things moved against the snapshot. The H100 cut `LLM()` from 22.3 s to
+12.1 s, shrinking the prize by 10 s. And matching the block count rather than the
+fraction grew the image, because vLLM reserves 3.37 GiB of non-key-value headroom
+here against roughly 1.70 GiB there.
 
 ### The bottleneck moved off the disk
 
-[Raw device reads](evidence/2026-09-18/storage-bandwidth-h100.txt) reach 5.4 GB/s
-at eight streams or at `bs=64M` on one, against the A10G's flat 0.32 GB/s. At that
-rate the image is 1.5 s of reading, so a storage-bound snapshot would have won.
-
-It is no longer storage-bound. Splitting the activation shows where the time is:
+[Raw reads](evidence/2026-09-18/storage-bandwidth-h100.txt) reach 5.4 GB/s at
+eight streams or `bs=64M` on one, against the A10G's flat 0.32 GB/s. At that rate
+the image is 1.5 s of reading, so a storage-bound snapshot would have won.
 
 | Phase | Median | Bound by |
 | --- | ---: | --- |
@@ -920,86 +918,27 @@ It is no longer storage-bound. Splitting the activation shows where the time is:
 | continuation to first token | 1.30 s | handshake |
 
 ```text
-A10G      [====== read image 6.42 GiB at 0.21 GiB/s ======]  30.31 s  disk-bound
-H100      [== hash 7.37 GiB at 0.52 GiB/s ==][CRIU 4.6][..]  21.92 s  hash-bound
-                                              ^^^^^^^^ all the snapshot really costs
+A10G      [===== read 6.42 GiB at 0.21 GiB/s =====]  30.31 s  disk-bound
+H100      [== hash 7.37 GiB at 0.52 GiB/s ==][CRIU]  21.92 s  reader-bound
+                                              ^^^^ all the snapshot really costs
 ```
 
-Activation time per route. The device improved 16x; validation improved 2.5x,
-because it never read at device speed in the first place.
+`control.inventory()` hashes serially and `prepare.file_hash()` reads 4 MiB at a
+time. Measured alone on the real page image: 0.78 GB/s to read, 1.80 GB/s to hash
+from RAM, 0.67 GB/s for both — a tenth of the device. The device improved 16x
+across hosts; validation improved 2.5x, never having read at device speed.
 
-`control.inventory()` hashes the payload in a plain serial loop, and
-`prepare.file_hash()` reads 4 MiB at a time. Measured in isolation on the real
-`pages-9.img`: 0.78 GB/s to read without hashing, 1.80 GB/s to hash from RAM,
-0.67 GB/s for both together. That is a tenth of what the device can deliver.
-
-CRIU itself is cheap and reads from memory, because validation has just pulled
-the image into a 196 GiB page cache: 7.32 GiB of pages in 3.02 s, then 1.3 s for
-the CUDA plugin to put roughly 5 GiB back on the device. The
+CRIU itself is cheap because validation just pulled the image into a 196 GiB page
+cache: 7.32 GiB of pages in 3.02 s, then 1.3 s of CUDA device resume. The
 [validation-order fix](#validation-order-decides-whether-criu-reads-the-image-from-cache--2026-09-18)
-is moot here — nothing evicts the image between hashing and CRIU, and device
-counters show one image pass, not two.
-
-### The image is bigger because the block count was matched
-
-`pages-9.img` is 7.32 GiB, 99.3% of the payload. Image size tracks
-`gpu_fraction x GPU memory + host RSS`: 0.15 x 22.49 + 2.0 = 5.4 GiB on the A10G,
-0.063 x 79.65 + 1.93 + 0.32 = 7.3 GiB here.
-
-| Part of the 7.32 GiB | GiB |
-| --- | ---: |
-| live allocations: weights 0.92, key-value cache 1.69, rest | 2.82 |
-| free-but-reserved allocator pool, empty and dumped anyway | 2.25 |
-| host RSS | 1.93 |
-| CUDA context and other mappings | 0.32 |
-
-Holding the block count fixed cost bytes: vLLM's non-key-value reservation is
-3.37 GiB here against roughly 1.70 GiB on the A10G, so the same 1.69 GiB cache
-needed a 5.02 GiB budget instead of 3.37 GiB.
-
-### Crossover arithmetic
-
-The snapshot removes cold's whole 15.93 s of imports and `LLM()`. It must then
-pay for its image. Against the measured 15.96 s cold median:
-
-```text
-image / validation rate + intrinsic restore  <  cold TTFT
-7.37 GiB / 0.52 GiB/s   + 7.69 s             <  15.96 s  -> 21.9 s, lost
-7.37 GiB / 5.00 GiB/s   + 7.69 s             <  15.96 s  ->  9.2 s, won
-```
-
-Solving for image size at the current validation rate gives a 4.82 GiB
-break-even. The live data alone is 4.75 GiB, so trimming the dead allocator pool
-would only tie. On this host the validation throughput has to change, not the
-image — which is what the [policy campaigns](#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)
-then did.
-
-### What the number includes
-
-Both routes verify their inputs, but not on the same side of the clock.
-`trial.py:93` hashes every model file before the timer starts, for both routes;
-`trial.py:162` hashes the 7.37 GiB image after it starts, for the snapshot only.
-That asymmetry is 16.0 s of the 21.92 s.
-
-| Cost | Seconds | Share |
-| --- | ---: | ---: |
-| intrinsic: CRIU pages, CUDA device resume | 4.63 | 21% |
-| policy: integrity hashing and handshake | 17.29 | 79% |
-
-Excluding validation, the same restore reaches first token in 5.92 s and beats
-cold by 10.04 s. That figure is not comparable with the A10G pair, which paid the
-same check, and it is a different experiment rather than a better reading of this
-one: `integrity_policy` is part of the comparison key, and per
-[what a restored image reopens](#what-a-restored-image-actually-reopens--2026-09-18) a
-weakened check must carry a different label so results never pool.
+is moot here — nothing evicts the image, and counters show one image pass.
 
 ### Against the Dynamo figure
 
-The [A10G scope note](#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18)
-compares NVIDIA's 2.4 s Dynamo Snapshot restore with our read rate and calls it
-ten times slower. That compares unlike quantities. Their 2.4 s is a restore path;
-nothing in the cited source says it re-hashes the payload on every activation,
-while our rate includes a check that is most of our time.
+The [A10G note](#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18)
+calls NVIDIA's 2.4 s restore ten times faster than our read rate. That compares
+unlike quantities: their 2.4 s is a restore path, and nothing in the cited source
+says it re-hashes the payload per activation.
 
 | Quantity | Seconds |
 | --- | ---: |
@@ -1008,26 +947,16 @@ while our rate includes a check that is most of our time.
 | our full `strict-v1` activation | 21.92 |
 
 Against the comparable middle row we are about twice as slow, not ten times, and
-they hold the advantages the scope note already lists: patched CRIU, striped
-NVMe, an unmapped key-value cache, and weights outside the image. Their
-integrity policy is unknown to us, so the bottom row has no counterpart there.
-
-Scope: this measures one harness under `strict-v1`, not snapshot restore in
-general. The hypothesis still fails here, but for a policy reason rather than a
-physical one. [Two later campaigns](#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)
-change that policy and reverse the result: hashing the payload in parallel wins
-by 6.81 s, and skipping it altogether wins by only 1.97 s, because the hash was
-also prefetching the image for CRIU.
+they hold the advantages that note lists. Their integrity policy is unknown here.
 
 ## Two payload policies: the hash was also a prefetch — 2026-09-18
 
-The [H100 arm](#h100-storage-arm-the-disk-stops-binding-and-the-snapshot-loses-by-more--2026-09-18)
-left the snapshot losing to a 14.24 s integrity hash. Two campaigns test the
-obvious repairs: stop hashing at activation, and hash in parallel. Each is a
-separate `integrity_policy` with its own comparison key, eight runs, one key each.
+Two campaigns test the obvious repairs to that 14.24 s: stop hashing at
+activation, and hash in parallel. Each is a separate `integrity_policy` with its
+own comparison key, eight runs each.
 [Skip](evidence/2026-09-18/vllm-h100-skipval-validation.json),
 [parallel](evidence/2026-09-18/vllm-h100-parallel-validation.json),
-[phase split](evidence/2026-09-18/vllm-h100-payload-policies.json),
+[phases](evidence/2026-09-18/vllm-h100-payload-policies.json),
 [script](evidence/2026-09-18/vllm-h100-policy-experiments.sh).
 
 | Policy | Payload | CRIU | Snapshot | Cold | Verdict |
@@ -1036,8 +965,7 @@ separate `integrity_policy` with its own comparison key, eight runs, one key eac
 | `publication-only-v1` | 0.00 s | 11.20 s | 14.01 s | 15.98 s | wins 1.97 s |
 | `parallel-chunked-v1` | 1.54 s | 4.59 s | **8.99 s** | 15.80 s | **wins 6.81 s** |
 
-Cold is the control and does not move: 15.96, 15.98, 15.80 s. The policy reaches
-the snapshot path only.
+Cold is the control and does not move. The policy reaches the snapshot path only.
 
 ### Skipping the check returns less than half of what it cost
 
@@ -1045,71 +973,63 @@ Removing the hash should have saved 14.24 s. It saved 7.91 s, because CRIU's
 restore grew from 4.64 s to 11.20 s in the same campaign.
 
 ```text
-strict     [ hash 7.37 GiB 14.2s ][CRIU 4.6s]   image already in RAM
-skip       [                     ][CRIU 11.2s]  CRIU reads it from disk itself
-parallel   [1.5s][CRIU 4.6s]                    verified and still in RAM
+strict    [ hash 7.37 GiB 14.2s ][CRIU 4.6s]   image already in RAM
+skip      [                     ][CRIU 11.2s]  CRIU reads it from disk itself
+parallel  [1.5s][CRIU 4.6s]                    verified and still in RAM
 ```
 
-The hash was doing two jobs. It proved the image unchanged, and it pulled 7.37 GiB
-into a 196 GiB page cache, so CRIU then read from memory at 2.60 GB/s instead of
-from disk at 0.62 GiB/s. Delete the check and the prefetch goes with it.
+The hash did two jobs: it proved the image unchanged, and it pulled 7.37 GiB into
+the page cache so CRIU read from memory at 2.60 GB/s instead of disk at
+0.62 GiB/s. Delete the check and the prefetch goes with it.
 
-That also means neither reader ever approached the device. Validation moved
-0.52 GiB/s, CRIU alone moves 0.62 GiB/s, and the volume does 5.4 GB/s. Both are
-single-stream readers, which is the whole story of this host.
+So neither reader ever approached the device. Validation moved 0.52 GiB/s, CRIU
+alone 0.62 GiB/s, against a volume that does 5.4 GB/s.
 
 ### Hashing in parallel beats not hashing at all
 
 `parallel-chunked-v1` covers every byte with SHA-256, folding 64 MiB chunk
-digests in file order, at 16 workers. It verifies 9.2x faster than `strict-v1`
-and still warms the cache, so it keeps CRIU's 4.59 s as well.
+digests in file order. At 16 workers it verifies 9.2x faster than `strict-v1` and
+still warms the cache, keeping CRIU's 4.59 s.
 
 | Workers | 1 | 4 | 8 | 16 | 24 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | GB/s on the 7.32 GiB page image | 0.61 | 2.38 | 4.22 | 5.51 | 6.93 |
 
-The digest value differs from an ordinary SHA-256, which is why it is a labelled
-policy rather than a faster `strict-v1`. The guarantee does not differ: a byte
-flipped at the start, middle or end changes it, as does swapping two chunks that
-keep every byte, and the value never depends on the worker count.
+Its digest value differs from an ordinary SHA-256, which is why it is a labelled
+policy and not a faster `strict-v1`. The guarantee does not differ: a byte flipped
+anywhere changes it, as does swapping two chunks that keep every byte, and the
+value never depends on the worker count.
 
-So the honest repair is not to trust the image less. Skipping the check trades
-tamper detection for 1.97 s; hashing it in parallel keeps the detection and wins
-6.81 s. `publication-only-v1` remains a real option where an image is on storage
-nothing else can write, but it is the weaker result here as well as the weaker
-guarantee.
+The honest repair is therefore not to trust the image less. Skipping trades
+tamper detection for 1.97 s; parallel hashing keeps it and wins 6.81 s.
+`publication-only-v1` stays a real option where nothing else can write the image,
+but here it is the weaker guarantee *and* the weaker result.
 
 ### Unmeasured: what this would do on the A10G
 
-**Prediction, not a result.** No A10G was available when these campaigns ran, so
-the parallel policy has never been measured on slow storage.
+**A prediction, not a result.** No A10G was available, so these policies have
+never run on slow storage.
 
-Parallel chunking wins only by raising read concurrency. The A10G volumes are
-flat-capped — 0.13 and 0.32 GB/s at 1, 4 and 8 streams alike, per the
-[bandwidth measurement](#both-volumes-are-bandwidth-limited-and-our-loaders-already-saturate-them--2026-09-18)
-— and concurrency buys nothing against a throughput cap.
+Parallel chunking wins only by raising read concurrency, and the A10G volumes are
+flat-capped at 0.13 and 0.32 GB/s across 1, 4 and 8 streams
+([bandwidth](#both-volumes-are-bandwidth-limited-and-our-loaders-already-saturate-them--2026-09-18)).
+Concurrency buys nothing against a throughput cap.
 
-| Host | Device, 1 stream | Device, 8 streams | Serial SHA-256 | Binding cost |
+| Host | 1 stream | 8 streams | Serial SHA-256 | Binding cost |
 | --- | ---: | ---: | ---: | --- |
 | A10G instance NVMe | 0.32 GB/s | 0.32 GB/s | 1.80 GB/s | the device |
 | this H100 host | 0.82 GB/s | 5.46 GB/s | 1.80 GB/s | the reader |
 
-Serial hashing already runs above the A10G's cap, so hashing there is
-device-bound and `parallel-chunked-v1` should save close to nothing. The
-expectation is that its snapshot median stays near the measured 30.31 s and
-still loses to 27.65 s, reversing the ranking found here.
-
-To falsify it, run the `strict-v1` and `parallel-chunked-v1` campaigns on that
-host and compare their payload phases. If the parallel phase is much faster than
-the serial one on a flat-capped volume, this reasoning is wrong.
+Serial hashing already runs above that cap, so hashing there is device-bound and
+the policy should save close to nothing, leaving the snapshot near 30.31 s and
+still losing. To falsify: run both policies there and compare payload phases.
 
 ### What this does and does not settle
 
-The vLLM hypothesis — that restoring a warmed engine beats starting one cold —
-**holds on this host once the activation stops reading the image single-stream**.
-It failed on the A10G because the volume was slow, and failed here at first
-because our own verification was slow.
+The vLLM hypothesis holds on this host once the activation stops reading the
+image single-stream. It failed on the A10G because the volume was slow, and here
+at first because our verification was.
 
 Unchanged: the image is still 7.37 GiB against cold's 0.92 GiB, and a faster GPU
-still shrinks the prize. This is one model, one host, and three campaigns that
-cannot be pooled with each other or with the A10G pair.
+shrinks the prize. One model, one host, three campaigns that pool neither with
+each other nor with the A10G pair. Training keeps `strict-v1`.

@@ -4,11 +4,11 @@ One line each: what it asked, what it answered. [Results](results.md) holds the
 evidence and the qualifications; the runbooks hold the commands.
 
 ```text
-tooling          training              inference activation        serving engine
-CRIU? DMTCP?  -> LoRA capture   ->  4 routes, 8B  ->  cold cache,  ->  vLLM cold
-cuda-checkpoint  and restore        fresh/resident     storage,         vs snapshot
-                                    RAM/disk          loaders
-2026-09-12/14    09-14/17           09-17            09-18            09-18
+tooling          training           inference activation     serving engine
+CRIU? DMTCP?  -> LoRA capture  ->  4 routes, 8B  -> vLLM cold  -> H100, then
+cuda-checkpoint  and restore       cold cache,       vs snapshot   payload policy
+                                   storage, loaders
+2026-09-12/14    09-14/17          09-17/18          09-18         09-18
 ```
 
 ## Can a GPU process be checkpointed at all?
@@ -50,15 +50,30 @@ cuda-checkpoint  and restore        fresh/resident     storage,         vs snaps
 | Does vLLM have startup work a file cannot supply? | Yes: weights load in 0.17 s, `LLM()` takes 22.3 s. | [vLLM](results.md#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18) |
 | Can a warmed vLLM worker be captured? | Yes. The blockers were PyTorch's io_uring ring and its self-connected socket, not CUDA. | Same |
 | Is the snapshot faster? | No: 30.31 s against 27.65 s, reading 6.42 GiB against 0.92 GiB. | Same |
+| Does faster storage reverse it? | No. On an H100 with a 5.4 GB/s volume the gap widens to 5.96 s. | [H100 arm](results.md#h100-storage-arm-the-disk-stops-binding-and-our-own-reader-takes-over--2026-09-18) |
+| What binds it there? | Our own payload hash: 14.24 s of 21.92 s, read single-stream at 0.52 GiB/s. | Same |
+| Does skipping that check fix it? | Only half: wins 1.97 s, because the hash was also prefetching for CRIU. | [Policies](results.md#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18) |
+| Does hashing it in parallel? | Yes: 8.99 s against 15.80 s at full integrity, the first clear snapshot win. | Same |
 
 ## What it adds up to
 
-Restoring a process reliably reproduces GPU state. It is not faster here, because
-every route we measured is limited by how fast this host reads bytes, and an image
-is always larger than the weights. The one case with real startup computation to
-save, vLLM, still lost on a 0.21 GiB/s volume — and NVIDIA's own product restores a
-same-sized image in 2.4 s on striped NVMe with patched CRIU.
+Restoring a process reliably reproduces GPU state. Whether that is *faster* turns
+on one thing: how quickly the activation reads the image back.
 
-Open: repeat the vLLM comparison on hardware with faster storage. The
-[plan](../docs/vllm-snapshot-plan.md) states the conditions, and the
-[runbook](vllm/README.md#running-on-other-hardware) states what to re-derive.
+Our stack never wins, because its startup is reading weights and an image is
+larger than the weights. A serving engine can win, because its startup is
+computation no file supplies. Whether it does is a reading problem.
+
+```text
+losing routes were all single-stream readers
+  A10G volume, device-capped     0.21 GiB/s  -> snapshot loses
+  H100, our serial payload hash  0.52 GiB/s  -> snapshot loses by more
+  H100, hashed in parallel       4.79 GiB/s  -> snapshot wins by 6.81 s
+```
+
+The device was never the limit on the fast host; our own reader was. Storage speed
+alone reversed nothing, and integrity was not what had to be given up.
+
+Open: the payload policies are unmeasured on flat-capped storage, where they
+should not help — the [prediction](results.md#unmeasured-what-this-would-do-on-the-a10g)
+says why. Training still uses `strict-v1`.
