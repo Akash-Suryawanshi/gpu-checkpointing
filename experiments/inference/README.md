@@ -4,6 +4,8 @@
 timing blocks, and separate capture/restore commands passed; see the
 [measured results](../results.md#inference-activation-and-gpu-reuse--2026-09-17).
 The [plan](../../docs/inference-snapshot-plan.md) retains the acceptance contract.
+The [cold-start experiments](cold-start.md) add verified cold file caches,
+CRIU phase profiling, and ServerlessLLM-inspired packed/pipelined weight loaders.
 
 ```text
 prepare -> CPU checks -> GPU diagnostics -> timing blocks -> static report
