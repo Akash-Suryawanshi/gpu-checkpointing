@@ -87,8 +87,9 @@ def capture(run, tools, env, process, deadline):
 
 
 def restore(run, tools, env, deadline):
+    order = control.read(run / "run.json")["key"].get("validation_order", "payload-first")
     arguments = [sys.executable, HERE.parent / "finetuning/restore.py", "--snapshot", run / "snapshot",
-                 "--tools", tools, "--timeout", str(control.remaining(deadline))]
+                 "--tools", tools, "--timeout", str(control.remaining(deadline)), "--validation-order", order]
     with helper(arguments, run / "restore.log", env, deadline) as command:
         wait_helper(command, deadline)
     phase = control.read(run / "control/phase.json")

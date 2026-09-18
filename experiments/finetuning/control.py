@@ -301,7 +301,9 @@ def publish(snapshot, manifest, run, deadline, emit):
         raise
 
 
-def validate(snapshot, run, tools, deadline):
+def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda name: None):
+    if order not in ("payload-first", "dependencies-first"):
+        raise ValueError("Unknown validation order")
     manifest = read(snapshot / "manifest.json")
     if manifest.get("schema") != SCHEMA or manifest["run"] != str(run):
         raise ValueError("Wrong snapshot schema or job path")
@@ -311,8 +313,14 @@ def validate(snapshot, run, tools, deadline):
     expected_phase = {"status": "published", "capture_id": manifest["capture_id"], "snapshot": str(snapshot)}
     if read(run / "control/phase.json") != expected_phase:
         raise ValueError("Snapshot is ambiguous, consumed, or no longer current")
-    if inventory(snapshot) != manifest["payload"]:
-        raise ValueError("Snapshot payload mismatch")
+    def payload():
+        emit("payload_validation_started")
+        if inventory(snapshot) != manifest["payload"]:
+            raise ValueError("Snapshot payload mismatch")
+        remaining(deadline)
+        emit("payload_validation_completed")
+    if order == "payload-first":
+        payload()
     job = read(run / "job.json")
     if job != manifest["job"] or job["identity"]["uid"] != os.getuid():
         raise ValueError("Job identity mismatch")
@@ -321,9 +329,15 @@ def validate(snapshot, run, tools, deadline):
     request = read(run / "control/request.json")
     if request != manifest["request"] or (run / "attempts" / manifest["capture_id"] / "inspect.json").exists():
         raise ValueError("Stale control markers")
+    emit("dependency_validation_started")
     if dependencies(job, tools, deadline) != manifest["dependencies"]:
         raise ValueError("Environment, tools, source, or asset mismatch")
+    emit("dependency_validation_completed")
     for name in ("updates.jsonl", "trainer.stderr"):
         if not (run / name).is_file() or file_hash(run / name) != manifest["external_files"][name]:
             raise ValueError("Required external log missing or changed")
+    # Dependencies can exceed the page cache: read the image last so CRIU can
+    # reuse verified pages. Both orders retain every original integrity check.
+    if order == "dependencies-first":
+        payload()
     return manifest

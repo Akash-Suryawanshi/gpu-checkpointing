@@ -31,6 +31,10 @@ merges; do not merge on their behalf.
 
 ## Knowledge Updates
 
+### 2026-09-18 - Disk validation precedes the CRIU restore event
+**Finding**: `experiments/finetuning/restore.py:27` validates before emitting `restore_requested`. In the third 8B timing, controller observations place 137.60 seconds before that event, 139.45 inside the CRIU command, and 0.57 after return; the 4,351,144 restored pages are 16.60 GiB, not 17.8 GiB.
+**Impact**: Join host-clock controller and helper events before attributing latency. Do not interpret the difference between total latency and CRIU duration as post-restore delay.
+
 ### 2026-09-17 - CRIU buffer flushing is not snapshot durability
 **Finding**: Pinned `criu/bfd.c:114` checks earlier buffer errors; `bflush():235` calls `write_all()`, not `fsync()`. `pipeline.py:115` separately invokes `sync -f`.
 **Impact**: Persist payload, directory entries, and completion in order; see [publication contract](docs/independent-lifecycle-details.md). Local persistence does not establish survival of volume deletion.

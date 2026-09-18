@@ -115,7 +115,7 @@ from argparse import Namespace
 import restore, control
 run = Path(sys.argv[1])
 manifest = control.read(run / "snapshot/manifest.json")
-control.validate = lambda *args: manifest
+control.validate = lambda *args, **kwargs: manifest
 original_write = control.write
 def fail_result(path, value):
     if path.name == "result.json":
@@ -131,7 +131,7 @@ def reconstruct(*args, **kwargs):
     original_write(attempt / "inspected.json", {"attempt_id": attempt.name})
     return child.pid
 restore.session.criu = reconstruct
-restore.restore(Namespace(snapshot=run / "snapshot", tools=run, timeout=5))
+restore.restore(Namespace(snapshot=run / "snapshot", tools=run, timeout=5, validation_order="payload-first"))
 '''
             helper = subprocess.run([sys.executable, "-c", script, str(run)], capture_output=True, text=True, timeout=10)
             self.assertNotEqual(helper.returncode, 0)

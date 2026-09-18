@@ -24,9 +24,12 @@ def restore(args):
     deadline = time.monotonic() + args.timeout
     run = Path(control.read(snapshot / "manifest.json")["run"])
     with control.lock(run, deadline):
-        manifest = control.validate(snapshot, run, args.tools, deadline)
-        capture_id = manifest["capture_id"]
         attempt_id, attempt = control.attempt(run)
+        control.event(attempt, "validation_started")
+        manifest = control.validate(snapshot, run, args.tools, deadline,
+            order=args.validation_order, emit=lambda name: control.event(attempt, name))
+        control.event(attempt, "validation_completed")
+        capture_id = manifest["capture_id"]
         restoration = {"capture_id": capture_id, "attempt_id": attempt_id}
         emit = lambda name, **values: control.event(attempt, name, **restoration, generation=manifest["update"], **values)
         env = session.child_environment(args.tools / "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")
@@ -79,4 +82,5 @@ if __name__ == "__main__":
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--tools", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--validation-order", choices=("payload-first", "dependencies-first"), default="payload-first")
     restore(parser.parse_args())
