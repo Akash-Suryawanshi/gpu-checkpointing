@@ -171,6 +171,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
 **Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
 
+### 2026-09-18 - Cache eviction can lose a race, and said nothing about which file
+**Finding**: One loader timing block failed in `experiments/inference/cold_cache.py` with "Selected files are still cached", naming no file, so the cause could not be identified; the record is never written when the check raises. Two neighbouring blocks with identical settings passed. Eviction now retries a bounded number of times and names each file with its resident and total page counts.
+**Impact**: Retrying makes the cold-cache guarantee stricter, not weaker, because the returned records must still show zero resident pages. Keep the failed slot rather than rerunning it.
+
 ### 2026-09-18 - Compiled models cannot be captured, and smaller models snapshot worse
 **Finding**: `--compile-mode default` makes CRIU fail in `criu/proc_parse.c:118` with `handle_device_vma plugin failed`, before any image is written: generated kernels are device mappings the pinned plugin does not handle. The compiled model's greedy output also diverged from the uncompiled reference at token twelve. On Qwen2.5-0.5B a snapshot took 17.95 s against a fresh 11.12 s, a worse ratio than the 8B model's.
 **Impact**: Do not expect a smaller model to favour restoration; fixed process state is a larger share of a small image. Test a capture-compatibility hypothesis on the small model first, and give any compiled campaign its own prepared reference.
