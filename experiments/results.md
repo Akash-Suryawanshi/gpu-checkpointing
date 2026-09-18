@@ -547,6 +547,31 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## Storage arm: the same comparison on instance-store NVMe — 2026-09-18
+
+Only the storage changed: model files, images, and caches moved to the
+g5.2xlarge instance store, with every validation check retained.
+[Curated validation](evidence/2026-09-18/cold-nvme-01-validation.json) and
+[individual measurements](evidence/2026-09-18/cold-nvme-01-runs.csv) use source `8769fc8`.
+
+| Storage | fresh median (min–max) | snapshot median (min–max) | snapshot ÷ fresh |
+| --- | ---: | ---: | ---: |
+| EBS gp3, 125 MiB/s | 131.11 s (129.46–132.22) | 401.23 s (401.14–401.39) | 3.03–3.10 |
+| instance NVMe | 57.12 s (54.29–57.66) | 164.10 s (164.07–164.23) | 2.85–3.03 |
+
+```text
+NVMe snapshot: hash image 53.3 s -> hash model 50.6 s -> CRIU 58.3 s -> 0.6 s
+               16.6 GiB           15.3 GiB             16.6 GiB
+```
+
+Each pass moved about 300 MB/s on NVMe, for hashing, CRIU, and the Transformers
+loader alike, against 125 MiB/s on EBS. Faster storage shortened both routes by
+2.3–2.4 times and left the three-pass structure, and its ratio, unchanged.
+
+Whether 300 MB/s is the device or single-threaded hashing is not separated
+here; the validation-worker arm tests that. Instance store is lost when the
+instance stops, so staging cost and durability remain deployment questions.
+
 ## Container compatibility — 2026-09-17
 
 The [pinned image](inference/Dockerfile) passed 47 CPU checks, actual namespace
