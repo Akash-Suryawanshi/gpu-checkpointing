@@ -6,7 +6,8 @@ the implementation to existing methods.
 
 The [original comparison](../results.md#inference-activation-and-gpu-reuse--2026-09-17)
 left file-cache residency uncontrolled. These experiments explicitly evict the
-selected weight and image files before starting the activation timer.
+selected weight and image files before starting the activation timer; the
+[cold EBS baseline](../results.md#cold-cache-activation-on-ebs--2026-09-18) records the result.
 
 ```text
 disk weights -> 4 readers + SHA-256 -> 4 pinned buffers -> GPU tensor views

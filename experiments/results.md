@@ -509,6 +509,44 @@ No failed timing slot was replaced.
 Subsequent cancellation and report fixes have
 separate regression checks; their container validation uses a new comparison key.
 
+## Cold-cache activation on EBS — 2026-09-18
+
+With the model-file cache verified empty before each timer, the pinned Qwen3-8B
+fresh start and the CRIU snapshot restore were both bound by the data volume:
+gp3 at 125 MiB/s provisioned throughput. [Curated validation](evidence/2026-09-18/cold-ebs-01-validation.json)
+records source `8769fc8`, two diagnostics, and six scheduled timings;
+[individual measurements](evidence/2026-09-18/cold-ebs-01-runs.csv) retain each block.
+
+```text
+fresh:    evict -> launch -> read 15.26 GiB safetensors once ---------------------> token
+snapshot: evict -> hash image 16.6 GiB -> hash model 15.3 GiB -> CRIU reads image 16.6 GiB -> token
+          |<-- 134.9 s -->|<-- 125.1 s -->|<-- 139.3 s -->|<- 0.6 s ->|
+```
+
+Arrows show the order of disk passes; times are the block medians from the
+host-clock profile. Kernel device counters confirm the traffic is physical.
+
+| Route | Median first-token seconds | Min–max seconds | Device reads per activation |
+| --- | ---: | ---: | ---: |
+| fresh | 131.11 | 129.46–132.22 | 15.26 GiB |
+| snapshot (disk) | 401.23 | 401.14–401.39 | 48.49 GiB |
+
+Paired within blocks, the snapshot route took 3.03–3.10 times longer than fresh.
+Every snapshot activation hashed the 16.6 GiB image and the 15.3 GiB model files
+before CRIU read the image again; each pass ran at the volume's cap. The
+[activation contract](../docs/inference-activation-contract.md) does not change this
+byte count; the plan's storage and integrity-policy arms address it.
+
+Warm follow-up requests took 0.07–0.08 s on both routes. Each snapshot timing
+built its own image (median save 246.8 s) and discarded it after the final hash
+check. CRIU logged one interrupted-system-call warning per restore, retained in
+the curated record.
+
+Three trials per route do not establish tail latency. Runtime and library caches
+were not evicted; device counters include any other reader of the volume, which was
+otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
+is not comparable.
+
 ## Container compatibility — 2026-09-17
 
 The [pinned image](inference/Dockerfile) passed 47 CPU checks, actual namespace
