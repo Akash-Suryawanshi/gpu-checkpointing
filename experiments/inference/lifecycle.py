@@ -69,10 +69,10 @@ def wait_helper(process, deadline):
         raise RuntimeError("Independent helper failed; see its log")
 
 
-def capture(run, tools, env, process, deadline):
+def capture(run, tools, env, process, deadline, contract=None):
     arguments = [sys.executable, HERE.parent / "finetuning/checkpoint.py", "--run-dir", run,
         "--snapshot", run / "snapshot", "--tools", tools, "--at", "1",
-        "--timeout", str(control.remaining(deadline))]
+        "--timeout", str(control.remaining(deadline)), *(["--contract", contract] if contract else [])]
     with helper(arguments, run / "capture.log", env, deadline) as command:
         while process.poll() is None:
             control.remaining(deadline)
@@ -94,7 +94,7 @@ def restore(run, tools, env, deadline):
                  "--validation-workers", str(workers)]
     with helper(arguments, run / "restore.log", env, deadline) as command:
         wait_helper(command, deadline)
-    phase = control.read(run / "control/phase.json")
+    phase = control.current_attempt(run)
     identity = control.read(run / "attempts" / phase["attempt_id"] / "result.json")["identity"]
     if not session.matches(identity):
         raise RuntimeError("Restored worker did not survive restore-command exit")
@@ -105,9 +105,11 @@ def restored_candidate(run):
     """Registration can exist after release even when the final result is missing."""
     if not (run / "snapshot/manifest.json").exists() or not (run / "control/phase.json").exists():
         return None
-    manifest, phase = control.read(run / "snapshot/manifest.json"), control.read(run / "control/phase.json")
+    manifest, phase = control.read(run / "snapshot/manifest.json"), control.current_attempt(run)
     if "attempt_id" not in phase:
         return None
+    if phase["status"] == "released":
+        return None  # A reusable image between activations owns no process.
     if (manifest["run"] != str(run) or phase.get("capture_id") != manifest["capture_id"]
             or phase["status"] not in ("restoring", "verified", "restored", "failed_restore")):
         raise ValueError("Ambiguous restored cleanup ownership")

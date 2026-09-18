@@ -1,7 +1,8 @@
-# Reusable inference image contract — proposed
+# Reusable inference image contract
 
 The [cold-start plan](inference-cold-start-plan.md) requires repeated activation
-from one image. This is not supported by the current single-use protocol.
+from one image. Training keeps its single-use protocol; inference images published
+with `--contract reusable-inference-v1` follow the versioned contract below.
 
 ```text
 immutable snapshot + COMPLETE -> attempt A -> serve -> exit/reap
@@ -34,6 +35,23 @@ Under the existing operation lock:
 5. Register process identity from the host clock domain. Require the worker's
    matching attempt acknowledgement and inspection before releasing it to serve.
    Cleanup targets the current attempt, never a captured/previous identity.
+
+## Implemented flow
+
+```text
+publish: manifest.contract + external/ baseline log copies + COMPLETE   (phase.json: published, never moves)
+activate (under lock):
+  validate -> previous activation terminal? saved PID free? -> materialize logs from external/
+          -> drop consumed inspect marker, reset job.json to the captured registration
+  activation.json{restoring, attempt, requests=attempts/<id>/requests} -> CRIU -> inspect/continue
+  worker: boundary() returns the attempt -> reads activation.json -> binds to attempts/<id>/requests
+          -> redirects stdout/stderr to attempts/<id>/worker.log -> acknowledged.json -> ready.json
+release: stop.json -> completed.json -> reap -> activation.json{released}
+```
+
+Arrows show control order. `control.validate()` owns admission, `restore.py` writes
+activation states instead of phases for this contract, and `worker.attempt_paths()`
+rejects any request path outside the attempt that released the process.
 
 ## Files and acceptance
 

@@ -76,6 +76,13 @@ def capture(args):
                         "external_files": {name: control.file_hash(run / name)
                                            for name in ("updates.jsonl", "trainer.stderr")},
                         "dump_log_sha256": control.file_hash(attempt / "dump.log")}
+            if args.contract:
+                # Reusable images keep immutable copies of the captured logs so each
+                # activation can rebuild the exact files CRIU expects to reopen.
+                manifest["contract"] = args.contract
+                (snapshot / "external").mkdir()
+                for name in manifest["external_files"]:
+                    shutil.copyfile(run / name, snapshot / "external" / name)
             control.publish(snapshot, manifest, run, deadline, emit)
             return manifest
         except BaseException:
@@ -97,4 +104,5 @@ if __name__ == "__main__":
     parser.add_argument("--tools", type=Path, required=True)
     parser.add_argument("--at", type=int, default=1, help="Earliest completed update to acknowledge")
     parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--contract", choices=(control.CONTRACT,), help="Publish a repeatedly restorable inference image")
     capture(parser.parse_args())

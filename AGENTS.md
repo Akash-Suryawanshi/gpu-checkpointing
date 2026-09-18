@@ -165,4 +165,4 @@ merges; do not merge on their behalf.
 
 ### 2026-09-18 - Published inference images are currently single-use
 **Finding**: `experiments/finetuning/control.py:330` requires the exact published phase; `restore.py:48` changes registration, while validation also rejects old inspection markers and changed captured logs. `experiments/criu/session.py:204` restores the saved PID, and `worker.py:87` retains its captured run path.
-**Impact**: Repeated endpoint activation needs versioned per-attempt state and external-file handling, not a phase reset. Preserve training's existing single-use contract; see the proposed [activation contract](docs/inference-activation-contract.md).
+**Impact**: Repeated activation uses `control/activation.json` per attempt plus baseline log copies under `snapshot/external/`, never a phase reset; `control.validate()` resets the consumed marker and registration under the lock. Training keeps the single-use contract; see the [activation contract](docs/inference-activation-contract.md).

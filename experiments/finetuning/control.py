@@ -25,6 +25,9 @@ sys.path.insert(0, str(ROOT / "experiments/criu"))
 import session
 
 SCHEMA = 1
+# Inference images restore repeatedly; training keeps the single-use contract.
+CONTRACT = "reusable-inference-v1"
+TERMINAL = ("released", "failed_restore")
 
 
 def read(path):
@@ -106,6 +109,21 @@ def wait(path, deadline, identity=None, poll=0.05):
 
 def phase(run, status, **values):
     write(Path(run) / "control/phase.json", {"status": status, **values})
+
+
+def activation(run):
+    """Mutable per-attempt state of a reusable image; publication stays in phase.json."""
+    path = Path(run) / "control/activation.json"
+    return read(path) if path.exists() else None
+
+
+def activation_state(run, status, **values):
+    write(Path(run) / "control/activation.json", {"status": status, **values})
+
+
+def current_attempt(run):
+    """The record naming the attempt in progress: activation for reusable images, else phase."""
+    return activation(run) or read(Path(run) / "control/phase.json")
 
 
 def event(attempt, name, **values):
@@ -200,7 +218,7 @@ def boundary(run, job, update, inspect):
                 time.sleep(0.05)
             if read(restored / "continue.json") != restoration:
                 raise ValueError("Wrong continuation identity")
-            return
+            return restoration  # Lets a versioned worker check the attempt it was released into.
         time.sleep(0.05)
 
 
@@ -266,7 +284,8 @@ def storage(path):
 
 def inventory(snapshot):
     """Only regular payload files are admitted; logs belong in attempts instead."""
-    paths = [snapshot / "before.json", *sorted((snapshot / "images").rglob("*"))]
+    paths = [snapshot / "before.json", *sorted((snapshot / "images").rglob("*")),
+             *sorted((snapshot / "external").glob("*"))]  # reusable baseline log copies
     result = {}
     for path in paths:
         if path.is_symlink() or not (path.is_file() or path.is_dir()):
@@ -313,12 +332,35 @@ def publish(snapshot, manifest, run, deadline, emit):
         raise
 
 
+def materialize_external(snapshot, run, manifest):
+    """Rewrite captured logs from immutable baseline copies so CRIU reopens the saved files."""
+    for name, digest in manifest["external_files"].items():
+        source = snapshot / "external" / name
+        if file_hash(source) != digest:
+            raise ValueError("External baseline copy changed")
+        target = run / name
+        shutil.copyfile(source, target)
+        with target.open("rb") as stream:
+            os.fsync(stream.fileno())
+        if file_hash(target) != digest:
+            raise ValueError("Required external log missing or changed")
+    sync_directory(run)
+
+
 def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda name: None, workers=1):
+    """Admit one restore. Reusable images additionally require a terminal previous attempt.
+
+    The caller holds the operation lock; reusable validation resets per-attempt
+    markers and registration, which is only safe under that lock.
+    """
     if order not in ("payload-first", "dependencies-first"):
         raise ValueError("Unknown validation order")
     manifest = read(snapshot / "manifest.json")
     if manifest.get("schema") != SCHEMA or manifest["run"] != str(run):
         raise ValueError("Wrong snapshot schema or job path")
+    reusable = manifest.get("contract") == CONTRACT
+    if not reusable and "contract" in manifest:
+        raise ValueError("Unknown snapshot contract")
     complete = read(snapshot / "COMPLETE")
     if complete != {"capture_id": manifest["capture_id"], "manifest_sha256": file_hash(snapshot / "manifest.json")}:
         raise ValueError("Completion digest mismatch")
@@ -334,22 +376,43 @@ def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda 
     if order == "payload-first":
         payload()
     job = read(run / "job.json")
-    if job != manifest["job"] or job["identity"]["uid"] != os.getuid():
+    saved = manifest["job"]
+    if reusable:
+        # Registration identity is refreshed per attempt; everything else is fixed at capture.
+        if {k: v for k, v in job.items() if k != "identity"} != {k: v for k, v in saved.items() if k != "identity"}:
+            raise ValueError("Job identity mismatch")
+        previous = activation(run)
+        if previous is not None and previous["status"] not in TERMINAL:
+            raise ValueError("Previous activation is not terminal")
+    elif job != saved:
         raise ValueError("Job identity mismatch")
-    if Path(f'/proc/{job["identity"]["pid"]}').exists():
+    if job["identity"]["uid"] != os.getuid():
+        raise ValueError("Job identity mismatch")
+    # CRIU reconstructs the saved PID; an unrelated holder is a conflict, never a target.
+    if Path(f'/proc/{saved["identity"]["pid"]}').exists():
         raise ValueError("Original PID is still present")
     request = read(run / "control/request.json")
-    if request != manifest["request"] or (run / "attempts" / manifest["capture_id"] / "inspect.json").exists():
+    marker = run / "attempts" / manifest["capture_id"] / "inspect.json"
+    if request != manifest["request"] or (marker.exists() and not reusable):
         raise ValueError("Stale control markers")
     emit("dependency_validation_started")
     if dependencies(job, tools, deadline, workers) != manifest["dependencies"]:
         raise ValueError("Environment, tools, source, or asset mismatch")
     emit("dependency_validation_completed")
-    for name in ("updates.jsonl", "trainer.stderr"):
+    if reusable:
+        emit("external_materialization_started")
+        materialize_external(snapshot, run, manifest)
+        emit("external_materialization_completed")
+    for name in manifest["external_files"]:
         if not (run / name).is_file() or file_hash(run / name) != manifest["external_files"][name]:
             raise ValueError("Required external log missing or changed")
     # Dependencies can exceed the page cache: read the image last so CRIU can
     # reuse verified pages. Both orders retain every original integrity check.
     if order == "dependencies-first":
         payload()
+    if reusable:
+        # The previous attempt's marker and host registration are consumed evidence,
+        # retained in that attempt's directory; the new attempt starts from capture.
+        marker.unlink(missing_ok=True)
+        write(run / "job.json", saved)
     return manifest

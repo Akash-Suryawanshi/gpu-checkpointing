@@ -216,6 +216,7 @@ def trial(args):
             if index == 1:
                 wait("audit-after.json", original)
         control.write(output / "observations.json", observations)
+        control.write(output / "stop.json", {"run_id": run["run_id"]})
         wait("completed.json", original)
         if session.reap(original["pid"], process, timeout=control.remaining(deadline)):
             raise RuntimeError("Worker exited nonzero")

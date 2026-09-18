@@ -2,6 +2,7 @@
 
 import argparse
 import gc
+import json
 import os
 from pathlib import Path
 import sys
@@ -37,7 +38,7 @@ def render(tokenizer, prompt):
     return {"prompt": prompt, "rendered": text, "input_ids": tokenizer(text).input_ids}
 
 
-def generate(model, tokenizer, inputs, count, first=None):
+def generate(model, tokenizer, inputs, count, first=None, on_token=None):
     import torch
     eos = model.generation_config.eos_token_id
     eos = set(eos if isinstance(eos, list) else [eos])
@@ -51,6 +52,8 @@ def generate(model, tokenizer, inputs, count, first=None):
             generated.append(token)
             if index == 0 and first is not None:
                 first(token)
+            if on_token is not None:
+                on_token(index, token)
             if token in eos:
                 break
             cache = output.past_key_values
@@ -79,6 +82,64 @@ def memory():
             "reserved_vram": torch.cuda.memory_reserved(), "allocated_vram": torch.cuda.memory_allocated()}
 
 
+def attempt_paths(run, record, restoration):
+    """Bind a restored worker to the attempt that released it; reject any other path."""
+    if record is None or restoration is None:
+        raise ValueError("Restored worker has no activation record")
+    if any(record[key] != restoration[key] for key in ("attempt_id", "capture_id")):
+        raise ValueError("Activation record names another attempt")
+    root = (Path(run) / "attempts" / record["attempt_id"]).resolve()
+    requests = (Path(run) / record["requests"]).resolve()
+    if not requests.is_relative_to(root) or not requests.is_dir():
+        raise ValueError("Request path escapes the attempt")
+    return root, requests
+
+
+def redirect_output(path):
+    """Move stdout/stderr off the captured log files, which stay at their baseline content."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.dup2(fd, 1)
+    os.dup2(fd, 2)
+    os.close(fd)
+
+
+def next_request(requests, index, poll):
+    """Return the next request, or None once the owner writes stop.json."""
+    while True:
+        path = requests / f"request-{index}.json"
+        if path.exists():
+            return control.read(path)
+        if (requests / "stop.json").exists():
+            return None
+        time.sleep(poll)
+
+
+def serve(requests, run_id, model, tokenizer, inputs, poll):
+    control.write(requests / "ready.json", {"run_id": run_id})
+    index = 0
+    while (request := next_request(requests, index := index + 1, poll)) is not None:
+        if request["run_id"] != run_id:
+            raise ValueError("Request identity mismatch")
+        identity = {"run_id": run_id, "request_id": request["request_id"]}
+        prompt = render(tokenizer, request["prompt"]) if "prompt" in request else {"input_ids": request["input_ids"]}
+        count = request.get("max_new_tokens", inputs["max_new_tokens"])
+        with (requests / f"tokens-{index}.jsonl").open("a") as stream:
+            def on_token(position, token):
+                # Flush each token to the page cache immediately; readers tail this file.
+                stream.write(json.dumps({**identity, "index": position, "token_id": token,
+                                         "text": tokenizer.decode([token])}) + "\n")
+                stream.flush()
+                if position == 0:
+                    control.write(requests / f"first-{index}.json", {**identity, "token": token})
+            response = generate(model, tokenizer, prompt, count, on_token=on_token)
+        control.write(requests / f"response-{index}.json", {**identity, **response})
+        if index == 1:
+            control.write(requests / "audit-after.json", inspect(model, "diagnostic"))
+    control.write(requests / "completed.json", memory())
+
+
 def main(args):
     import torch
     run = args.run_dir.resolve()
@@ -102,27 +163,23 @@ def main(args):
         control.write(run / "audit-before.json", inspect(model, "diagnostic"))
     control.write(run / "memory.json", memory())
     control.write(run / "idle.json", {"run_id": args.run_id, "kv_cache": None})
+    requests = run
     if args.route == "disk":
         wait(run / "control/request.json")
-        control.boundary(run, job, 1, lambda: inspect(model, args.kind))
-        if control.read(run / "control/phase.json")["status"] not in ("verified", "restored"):
+        restoration = control.boundary(run, job, 1, lambda: inspect(model, args.kind))
+        record = control.activation(run)
+        if record is not None:
+            # Reusable image: serve only the attempt that released this process.
+            root, requests = attempt_paths(run, record, restoration)
+            redirect_output(root / "worker.log")
+            control.write(root / "acknowledged.json", {**restoration, "pid": os.getpid()})
+        elif control.read(run / "control/phase.json")["status"] not in ("verified", "restored"):
             raise RuntimeError("Capture did not produce a verified restore")
     elif args.route == "ram":
         # Only CPU file polling is permitted between idle publication and wake.
         wait(run / "wake.json")
         control.write(run / "wake-inspection.json", inspect(model, args.kind))
-    control.write(run / "ready.json", {"run_id": args.run_id})
-    for index in (1, 2):
-        request = wait(run / f"request-{index}.json")
-        if request["run_id"] != args.run_id or request["input_ids"] != inputs["benchmark"]["input_ids"]:
-            raise ValueError("Request identity or prompt mismatch")
-        identity = {k: request[k] for k in ("run_id", "request_id")}
-        response = generate(model, tokenizer, inputs["benchmark"], inputs["max_new_tokens"],
-            lambda token: control.write(run / f"first-{index}.json", {**identity, "token": token}))
-        control.write(run / f"response-{index}.json", {**identity, **response})
-        if index == 1:
-            control.write(run / "audit-after.json", inspect(model, "diagnostic"))
-    control.write(run / "completed.json", memory())
+    serve(requests, args.run_id, model, tokenizer, inputs, poll)
     time.sleep(0.1)
 
 
