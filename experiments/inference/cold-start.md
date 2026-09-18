@@ -83,6 +83,14 @@ Eviction uses per-file `POSIX_FADV_DONTNEED`; `mincore` must report zero residen
 pages. It does not drop the machine's global caches. Runtime/library caches,
 filesystem metadata, and device-internal caches are not controlled.
 
+`io.json` records kernel-accounted device reads between activation start and the
+first token, next to the logical bytes hashed. Device counters include any other
+reader, so measure on an otherwise idle disk; hashing a cached file adds logical
+bytes without device reads.
+
+The EBS data volume is gp3 with 125 MiB/s provisioned throughput and 3,000 IOPS
+(AWS `describe-volumes`, 2026-09-18); the instance store is a g5.2xlarge local NVMe.
+
 Preparation, deployment to local storage, and eviction are outside activation.
 Fresh retains its original preflight boundary; the packed loader additionally
 checks chunks during activation, while CRIU revalidates dependencies and images.

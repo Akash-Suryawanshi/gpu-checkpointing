@@ -12,6 +12,7 @@ import time
 import uuid
 
 import cold_cache
+import io_stats
 import lifecycle
 import measure
 import park
@@ -48,6 +49,8 @@ def trial(args):
                "loader": args.loader, "bundle": bundle,
                "validation_order": args.validation_order, "validation_workers": args.validation_workers,
                "data_cache": args.data_cache,
+               # Version the boundary so HTTP and CLI evidence never pool with historical runs.
+               "transport": "cli", "boundary_schema": 2, "integrity_policy": "strict-v1",
                "sample_ms": args.sample_ms, "inspection_policy": "full-diagnostic-post-response-timing-v1",
                "cache_paths": {k: env[k] for k in ("TMPDIR", "HF_HOME", "XDG_CACHE_HOME", "TORCH_HOME", "CUDA_CACHE_PATH") if k in env}}
         diagnostic = None
@@ -118,6 +121,7 @@ def trial(args):
             phase = "launch"
             if args.route == "fresh":
                 cold_start()
+            io_before = io_stats.sample([manifest["model_path"], output])
             started = time.monotonic_ns()
             process = session.launch(sys.executable, HERE / "worker.py", ["--assets", assets,
                 "--run-dir", output, "--route", args.route, "--kind", args.kind, "--run-id", run["run_id"]], output, env)
@@ -171,6 +175,7 @@ def trial(args):
             memory = control.read(output / "snapshot/manifest.json")["pre_staging_memory"]
             admit("restore", memory)
             cold_start(p for p in (output / "snapshot/images").rglob("*") if p.is_file())
+            io_before = io_stats.sample([manifest["model_path"], output])
             started = time.monotonic_ns()
             emit("disk_activation_started", start_ns=started)
             original = lifecycle.restore(output, tools, env, deadline)
@@ -194,6 +199,15 @@ def trial(args):
                 raise ValueError("First token identity mismatch")
             received = time.monotonic_ns()
             emit("first_token_received", request_id=request["request_id"], received_ns=received)
+            if index == 1 and args.route in ("fresh", "disk"):
+                # Device counters include any other reader; logical bytes are what checks hashed.
+                logical = {"model_files": sum((Path(manifest["model_path"]) / name).stat().st_size
+                                              for name in manifest["identity"]["files"])}
+                if args.route == "disk":
+                    logical["payload"] = sum(p["bytes"] for p in control.read(output / "snapshot/manifest.json")["payload"].values())
+                control.write(output / "io.json", {"window": "activation_start_to_first_token",
+                    "devices": io_stats.delta(io_before, io_stats.sample([manifest["model_path"], output])),
+                    "logical_bytes": logical})
             print(f"request {index}: received first token {first['token']}", flush=True)
             response = wait(f"response-{index}.json", original)
             observations.append({"request": request, "first": first, "response": response, "start_ns": started,
@@ -224,6 +238,8 @@ def trial(args):
             names += ["reuse.json", "released-resources.json"]
         if args.data_cache == "cold":
             names += ["cold-cache.json"]
+        if args.route in ("fresh", "disk"):
+            names += ["io.json"]
         result = {"status": "passed", "cleanup": "complete", "run_sha256": measure.file_hash(output / "run.json"),
                   "evidence": {name: measure.file_hash(output / name) for name in names}, **details,
                   "durations": measure.durations(observations, run["run_id"], control.read(output / "reference.json"))}
