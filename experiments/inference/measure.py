@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 ROUTES = ("fresh", "resident", "ram", "disk")
+VLLM_ROUTES = ("cold", "eager", "snapshot")
 
 
 def read(path):
@@ -19,7 +20,8 @@ def file_hash(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def diagnostic_record(path, key, route, expected_hash=None):
+def diagnostic_record(path, key, route, expected_hash=None, validate=None):
+    """Admit the diagnostic a timing run cites; `validate` selects the engine's rules."""
     path = Path(path)
     result = path / "result.json"
     if expected_hash is not None and file_hash(result) != expected_hash:
@@ -27,7 +29,7 @@ def diagnostic_record(path, key, route, expected_hash=None):
     run = read(path / "run.json")
     if run["kind"] != "diagnostic" or run["route"] != route or run["key"] != key:
         raise ValueError("Incompatible diagnostic")
-    validate_run(path, check_diagnostic=False)
+    (validate or (lambda target: validate_run(target, check_diagnostic=False)))(path)
     return {"path": str(path.resolve()), "sha256": file_hash(result)}
 
 
@@ -139,3 +141,50 @@ def validate_http(record, reference):
         raise ValueError("Cold data-cache condition not established")
     return {"ttft_seconds": (primary["first_ns"] - primary["start_ns"]) / 1e9,
             "followup_ttft_seconds": (record["followup"]["first_ns"] - record["followup"]["start_ns"]) / 1e9}
+
+
+def validate_vllm(record, reference):
+    """Admit one vLLM route record before its durations are believed.
+
+    Ordering, request identity and reference output are checked by `durations`,
+    which the Transformers routes use as well. Added here: the route's own
+    conditions, and, for the captured route, that the key-value cache was
+    released before the image was taken rather than after it.
+    """
+    if record["route"] not in VLLM_ROUTES:
+        raise ValueError("Unknown vLLM route")
+    if record["status"] != "passed" or record.get("cleanup") != "complete":
+        raise ValueError("Incomplete or failed run")
+    if record["data_cache"] == "cold" and (not record.get("cold_cache")
+            or any(row["resident_after"] for row in record["cold_cache"])):
+        raise ValueError("Cold data-cache condition not established")
+    observations = record["observations"]
+    if record["activation"]["start_ns"] != observations[0]["start_ns"]:
+        raise ValueError("Activation start is not the first request's timer")
+    release, capture = record["kv_release_ns"], record["capture_start_ns"]
+    if record["route"] == "snapshot":
+        if type(release) is not int or type(capture) is not int or not release < capture:
+            raise ValueError("Capture must follow the key-value cache release")
+        if not all(record["lifecycle"].get(name) for name in
+                   ("original_reaped", "capture_exited", "restore_exited", "image_hashes_match")):
+            raise ValueError("Snapshot lifecycle incomplete")
+    elif release is not None or capture is not None:
+        raise ValueError("A launched route neither releases its cache nor captures")
+    measured = durations(observations, record["run_id"], reference)
+    return {"ttft_seconds": measured["start_to_first_token_seconds"],
+            "followup_ttft_seconds": measured["health_request_to_first_token_seconds"]}
+
+
+def vllm_run(path):
+    """Admit a stored vLLM run directory and return the durations it may claim."""
+    path = Path(path)
+    result = read(path / "result.json")
+    if result["run_sha256"] != file_hash(path / "run.json"):
+        raise ValueError("Run key changed")
+    for name, expected in result["evidence"].items():
+        if file_hash(path / name) != expected:
+            raise ValueError("Evidence changed: " + name)
+    measured = validate_vllm(result, read(path / "reference.json"))
+    if result["durations"] != measured:
+        raise ValueError("Stored duration disagrees with raw events")
+    return measured

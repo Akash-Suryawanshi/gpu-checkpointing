@@ -31,6 +31,14 @@ merges; do not merge on their behalf.
 
 ## Knowledge Updates
 
+### 2026-09-18 - vLLM past 0.19.1 needs a newer driver than this host has
+**Finding**: Every vLLM from 0.20 on pins `torch>=2.11`, whose wheels depend on `nvidia-*-cu13`; CUDA 13 requires driver 580 or newer, and this host runs 570.172.08. vLLM 0.19.1 pins torch 2.10.0 with `nvidia-cuda-runtime-cu12==12.8.90` and loads here. Its engine core is a second process unless `VLLM_ENABLE_V1_MULTIPROCESSING=0`, and only then does `llm_engine.model_executor` exist; cache geometry is at `llm_engine.vllm_config.cache_config`, not on the engine.
+**Impact**: Read wheel metadata before spending an install on a version check. One process is what CRIU dumps and what `experiments/inference/park.py` attributes to a GPU identity, so the multiprocessing split is not optional here.
+
+### 2026-09-18 - A new experiment directory must not hold a `prepare.py`
+**Finding**: `experiments/finetuning/control.py:21` does `from prepare import file_hash`, and a script's own directory precedes everything on `sys.path`. A `prepare.py` beside a new controller would be imported by every reused module instead of the intended one. `experiments/vllm/*.py` therefore prepend the finetuning and inference directories ahead of their own, and preparation is named `assets.py`.
+**Impact**: Check for an existing module name before adding a file to a new experiment directory; the collision is silent and reaches code that never imported the new file.
+
 ### 2026-09-18 - Pinned buffers need explicit alignment for direct I/O
 **Finding**: Early `direct` diagnostics failed the alignment guard; the packed 8B file ends with a 2048-byte partial page. `experiments/inference/stream_weights.py:20` explicitly aligns buffer views, and the loader requests a full aligned buffer at EOF while hashing only the returned model bytes.
 **Impact**: Pinned memory alone does not establish `O_DIRECT` alignment. Distinguish aligned request sizes from a permitted short EOF return; preserve failed diagnostics instead of silently using buffered I/O.

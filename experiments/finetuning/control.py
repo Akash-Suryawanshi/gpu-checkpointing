@@ -273,6 +273,7 @@ def dependencies(job, tools, deadline, workers=1, model_policy="strict-v1"):
     model = [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]]
     paths = list((ROOT / "experiments/finetuning").glob("*.py"))
     paths += list((ROOT / "experiments/inference").glob("*.py"))
+    paths += list((ROOT / "experiments/vllm").glob("*.py"))
     paths += [ROOT / "experiments/criu/session.py", assets / "manifest.json", assets / "tokens.json"]
     if model_policy == "strict-v1":
         paths += model

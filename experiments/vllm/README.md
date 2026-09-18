@@ -1,0 +1,92 @@
+# Running the vLLM snapshot comparison
+
+**Gate 1 passed on this host; gates 2–4 not yet run.** The
+[plan](../../docs/vllm-snapshot-plan.md) owns the requirements and the stop
+conditions; this file owns the commands. Capture, restore, eviction and
+ownership are reused from the [inference runbook](../inference/README.md).
+
+```text
+assets -> gate 2 probe (0.5B) -> diagnostics (cold, eager, snapshot) -> timing blocks
+             capture/restore            one per route                  three per route
+```
+
+## Environment
+
+vLLM needs its own interpreter: from 0.20 on it pins a CUDA 13 build of PyTorch,
+which requires driver 580 or newer. This host has 570.172.08, so the newest
+usable release is **vLLM 0.19.1** with torch 2.10.0 (CUDA 12.8).
+
+```bash
+BASE=/opt/dlami/nvme/gpu-checkpointing-vllm
+python3 -m venv "$BASE/venv"
+TMPDIR="$BASE/tmp" "$BASE/venv/bin/python" -m pip install "vllm==0.19.1"
+export TMPDIR="$BASE/tmp" HF_HOME="$BASE/cache/huggingface" XDG_CACHE_HOME="$BASE/cache"
+export TORCH_HOME="$BASE/cache/torch" CUDA_CACHE_PATH="$BASE/cache/cuda"
+export VLLM_CACHE_ROOT="$BASE/cache/vllm"
+PY="$BASE/venv/bin/python"
+TOOLS="$PWD/runs/tools"
+```
+
+Images go on instance storage: EBS has 19 GiB free, which will not hold one.
+
+## Command contract
+
+| Program | Arguments |
+| --- | --- |
+| `assets.py` | `--model PATH --source PATH --output PATH --gpu-fraction F [--max-model-len N]`. Records the reference tokens vLLM itself produces. |
+| `trial.py trial` | `--route cold\|eager\|snapshot --kind diagnostic\|timing --assets PATH --output PATH --tools PATH --timeout SECONDS`. |
+| Timing options | `--validated-run PATH --block 1\|2\|3`. |
+| Conditions | `--data-cache uncontrolled\|cold`, `--compile-cache warm\|cold`, `--poll-ms 5`, `--sample-ms 100`. |
+
+Output directories must be new. The route is not a comparison-key setting, so
+the three routes of one campaign share a key and can be aggregated; every other
+setting must be identical across them.
+
+## Prepare
+
+```bash
+MODEL="$PWD/runs/tools/qwen2.5-0.5b"        # gate 2 probe; 8B for the headline
+CAMPAIGN=/opt/dlami/nvme/gpu-checkpointing-vllm/campaigns/qwen25-05b-a10g-01
+ASSETS="$CAMPAIGN/assets"
+mkdir -p "$CAMPAIGN"
+"$PY" experiments/vllm/assets.py --model "$MODEL" \
+  --source "$MODEL/asset-manifest.json" --output "$ASSETS" --gpu-fraction 0.30
+```
+
+## Gate 2: capture and restore once
+
+```bash
+"$PY" experiments/vllm/trial.py trial --route snapshot --kind diagnostic \
+  --assets "$ASSETS" --output "$CAMPAIGN/diagnostics/snapshot" \
+  --tools "$TOOLS" --timeout 3600
+```
+
+A refusal inside CRIU's device-mapping handling is the planned stop, not a bug
+to work around: record the log and report it. Run the `cold` and `eager`
+diagnostics the same way before any timing.
+
+## Timing blocks
+
+Each timed run cites its route's accepted diagnostic. Warm the compiled-kernel
+cache once with a throwaway activation; `--compile-cache warm` refuses an empty
+cache, because a first block that had to compile would be charged for work the
+other two inherit.
+
+```bash
+for block in 1 2 3; do
+  for route in cold eager snapshot; do
+    "$PY" experiments/vllm/trial.py trial --route "$route" --kind timing \
+      --block "$block" --validated-run "$CAMPAIGN/diagnostics/$route" \
+      --data-cache cold --compile-cache warm \
+      --assets "$ASSETS" --output "$CAMPAIGN/timing/$route-$block" \
+      --tools "$TOOLS" --timeout 3600
+  done
+done
+```
+
+## Tests
+
+```bash
+PYTHONPATH=experiments/inference:experiments/finetuning:experiments/criu:experiments/cpu \
+  python3 -m unittest discover -s tests -v
+```
