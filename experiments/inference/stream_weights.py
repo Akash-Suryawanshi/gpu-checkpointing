@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import time
 from pathlib import Path
 
 CHUNK = 16 * 1024 * 1024
@@ -83,10 +84,12 @@ def pack(assets, output):
         "tensors": tensors, "chunks": chunks, "assets_sha256": control.file_hash(assets / "manifest.json")})
 
 
-def load(model_path, folder, pipelined=True):
+def load(model_path, folder, pipelined=True, direct=False, stats=None):
     import torch
     from accelerate import init_empty_weights
     from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+    stats = {} if stats is None else stats
+    started = time.monotonic()
     record = metadata(folder)
     config = AutoConfig.from_pretrained(model_path, local_files_only=True)
     # Model construction defines shapes without randomizing billions of weights.
@@ -95,10 +98,17 @@ def load(model_path, folder, pipelined=True):
         model = AutoModelForCausalLM.from_config(config, dtype=torch.bfloat16, attn_implementation="sdpa")
     if set(model.state_dict()) != set(record["tensors"]):
         raise ValueError("Packed tensors do not match model architecture")
+    stats["construct_seconds"] = time.monotonic() - started
+    started = time.monotonic()
     flat = torch.empty(record["bytes"], dtype=torch.uint8, device="cuda:0")
     buffers = [torch.empty(CHUNK, dtype=torch.uint8, pin_memory=pipelined) for _ in range(4 if pipelined else 1)]
     events = [torch.cuda.Event() for _ in buffers]
-    with (folder / "weights.bin").open("rb", buffering=0) as stream:
+    if direct and (record["bytes"] % 4096 or any(buffer.data_ptr() % 4096 for buffer in buffers)):
+        raise ValueError("Direct I/O requires page-aligned buffers and file length")
+    flags = os.O_RDONLY | (os.O_DIRECT if direct else 0)
+    # O_DIRECT reads into aligned pinned buffers without the OS file-cache
+    # copy. Unsupported filesystems fail explicitly; never silently fall back.
+    with os.fdopen(os.open(folder / "weights.bin", flags), "rb", buffering=0) as stream:
         def fill(index, slot, reuse=False):
             if reuse:
                 events[slot].synchronize()
@@ -118,12 +128,17 @@ def load(model_path, folder, pipelined=True):
                 if index + len(buffers) < len(record["chunks"]):
                     pending[slot] = readers.submit(fill, index + len(buffers), slot, True)
     torch.cuda.synchronize()
+    stats["read_verify_copy_seconds"] = time.monotonic() - started
+    stats["pinned_buffer_bytes"] = CHUNK * len(buffers) if pipelined else 0
+    stats["direct_io"] = direct
+    started = time.monotonic()
     state = {name: flat[item["offset"]:item["offset"] + item["bytes"]].view(torch.bfloat16).view(item["shape"])
              for name, item in record["tensors"].items()}
     model.load_state_dict(state, strict=True, assign=True)
     model.to("cuda:0").eval()
     model.generation_config = GenerationConfig.from_pretrained(model_path, local_files_only=True)
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+    stats["bind_tokenizer_seconds"] = time.monotonic() - started
     return model, tokenizer
 
 

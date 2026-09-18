@@ -219,7 +219,7 @@ def trial(args):
         sampler.close()
         sampler = None
         names = ["reference.json", "tokens.json", "prepared-audit.json", "audit-before.json", "audit-after.json",
-                 "observations.json", "memory.json", "resources.jsonl"]
+                 "observations.json", "memory.json", "resources.jsonl", "loading.json"]
         if args.route in ("ram", "disk"):
             names += ["reuse.json", "released-resources.json"]
         if args.data_cache == "cold":
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     parser.add_argument("--validation-order", choices=("payload-first", "dependencies-first"), default="payload-first")
     parser.add_argument("--validation-workers", type=int, choices=(1, 4), default=1)
     parser.add_argument("--data-cache", choices=("uncontrolled", "cold"), default="uncontrolled")
-    parser.add_argument("--loader", choices=("transformers", "packed", "pipelined"), default="transformers")
+    parser.add_argument("--loader", choices=("transformers", "packed", "pipelined", "direct"), default="transformers")
     parser.add_argument("--bundle", type=Path)
     args = parser.parse_args()
     if args.kind == "timing" and (not args.validated_run or not args.block):

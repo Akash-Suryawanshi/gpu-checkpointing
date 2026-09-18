@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "finetuning"))
 import control
 
 
-def load(model_path, loader="transformers", bundle=None):
+def load(model_path, loader="transformers", bundle=None, stats=None):
     # Direct preparation and isolated children must use the same cuBLAS policy.
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     import torch
@@ -22,7 +22,8 @@ def load(model_path, loader="transformers", bundle=None):
     torch.backends.cuda.matmul.allow_tf32 = False
     if loader != "transformers":
         from stream_weights import load as stream_load
-        return stream_load(model_path, Path(bundle), pipelined=loader == "pipelined")
+        return stream_load(model_path, Path(bundle), pipelined=loader in ("pipelined", "direct"),
+                           direct=loader == "direct", stats=stats)
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True,
         dtype=torch.bfloat16, device_map={"": "cuda:0"}, attn_implementation="sdpa").eval()
@@ -87,8 +88,10 @@ def main(args):
     inputs = control.read(args.assets / "tokens.json")
     settings = control.read(run / "run.json")["key"]
     bundle = settings.get("bundle")
+    stats, load_started = {}, time.monotonic()
     model, tokenizer = load(manifest["model_path"], settings.get("loader", "transformers"),
-                            bundle["path"] if bundle else None)
+                            bundle["path"] if bundle else None, stats)
+    control.write(run / "loading.json", {**stats, "load_call_seconds": time.monotonic() - load_started})
     poll = settings["poll_ms"] / 1000
     wait = lambda path: control.wait(path, time.monotonic() + 7200, poll=poll)
     if args.route != "fresh":
