@@ -41,15 +41,16 @@ def metadata(folder):
     return record
 
 
-def verified_read(stream, target, expected, offset=None):
+def verified_read(stream, target, expected, offset=None, size=None):
+    size = len(target) if size is None else size
     position = 0
-    while position < len(target):
+    while position < size:
         count = (stream.readinto(target[position:]) if offset is None else
                  os.preadv(stream.fileno(), [target[position:]], offset + position))
         if not count:
             raise ValueError("Truncated weight chunk")
         position += count
-    if hashlib.sha256(target).hexdigest() != expected:
+    if position != size or hashlib.sha256(target[:size]).hexdigest() != expected:
         raise ValueError("Weight chunk digest mismatch")
 
 
@@ -114,8 +115,8 @@ def load(model_path, folder, pipelined=True, direct=False, stats=None):
                 torch.empty(CHUNK, dtype=torch.uint8, pin_memory=pipelined))
                for _ in range(4 if pipelined else 1)]
     events = [torch.cuda.Event() for _ in buffers]
-    if direct and (record["bytes"] % 4096 or any(buffer.data_ptr() % 4096 for buffer in buffers)):
-        raise ValueError("Direct I/O requires page-aligned buffers and file length")
+    if direct and any(buffer.data_ptr() % 4096 for buffer in buffers):
+        raise ValueError("Direct I/O requires page-aligned buffers")
     flags = os.O_RDONLY | (os.O_DIRECT if direct else 0)
     # O_DIRECT reads into aligned pinned buffers without the OS file-cache
     # copy. Unsupported filesystems fail explicitly; never silently fall back.
@@ -125,7 +126,10 @@ def load(model_path, folder, pipelined=True, direct=False, stats=None):
                 events[slot].synchronize()
             offset = index * CHUNK
             size = min(CHUNK, record["bytes"] - offset)
-            verified_read(stream, memoryview(buffers[slot].numpy())[:size], record["chunks"][index], offset)
+            # Keep the final direct request aligned too. EOF may return a
+            # shorter, unaligned tail; hash only the model bytes returned.
+            target = memoryview(buffers[slot].numpy())[:CHUNK if direct else size]
+            verified_read(stream, target, record["chunks"][index], offset, size=size)
             return offset, size
         # preadv gives each reader an independent file offset. The bounded ring
         # overlaps disk reads and hashing with DMA without caching a whole model.

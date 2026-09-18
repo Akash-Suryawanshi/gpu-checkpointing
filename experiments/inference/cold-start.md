@@ -32,7 +32,8 @@ The packed loaders are a bounded adaptation of
 [ServerlessLLM §4 (OSDI 2024)](https://www.usenix.org/system/files/osdi24-fu.pdf):
 bulk layout, memory pooling, concurrent reads, and a loading pipeline. This is
 not a reproduction of its scheduler, model manager, or migration. Direct reads
-fail explicitly when the file length, buffers, or filesystem are unsuitable.
+use aligned requests, accept a verified short EOF tail, and fail explicitly
+when the buffers or filesystem are unsuitable.
 
 The process starts anew for all four loaders. The packed format preserves BF16
 weights exactly; each chunk must pass SHA-256 before its GPU copy. Full model

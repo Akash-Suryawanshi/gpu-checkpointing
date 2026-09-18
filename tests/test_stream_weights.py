@@ -40,6 +40,10 @@ class StreamTests(unittest.TestCase):
             stream_weights.verified_read(stream, target, digest, offset=6)
             self.assertEqual(target, data)
             self.assertEqual(stream.tell(), 2, "Concurrent readers must not share a mutable cursor")
+            # A full aligned O_DIRECT request can finish with a short EOF tail.
+            oversized = memoryview(bytearray(len(data) + 4096))
+            stream_weights.verified_read(stream, oversized, digest, offset=6, size=len(data))
+            self.assertEqual(oversized[:len(data)], data)
 
     def test_tensor_metadata_requires_dense_complete_bf16_layout(self):
         """Non-obvious correctness: sorted JSON names are not the physical tensor order."""
