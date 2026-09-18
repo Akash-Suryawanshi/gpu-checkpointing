@@ -5,6 +5,7 @@ Records carry identity and permission, never replacement training state. See
 """
 
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import importlib.metadata
 import json
@@ -216,7 +217,21 @@ def runtime_libraries(directory):
     return [path for path in directory.glob("*.so*") if path.is_file()]
 
 
-def dependencies(job, tools, deadline):
+def hash_files(paths, deadline, workers=1):
+    if workers not in (1, 4):
+        raise ValueError("Validation workers must be 1 or 4")
+    def checked(path):
+        remaining(deadline)
+        digest = file_hash(path)
+        remaining(deadline)
+        return str(path.absolute()), digest
+    # Each independent file retains its ordinary SHA-256. At most four
+    # bounded read buffers exist; changing concurrency never changes identity.
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return dict(executor.map(checked, paths))
+
+
+def dependencies(job, tools, deadline, workers=1):
     """Fingerprint dependencies without importing torch or creating a CUDA context."""
     assets = Path(job["assets"])
     manifest = read(assets / "manifest.json")
@@ -228,10 +243,7 @@ def dependencies(job, tools, deadline):
         "criu-4.2.1/criu/criu", "criu-4.2.1/plugins/cuda/cuda_plugin.so",
         "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")]
     paths += runtime_libraries(Path(tools) / "criu-deps/usr/lib/x86_64-linux-gnu")
-    hashes = {}
-    for path in paths:
-        remaining(deadline)
-        hashes[str(path.absolute())] = file_hash(path)
+    hashes = hash_files(paths, deadline, workers)
     gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,uuid,driver_version,memory.total",
                                    "--format=csv,noheader"], text=True, timeout=remaining(deadline)).strip()
     return {"files": hashes, "python": platform.python_version(), "executable": job["python"],
@@ -301,7 +313,7 @@ def publish(snapshot, manifest, run, deadline, emit):
         raise
 
 
-def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda name: None):
+def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda name: None, workers=1):
     if order not in ("payload-first", "dependencies-first"):
         raise ValueError("Unknown validation order")
     manifest = read(snapshot / "manifest.json")
@@ -330,7 +342,7 @@ def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda 
     if request != manifest["request"] or (run / "attempts" / manifest["capture_id"] / "inspect.json").exists():
         raise ValueError("Stale control markers")
     emit("dependency_validation_started")
-    if dependencies(job, tools, deadline) != manifest["dependencies"]:
+    if dependencies(job, tools, deadline, workers) != manifest["dependencies"]:
         raise ValueError("Environment, tools, source, or asset mismatch")
     emit("dependency_validation_completed")
     for name in ("updates.jsonl", "trainer.stderr"):

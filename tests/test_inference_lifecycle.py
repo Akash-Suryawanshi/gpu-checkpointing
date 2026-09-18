@@ -131,7 +131,7 @@ def reconstruct(*args, **kwargs):
     original_write(attempt / "inspected.json", {"attempt_id": attempt.name})
     return child.pid
 restore.session.criu = reconstruct
-restore.restore(Namespace(snapshot=run / "snapshot", tools=run, timeout=5, validation_order="payload-first"))
+restore.restore(Namespace(snapshot=run / "snapshot", tools=run, timeout=5, validation_order="payload-first", validation_workers=1))
 '''
             helper = subprocess.run([sys.executable, "-c", script, str(run)], capture_output=True, text=True, timeout=10)
             self.assertNotEqual(helper.returncode, 0)
