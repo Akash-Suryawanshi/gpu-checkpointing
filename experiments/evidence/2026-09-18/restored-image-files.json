@@ -1,0 +1,18 @@
+{
+  "restore_log": "/mnt/data/gpu-checkpointing-inference-8b/campaigns/http-ebs-01/diagnostics/disk/attempts/879d710a8e6344bea5109318dbddab3b/restore.log",
+  "reopened_total": 92,
+  "reopened": {
+    "model_files": 0,
+    "run_files": 2,
+    "libraries": 83,
+    "other": 7
+  },
+  "model_files_reopened": [],
+  "run_files_reopened": [
+    "/mnt/data/gpu-checkpointing-inference-8b/campaigns/http-ebs-01/diagnostics/disk/trainer.stderr",
+    "/mnt/data/gpu-checkpointing-inference-8b/campaigns/http-ebs-01/diagnostics/disk/updates.jsonl"
+  ],
+  "model_files_hashed_at_activation": 12,
+  "model_bytes_hashed_at_activation": 16397431693,
+  "conclusion": "Model files are hashed but never reopened: that read is an environment-equivalence check, not a restore prerequisite."
+}

@@ -547,6 +547,28 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## What a restored image actually reopens — 2026-09-18
+
+Activation-time validation hashes 15.26 GiB of model files on every restore.
+The [file audit](evidence/2026-09-18/restored-image-files.json) shows the restored
+process reopens 92 files and none of them is a model file.
+
+| Reopened by the restored process | Count |
+| --- | ---: |
+| Shared libraries (PyTorch, CUDA runtime, NumPy, tokenizers) | 83 |
+| Captured run logs (`updates.jsonl`, `trainer.stderr`) | 2 |
+| Interpreter, locales, working directory, `/dev/null` | 7 |
+| Model weight files | 0 |
+
+The weights are in the image's restored memory pages, so the 12 hashed model
+files are an environment-equivalence check rather than a restore prerequisite.
+`experiments/inference/image_files.py` reproduces this from any activated run.
+
+This does not by itself justify skipping the check. Moving it to publication
+time would trade a per-activation cost for an assumption that the files stay
+unchanged on writable storage. That trade is a separate integrity policy, and a
+measurement using it must record a different policy label so results never pool.
+
 ## Storage arm: the same comparison on instance-store NVMe — 2026-09-18
 
 Only the storage changed: model files, images, and caches moved to the
