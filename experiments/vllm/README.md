@@ -1,8 +1,10 @@
 # Running the vLLM snapshot comparison
 
 **Complete on Qwen2.5-0.5B: cold 27.65 s, snapshot 30.31 s.** Repeated on an
-H100 host with 16x faster storage, where cold gains more and the gap widens to
-5.96 s: see the [storage arm](../results.md#h100-storage-arm-the-disk-stops-binding-and-the-snapshot-loses-by-more--2026-09-18). The
+H100 host with 16x faster storage, where the gap first widens to 5.96 s
+([storage arm](../results.md#h100-storage-arm-the-disk-stops-binding-and-the-snapshot-loses-by-more--2026-09-18))
+and then reverses to a 6.81 s win once the payload hash runs in parallel
+([payload policies](../results.md#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)). The
 [plan](../../docs/vllm-snapshot-plan.md) owns the requirements and the stop
 conditions; this file owns the commands. Capture, restore, eviction and
 ownership are reused from the [inference runbook](../inference/README.md).
@@ -101,9 +103,10 @@ PYTHONPATH=experiments/inference:experiments/finetuning:experiments/criu:experim
 
 ## Running on other hardware
 
-The result here is storage-bound, so another host can reverse it. It did not:
-on faster storage the binding cost became the serial payload hash instead.
-Re-derive these before trusting any comparison on a new machine.
+The result here is storage-bound, so another host can reverse it. Faster storage
+alone did not: the binding cost became our own serial payload hash instead.
+Changing that policy did. Re-derive these before trusting any comparison on a
+new machine, and measure the rate the activation achieves, not the device's.
 
 | Re-derive | Why | How |
 | --- | --- | --- |

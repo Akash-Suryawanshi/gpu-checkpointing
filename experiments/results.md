@@ -971,7 +971,8 @@ image / validation rate + intrinsic restore  <  cold TTFT
 Solving for image size at the current validation rate gives a 4.82 GiB
 break-even. The live data alone is 4.75 GiB, so trimming the dead allocator pool
 would only tie. On this host the validation throughput has to change, not the
-image.
+image — which is what the [policy campaigns](#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)
+then did.
 
 ### What the number includes
 
@@ -1013,6 +1014,78 @@ integrity policy is unknown to us, so the bottom row has no counterpart there.
 
 Scope: this measures one harness under `strict-v1`, not snapshot restore in
 general. The hypothesis still fails here, but for a policy reason rather than a
-physical one. Parallelising or enlarging the reads inside `inventory()` would be
-an implementation fix at the same integrity, and would invalidate every existing
-image through the dependency hash.
+physical one. [Two later campaigns](#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)
+change that policy and reverse the result: hashing the payload in parallel wins
+by 6.81 s, and skipping it altogether wins by only 1.97 s, because the hash was
+also prefetching the image for CRIU.
+
+## Two payload policies: the hash was also a prefetch — 2026-09-18
+
+The [H100 arm](#h100-storage-arm-the-disk-stops-binding-and-the-snapshot-loses-by-more--2026-09-18)
+left the snapshot losing to a 14.24 s integrity hash. Two campaigns test the
+obvious repairs: stop hashing at activation, and hash in parallel. Each is a
+separate `integrity_policy` with its own comparison key, eight runs, one key each.
+[Skip](evidence/2026-09-18/vllm-h100-skipval-validation.json),
+[parallel](evidence/2026-09-18/vllm-h100-parallel-validation.json),
+[phase split](evidence/2026-09-18/vllm-h100-payload-policies.json),
+[script](evidence/2026-09-18/vllm-h100-policy-experiments.sh).
+
+| Policy | Payload | CRIU | Snapshot | Cold | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `strict-v1` | 14.24 s | 4.64 s | 21.92 s | 15.96 s | loses 5.96 s |
+| `publication-only-v1` | 0.00 s | 11.20 s | 14.01 s | 15.98 s | wins 1.97 s |
+| `parallel-chunked-v1` | 1.54 s | 4.59 s | **8.99 s** | 15.80 s | **wins 6.81 s** |
+
+Cold is the control and does not move: 15.96, 15.98, 15.80 s. The policy reaches
+the snapshot path only.
+
+### Skipping the check returns less than half of what it cost
+
+Removing the hash should have saved 14.24 s. It saved 7.91 s, because CRIU's
+restore grew from 4.64 s to 11.20 s in the same campaign.
+
+```text
+strict     [ hash 7.37 GiB 14.2s ][CRIU 4.6s]   image already in RAM
+skip       [                     ][CRIU 11.2s]  CRIU reads it from disk itself
+parallel   [1.5s][CRIU 4.6s]                    verified and still in RAM
+```
+
+The hash was doing two jobs. It proved the image unchanged, and it pulled 7.37 GiB
+into a 196 GiB page cache, so CRIU then read from memory at 2.60 GB/s instead of
+from disk at 0.62 GiB/s. Delete the check and the prefetch goes with it.
+
+That also means neither reader ever approached the device. Validation moved
+0.52 GiB/s, CRIU alone moves 0.62 GiB/s, and the volume does 5.4 GB/s. Both are
+single-stream readers, which is the whole story of this host.
+
+### Hashing in parallel beats not hashing at all
+
+`parallel-chunked-v1` covers every byte with SHA-256, folding 64 MiB chunk
+digests in file order, at 16 workers. It verifies 9.2x faster than `strict-v1`
+and still warms the cache, so it keeps CRIU's 4.59 s as well.
+
+| Workers | 1 | 4 | 8 | 16 | 24 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GB/s on the 7.32 GiB page image | 0.61 | 2.38 | 4.22 | 5.51 | 6.93 |
+
+The digest value differs from an ordinary SHA-256, which is why it is a labelled
+policy rather than a faster `strict-v1`. The guarantee does not differ: a byte
+flipped at the start, middle or end changes it, as does swapping two chunks that
+keep every byte, and the value never depends on the worker count.
+
+So the honest repair is not to trust the image less. Skipping the check trades
+tamper detection for 1.97 s; hashing it in parallel keeps the detection and wins
+6.81 s. `publication-only-v1` remains a real option where an image is on storage
+nothing else can write, but it is the weaker result here as well as the weaker
+guarantee.
+
+### What this does and does not settle
+
+The vLLM hypothesis — that restoring a warmed engine beats starting one cold —
+**holds on this host once the activation stops reading the image single-stream**.
+It failed on the A10G because the volume was slow, and failed here at first
+because our own verification was slow.
+
+Unchanged: the image is still 7.37 GiB against cold's 0.92 GiB, and a faster GPU
+still shrinks the prize. This is one model, one host, and three campaigns that
+cannot be pooled with each other or with the A10G pair.

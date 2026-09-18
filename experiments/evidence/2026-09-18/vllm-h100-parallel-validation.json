@@ -1,0 +1,160 @@
+{
+ "runs": [
+  {
+   "dir": "diagnostics/cold",
+   "route": "cold",
+   "kind": "diagnostic",
+   "block": null,
+   "key": "c86871666afd",
+   "ttft_seconds": 15.950769911,
+   "followup_ttft_seconds": 0.014242524,
+   "image_bytes": 0,
+   "save_seconds": null,
+   "preparation_seconds": 15.916205011,
+   "device_read_bytes": 988098560,
+   "logical_bytes": 999586274,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  },
+  {
+   "dir": "diagnostics/snapshot",
+   "route": "snapshot",
+   "kind": "diagnostic",
+   "block": null,
+   "key": "c86871666afd",
+   "ttft_seconds": 9.902583298,
+   "followup_ttft_seconds": 0.014484488,
+   "image_bytes": 7915381540,
+   "save_seconds": 11.698895417,
+   "preparation_seconds": 15.410815062,
+   "device_read_bytes": 8903569408,
+   "logical_bytes": 8914967814,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  },
+  {
+   "dir": "timing/cold-1",
+   "route": "cold",
+   "kind": "timing",
+   "block": 1,
+   "key": "c86871666afd",
+   "ttft_seconds": 15.784561459,
+   "followup_ttft_seconds": 0.00878401,
+   "image_bytes": 0,
+   "save_seconds": null,
+   "preparation_seconds": 15.750019567,
+   "device_read_bytes": 988200960,
+   "logical_bytes": 999586274,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  },
+  {
+   "dir": "timing/cold-2",
+   "route": "cold",
+   "kind": "timing",
+   "block": 2,
+   "key": "c86871666afd",
+   "ttft_seconds": 15.801603789,
+   "followup_ttft_seconds": 0.014938182,
+   "image_bytes": 0,
+   "save_seconds": null,
+   "preparation_seconds": 15.767036462,
+   "device_read_bytes": 988098560,
+   "logical_bytes": 999586274,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  },
+  {
+   "dir": "timing/cold-3",
+   "route": "cold",
+   "kind": "timing",
+   "block": 3,
+   "key": "c86871666afd",
+   "ttft_seconds": 15.857633516,
+   "followup_ttft_seconds": 0.013915254,
+   "image_bytes": 0,
+   "save_seconds": null,
+   "preparation_seconds": 15.821540865,
+   "device_read_bytes": 988098560,
+   "logical_bytes": 999586274,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  },
+  {
+   "dir": "timing/snapshot-1",
+   "route": "snapshot",
+   "kind": "timing",
+   "block": 1,
+   "key": "c86871666afd",
+   "ttft_seconds": 9.058603697,
+   "followup_ttft_seconds": 0.014535314,
+   "image_bytes": 7915473393,
+   "save_seconds": 10.703434449,
+   "preparation_seconds": 15.464906105,
+   "device_read_bytes": 8903716864,
+   "logical_bytes": 8915059667,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  },
+  {
+   "dir": "timing/snapshot-2",
+   "route": "snapshot",
+   "kind": "timing",
+   "block": 2,
+   "key": "c86871666afd",
+   "ttft_seconds": 8.920537862,
+   "followup_ttft_seconds": 0.014806845,
+   "image_bytes": 7915448865,
+   "save_seconds": 10.923445335,
+   "preparation_seconds": 15.371592039,
+   "device_read_bytes": 8903692288,
+   "logical_bytes": 8915035139,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  },
+  {
+   "dir": "timing/snapshot-3",
+   "route": "snapshot",
+   "kind": "timing",
+   "block": 3,
+   "key": "c86871666afd",
+   "ttft_seconds": 8.985793546,
+   "followup_ttft_seconds": 0.014096253,
+   "image_bytes": 7915411370,
+   "save_seconds": 10.273006959,
+   "preparation_seconds": 15.409047534,
+   "device_read_bytes": 8903655424,
+   "logical_bytes": 8914997644,
+   "gpu_blocks": 9238,
+   "status": "passed"
+  }
+ ],
+ "keys": {
+  "c86871666afd4f7064d19764ee133049d6b712f38c35412d1389fdb563d49223": [
+   "diagnostics/cold",
+   "diagnostics/snapshot",
+   "timing/cold-1",
+   "timing/cold-2",
+   "timing/cold-3",
+   "timing/snapshot-1",
+   "timing/snapshot-2",
+   "timing/snapshot-3"
+  ]
+ },
+ "summary": {
+  "cold": {
+   "n": 3,
+   "median": 15.801603789,
+   "min": 15.784561459,
+   "max": 15.857633516,
+   "device_gib": 0.9202384948730469
+  },
+  "snapshot": {
+   "n": 3,
+   "median": 8.985793546,
+   "min": 8.920537862,
+   "max": 9.058603697,
+   "device_gib": 8.29220962524414
+  }
+ }
+}
