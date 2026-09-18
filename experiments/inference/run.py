@@ -38,7 +38,14 @@ def trial(args):
     try:
         manifest = validate_assets(assets)
         deps = control.dependencies({"assets": str(assets), "python": sys.executable}, tools, deadline)
+        bundle = None
+        if args.bundle:
+            from stream_weights import metadata
+            if metadata(args.bundle)["assets_sha256"] != control.file_hash(assets / "manifest.json"):
+                raise ValueError("Packed weights belong to different prepared assets")
+            bundle = {"path": str(args.bundle.resolve()), "sha256": control.file_hash(args.bundle / "manifest.json")}
         key = {"dependencies": deps, "assets": manifest, "poll_ms": args.poll_ms,
+               "loader": args.loader, "bundle": bundle,
                "validation_order": args.validation_order, "validation_workers": args.validation_workers,
                "data_cache": args.data_cache,
                "sample_ms": args.sample_ms, "inspection_policy": "full-diagnostic-post-response-timing-v1",
@@ -103,6 +110,8 @@ def trial(args):
             if args.data_cache == "cold":
                 files = [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]
                          if name.endswith(".safetensors")]
+                if args.bundle:
+                    files.append(args.bundle / "weights.bin")
                 control.write(output / "cold-cache.json", cold_cache.evict([*files, *images]))
                 emit("data_cache_evicted")
         if not staged_restore:
@@ -261,6 +270,8 @@ if __name__ == "__main__":
     parser.add_argument("--validation-order", choices=("payload-first", "dependencies-first"), default="payload-first")
     parser.add_argument("--validation-workers", type=int, choices=(1, 4), default=1)
     parser.add_argument("--data-cache", choices=("uncontrolled", "cold"), default="uncontrolled")
+    parser.add_argument("--loader", choices=("transformers", "packed", "pipelined"), default="transformers")
+    parser.add_argument("--bundle", type=Path)
     args = parser.parse_args()
     if args.kind == "timing" and (not args.validated_run or not args.block):
         parser.error("Timing requires --validated-run and --block")
@@ -270,6 +281,8 @@ if __name__ == "__main__":
         parser.error("Image discard requires accepted disk timing")
     if args.data_cache == "cold" and (args.route not in ("fresh", "disk") or args.disk_action == "capture"):
         parser.error("Cold data-cache measurement requires fresh or a disk restore")
+    if (args.loader != "transformers") != bool(args.bundle) or (args.bundle and args.route != "fresh"):
+        parser.error("Packed/pipelined loaders require --bundle and --route fresh")
     if any(not math.isfinite(v) or v <= 0 for v in (args.timeout, args.poll_ms, args.sample_ms)):
         parser.error("Deadlines and intervals must be positive")
     trial(args)

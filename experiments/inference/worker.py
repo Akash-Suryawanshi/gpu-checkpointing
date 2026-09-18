@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "finetuning"))
 import control
 
 
-def load(model_path):
+def load(model_path, loader="transformers", bundle=None):
     # Direct preparation and isolated children must use the same cuBLAS policy.
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     import torch
@@ -20,6 +20,9 @@ def load(model_path):
     torch.manual_seed(2026)
     torch.use_deterministic_algorithms(True)
     torch.backends.cuda.matmul.allow_tf32 = False
+    if loader != "transformers":
+        from stream_weights import load as stream_load
+        return stream_load(model_path, Path(bundle), pipelined=loader == "pipelined")
     tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
     model = AutoModelForCausalLM.from_pretrained(model_path, local_files_only=True,
         dtype=torch.bfloat16, device_map={"": "cuda:0"}, attn_implementation="sdpa").eval()
@@ -82,8 +85,11 @@ def main(args):
     job = control.register(run, args.assets, 2) if args.route == "disk" else None
     manifest = control.read(args.assets / "manifest.json")
     inputs = control.read(args.assets / "tokens.json")
-    model, tokenizer = load(manifest["model_path"])
-    poll = control.read(run / "run.json")["key"]["poll_ms"] / 1000
+    settings = control.read(run / "run.json")["key"]
+    bundle = settings.get("bundle")
+    model, tokenizer = load(manifest["model_path"], settings.get("loader", "transformers"),
+                            bundle["path"] if bundle else None)
+    poll = settings["poll_ms"] / 1000
     wait = lambda path: control.wait(path, time.monotonic() + 7200, poll=poll)
     if args.route != "fresh":
         generate(model, tokenizer, inputs["warmup"], 4)

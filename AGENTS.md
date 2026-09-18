@@ -35,6 +35,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/finetuning/restore.py:27` validates before emitting `restore_requested`. In the third 8B timing, controller observations place 137.60 seconds before that event, 139.45 inside the CRIU command, and 0.57 after return; the 4,351,144 restored pages are 16.60 GiB, not 17.8 GiB.
 **Impact**: Join host-clock controller and helper events before attributing latency. Do not interpret the difference between total latency and CRIU duration as post-restore delay.
 
+### 2026-09-18 - The 8B snapshot already has an aggregated page image
+**Finding**: The retained 8B manifests put over 99.9% of payload bytes in `images/pages-8.img`. CRIU logs record repeated 2,147,479,552-byte `preadv` returns taking about 16.36 seconds, approximately 125.2 MiB/s.
+**Impact**: Prioritize storage bandwidth and repeated full-file passes over small-file aggregation. An NVMe device name alone does not identify local storage: the original data mount is EBS; the host also has separately mounted instance storage.
+
 ### 2026-09-17 - CRIU buffer flushing is not snapshot durability
 **Finding**: Pinned `criu/bfd.c:114` checks earlier buffer errors; `bflush():235` calls `write_all()`, not `fsync()`. `pipeline.py:115` separately invokes `sync -f`.
 **Impact**: Persist payload, directory entries, and completion in order; see [publication contract](docs/independent-lifecycle-details.md). Local persistence does not establish survival of volume deletion.
