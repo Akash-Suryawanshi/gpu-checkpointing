@@ -101,6 +101,40 @@ repays its cost when state is expensive to derive, such as compiled kernels,
 load-time quantization, or training optimizer state. The
 [results chapter](../results.md) owns the measured numbers.
 
+## Why restoring does not pay here
+
+A cold start does two kinds of work. It moves bytes, reading weights off a disk.
+It also computes: starting an interpreter, building the module tree, creating a
+device context, and on some stacks compiling kernels and capturing graphs.
+
+A restore does only the first kind. Whatever the original computed is already
+inside the saved bytes. So restoring pays when the computation it skips costs
+more than the extra bytes it must read.
+
+The catch is that computation can hide behind the reading it accompanies.
+
+```text
+default loader   build module tree  9.8 s  ]__ overlapped, so the read alone
+                 read 15.26 GiB    52.9 s  ]   sets the pace: 53.3 s measured
+
+packed loader    build module tree  9.8 s  ]__ serial, so both are paid:
+                 read 15.26 GiB    48.8 s  ]   61.3 s measured
+
+restore          read 16.61 GiB    57.5 s      nothing to hide behind
+```
+
+Widths are seconds on the same volume. The installed loader fills tensors as
+chunks arrive, so construction costs nothing extra. Our packed loader builds
+first and then reads, which is exactly why it is slower despite a faster data
+path; see the [loader comparison](../results.md#packed-loaders-win-the-data-path-and-lose-it-again-to-serialization--2026-09-18).
+
+So a snapshot of this workload saves work that was already free, and charges
+1.35 GiB of extra reading for it. Published cold-start wins come from engines
+whose startup compiles kernels and captures graphs *after* the weights are in
+memory. That work cannot overlap with loading, because it needs the loaded
+weights, so it is serial, additive, and worth minutes. That is the state a
+process image is worth saving.
+
 ## Measurement boundary
 
 ```text
