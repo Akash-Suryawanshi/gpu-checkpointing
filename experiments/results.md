@@ -607,9 +607,13 @@ enough to evict it. Time before CRIU was unchanged at 104.8 s against 105.3 s.
 The flags campaign applied the setting to its restore route only, so it holds two
 comparison keys and `report.py` declines to aggregate it; that refusal is correct.
 Its fresh runs carry the identical key to the strict campaign's, which confirms
-validation order does not touch the fresh path. This arm also raised hash workers
-from one to four, which moved hashing by under two seconds; a separate order-only
-campaign isolates the two settings.
+validation order does not touch the fresh path.
+
+That arm also raised hash workers from one to four. A separate
+[order-only campaign](evidence/2026-09-18/cold-nvme-order-01-validation.json) keeps
+one worker and reaches a 119.70 s median against the combined arm's 119.42 s, so
+the reordering explains the whole gain and the worker count contributes nothing
+measurable. Its single comparison key lets `report.py` aggregate it normally.
 
 ## What a restored image actually reopens — 2026-09-18
 
