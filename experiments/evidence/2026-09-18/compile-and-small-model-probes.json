@@ -1,0 +1,79 @@
+{
+  "kind": "single diagnostics, not a three-block timing campaign",
+  "model": "Qwen2.5-0.5B",
+  "probes": {
+    "compiled-disk": {
+      "compile_mode": "default",
+      "dump_errors": [
+        "(00.561624) Error (cuda_plugin.c:221): cuda_plugin: Failed to launch cuda-checkpoint to retrieve restore tid: Could not find restore thread for process ID 2844526",
+        "(00.641538) Error (cuda_plugin.c:221): cuda_plugin: Failed to launch cuda-checkpoint to retrieve restore tid: Could not find restore thread for process ID 2844528",
+        "(00.722099) Error (cuda_plugin.c:221): cuda_plugin: Failed to launch cuda-checkpoint to retrieve restore tid: Could not find restore thread for process ID 2844531",
+        "(00.801760) Error (cuda_plugin.c:221): cuda_plugin: Failed to launch cuda-checkpoint to retrieve restore tid: Could not find restore thread for process ID 2844533"
+      ],
+      "durations": null,
+      "load_call_seconds": 4.432232974097133,
+      "phase": "capture",
+      "reason": "RuntimeError: Capture exited before original; see capture.log",
+      "route": "disk",
+      "status": "failed"
+    },
+    "compiled-fresh": {
+      "compile_mode": "default",
+      "device_read_bytes": 1397116928,
+      "durations": null,
+      "first_token_index_differing_from_uncompiled_reference": 12,
+      "load_call_seconds": 12.068858074955642,
+      "logical_bytes": {
+        "model_files": 999586279
+      },
+      "phase": "responses",
+      "reason": "ValueError: First/full/reference output differs",
+      "route": "fresh",
+      "status": "failed"
+    },
+    "plain-disk": {
+      "compile_mode": null,
+      "device_read_bytes": 3438342144,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.043981753,
+        "message_write_seconds": [
+          0.000731186,
+          0.000620223
+        ],
+        "start_to_first_token_seconds": 17.950223955
+      },
+      "load_call_seconds": 3.0810996720101684,
+      "logical_bytes": {
+        "model_files": 999586279,
+        "payload": 2449519388
+      },
+      "phase": null,
+      "reason": null,
+      "route": "disk",
+      "status": "passed"
+    },
+    "plain-fresh": {
+      "compile_mode": null,
+      "device_read_bytes": 988352512,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.042547121,
+        "message_write_seconds": [
+          0.000598363,
+          0.000648644
+        ],
+        "start_to_first_token_seconds": 11.121936072
+      },
+      "load_call_seconds": 9.370088490075432,
+      "logical_bytes": {
+        "model_files": 999586279
+      },
+      "phase": null,
+      "reason": null,
+      "route": "fresh",
+      "status": "passed"
+    }
+  },
+  "revision_source": "runs/tools/qwen2.5-0.5b/asset-manifest.json",
+  "source_commit": "bd6defe",
+  "storage": "EC2 instance store NVMe (ephemeral)"
+}

@@ -171,6 +171,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
 **Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
 
+### 2026-09-18 - Compiled models cannot be captured, and smaller models snapshot worse
+**Finding**: `--compile-mode default` makes CRIU fail in `criu/proc_parse.c:118` with `handle_device_vma plugin failed`, before any image is written: generated kernels are device mappings the pinned plugin does not handle. The compiled model's greedy output also diverged from the uncompiled reference at token twelve. On Qwen2.5-0.5B a snapshot took 17.95 s against a fresh 11.12 s, a worse ratio than the 8B model's.
+**Impact**: Do not expect a smaller model to favour restoration; fixed process state is a larger share of a small image. Test a capture-compatibility hypothesis on the small model first, and give any compiled campaign its own prepared reference.
+
 ### 2026-09-18 - Keep benchmark bookkeeping and audits out of the request path
 **Finding**: The first endpoint trial measured 145.7 s for a fresh activation and 14.1 s for a warm follow-up. `Runtime.ensure_ready()` fingerprinted all 15.26 GiB of model files inside the first request, which also warmed the cache the trial had just evicted, and `generate()` waited for the worker's full weight audit before the second. Server phase records isolated both: `received->ready` 145.7 s, then `ready->first_token` 14.1 s with the model already resident.
 **Impact**: Build the comparison key when the server starts, and verify the audit at unload after the response pair, as the plan requires. Start a server before evicting caches, and read the server phase spans before trusting a client number.

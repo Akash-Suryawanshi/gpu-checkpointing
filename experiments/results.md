@@ -547,6 +547,43 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## A smaller model and a compiled model both fail to help — 2026-09-18
+
+Two hypotheses for making restoration win were tested as single diagnostics on
+Qwen2.5-0.5B, not as timing campaigns.
+[Curated probes](evidence/2026-09-18/compile-and-small-model-probes.json) record source `bd6defe`.
+
+| Probe | First token | Outcome |
+| --- | ---: | --- |
+| fresh | 11.12 s | passed |
+| snapshot | 17.95 s | passed |
+| fresh, compiled | — | failed: output differs from the uncompiled reference |
+| snapshot, compiled | — | failed: capture refused the compiled process |
+
+**A smaller model is the worse case.** Its snapshot took 1.61 times a fresh start,
+against 1.22 for the 8B model. Part of an image does not shrink with the model:
+the interpreter, the libraries, and the device context. The 8B image is 1.09 times
+its weights; this one is closer to three times.
+
+**A compiled model cannot be captured by this toolchain.** Compilation was the
+remaining way to give an activation state that no weights file holds, but the dump
+fails before writing anything:
+
+```text
+handle_device_vma plugin failed: No such file or directory
+Can't handle non-regular mapping on 2844526's map 73c4ce64c000
+Dumping FAILED.
+```
+
+Generated kernels are loaded as device mappings the pinned CRIU build and its CUDA
+plugin do not recognise. Separately, the compiled model's greedy output diverged
+from the prepared reference at token twelve, so a compiled campaign would need a
+reference produced the same way; the existing correctness gate caught that unaided.
+
+Published work reducing inference cold start relies on engines whose startup is
+dominated by compilation and on checkpoint tooling that supports those mappings.
+Reproducing that needs a different serving stack, not another flag here.
+
 ## The snapshot route at its floor still trails a fresh start — 2026-09-18
 
 Under `publication-verified-v1` an activation stops rereading the model files and
