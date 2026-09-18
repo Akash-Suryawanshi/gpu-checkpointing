@@ -547,6 +547,42 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## The snapshot route at its floor still trails a fresh start — 2026-09-18
+
+Under `publication-verified-v1` an activation stops rereading the model files and
+reads the image exactly once. [Curated validation](evidence/2026-09-18/cold-nvme-policy-01-validation.json)
+and [measurements](evidence/2026-09-18/cold-nvme-policy-01-runs.csv) record source
+`19f77b7`; publication still hashed model content, and every other check stayed on.
+
+| NVMe campaign | Model check at activation | Snapshot median | Device reads | Snapshot ÷ fresh |
+| --- | --- | ---: | ---: | ---: |
+| `cold-nvme-01` | contents, 15.26 GiB | 164.10 s | 48.49 GiB | 2.85–3.03 |
+| `cold-nvme-flags-01` | contents, reordered | 119.42 s | 31.89 GiB | 2.09 |
+| `cold-nvme-policy-01` | identity only | 69.84 s | 16.61 GiB | 1.21–1.29 |
+
+Dependency validation fell from 50.63 s to 0.17 s and the campaign's own fresh
+median was 57.24 s. Removing the model pass also removed the cache eviction: with
+nothing running between the image hash and CRIU, the default order already leaves
+the image resident, and CRIU took 14.48 s instead of 58.32 s. The ordering fix and
+the policy fix address the same eviction, so they do not add up.
+
+```text
+strict:   hash image 53.3 -> hash model 50.6 -> CRIU rereads from disk 58.3 = 164 s
+policy:   hash image 53.3 -> identity 0.2 ---> CRIU reads from memory   14.5 =  70 s
+fresh:    read 15.26 GiB of weights ------------------------------------------ = 57 s
+```
+
+At this floor the snapshot route reads 16.61 GiB against a fresh start's 15.26 GiB
+and remains 21% to 29% slower in every block pair. The remaining cost is the image
+hash plus reconstruction, and the image is intrinsically larger than the weights
+because it holds 15.29 GiB of GPU memory and 1.39 GiB of process memory. For this
+workload a snapshot stores no expensive derived state, so it cannot overtake a
+loader reading the same weights from disk.
+
+`publication-verified-v1` is an experiment, not a recommendation, and remains
+opt-in. It detects replacement and truncation, not a careful in-place rewrite;
+the [contract](../docs/inference-activation-contract.md) states the trade.
+
 ## Validation order decides whether CRIU reads the image from cache — 2026-09-18
 
 Hashing the snapshot payload last, immediately before CRIU consumes it, leaves
