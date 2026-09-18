@@ -17,6 +17,7 @@ import lifecycle
 import measure
 import park
 from prepare_assets import validate_assets
+import runtime
 from worker import control
 from control import session
 
@@ -45,14 +46,9 @@ def trial(args):
             if metadata(args.bundle)["assets_sha256"] != control.file_hash(assets / "manifest.json"):
                 raise ValueError("Packed weights belong to different prepared assets")
             bundle = {"path": str(args.bundle.resolve()), "sha256": control.file_hash(args.bundle / "manifest.json")}
-        key = {"dependencies": deps, "assets": manifest, "poll_ms": args.poll_ms,
-               "loader": args.loader, "bundle": bundle,
-               "validation_order": args.validation_order, "validation_workers": args.validation_workers,
-               "data_cache": args.data_cache,
-               # Version the boundary so HTTP and CLI evidence never pool with historical runs.
-               "transport": "cli", "boundary_schema": 2, "integrity_policy": "strict-v1",
-               "sample_ms": args.sample_ms, "inspection_policy": "full-diagnostic-post-response-timing-v1",
-               "cache_paths": {k: env[k] for k in ("TMPDIR", "HF_HOME", "XDG_CACHE_HOME", "TORCH_HOME", "CUDA_CACHE_PATH") if k in env}}
+        key = runtime.comparison_key(deps, manifest, env, poll_ms=args.poll_ms, sample_ms=args.sample_ms,
+            loader=args.loader, bundle=bundle, validation_order=args.validation_order,
+            validation_workers=args.validation_workers, data_cache=args.data_cache, transport="cli")
         diagnostic = None
         if args.kind == "timing":
             diagnostic = measure.diagnostic_record(args.validated_run, key, args.route)
@@ -81,16 +77,7 @@ def trial(args):
         def wait(name, identity=None):
             return control.wait(output / name, deadline, identity, args.poll_ms / 1000)
         def admit(action, memory, identity=None):
-            observed = park.resources(deadline, identity["pid"] if identity else None)
-            record = {"observed": observed, "memory": memory, "action": action}
-            try:
-                record["requirements"] = park.admission(observed, memory, action, identity["pid"] if identity else None)
-            except Exception as error:
-                record["refusal"] = str(error)
-                raise
-            finally:
-                control.write(output / f"admission-{action}.json", record)
-            return observed
+            return runtime.admit(output, action, memory, deadline, identity)
         def reuse(before):
             after = park.resources(deadline, original["pid"] if original and session.matches(original) else None)
             park.admission(after, {"reserved_vram": 0, "rss_bytes": 0}, "reuse",
@@ -186,39 +173,34 @@ def trial(args):
         wait("ready.json", original)
         emit("worker_ready_observed")
         observations = []
+        def record_io():
+            # Device counters include any other reader; logical bytes are what checks hashed.
+            logical = {"model_files": sum((Path(manifest["model_path"]) / name).stat().st_size
+                                          for name in manifest["identity"]["files"])}
+            if args.route == "disk":
+                logical["payload"] = sum(p["bytes"] for p in control.read(output / "snapshot/manifest.json")["payload"].values())
+            control.write(output / "io.json", {"window": "activation_start_to_first_token",
+                "devices": io_stats.delta(io_before, io_stats.sample([manifest["model_path"], output])),
+                "logical_bytes": logical})
         for index in (1, 2):
-            request = {"run_id": run["run_id"], "request_id": uuid.uuid4().hex,
+            request = {"run_id": run["run_id"], "request_id": uuid.uuid4().hex, "index": index,
                        "input_ids": control.read(output / "tokens.json")["benchmark"]["input_ids"]}
-            request_start = time.monotonic_ns()
             if index == 2 or args.route == "resident":
-                started = request_start
-            control.write(output / f"request-{index}.json", request)
-            published = time.monotonic_ns()
-            first = wait(f"first-{index}.json", original)
-            if any(first[k] != request[k] for k in ("run_id", "request_id")):
-                raise ValueError("First token identity mismatch")
-            received = time.monotonic_ns()
-            emit("first_token_received", request_id=request["request_id"], received_ns=received)
-            if index == 1 and args.route in ("fresh", "disk"):
-                # Device counters include any other reader; logical bytes are what checks hashed.
-                logical = {"model_files": sum((Path(manifest["model_path"]) / name).stat().st_size
-                                              for name in manifest["identity"]["files"])}
-                if args.route == "disk":
-                    logical["payload"] = sum(p["bytes"] for p in control.read(output / "snapshot/manifest.json")["payload"].values())
-                control.write(output / "io.json", {"window": "activation_start_to_first_token",
-                    "devices": io_stats.delta(io_before, io_stats.sample([manifest["model_path"], output])),
-                    "logical_bytes": logical})
-            print(f"request {index}: received first token {first['token']}", flush=True)
-            response = wait(f"response-{index}.json", original)
-            observations.append({"request": request, "first": first, "response": response, "start_ns": started,
-                "request_start_ns": request_start, "published_ns": published,
-                "first_ns": received, "completed_ns": time.monotonic_ns()})
+                started = time.monotonic_ns()
+            first_seen = []
+            def on_token(event):
+                if not first_seen:
+                    first_seen.append(event)
+                    emit("first_token_received", request_id=request["request_id"], received_ns=time.monotonic_ns())
+                    if index == 1 and args.route in ("fresh", "disk"):
+                        record_io()
+            observation = runtime.dispatch(output, request, original, deadline, args.poll_ms / 1000, on_token)
+            print(f"request {index}: received first token {observation['first']['token']}", flush=True)
+            observations.append({**observation, "start_ns": started})
             if index == 1:
                 wait("audit-after.json", original)
         control.write(output / "observations.json", observations)
-        control.write(output / "stop.json", {"run_id": run["run_id"]})
-        wait("completed.json", original)
-        if session.reap(original["pid"], process, timeout=control.remaining(deadline)):
+        if runtime.stop_worker(output, run["run_id"], original, process, deadline, args.poll_ms / 1000):
             raise RuntimeError("Worker exited nonzero")
         original, process = None, None
         sampler.pid = None
@@ -229,8 +211,6 @@ def trial(args):
                 raise ValueError("Restore changed immutable image payload")
             details.update(image_hashes_match=True, image_bytes=sum(p["bytes"] for p in manifest["payload"].values()),
                            warnings=session.warnings(output))
-        if park.resources(deadline)["compute_pids"]:
-            raise RuntimeError("GPU compute process remains")
         sampler.close()
         sampler = None
         names = ["reference.json", "tokens.json", "prepared-audit.json", "audit-before.json", "audit-after.json",
