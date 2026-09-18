@@ -1079,6 +1079,30 @@ tamper detection for 1.97 s; hashing it in parallel keeps the detection and wins
 nothing else can write, but it is the weaker result here as well as the weaker
 guarantee.
 
+### Unmeasured: what this would do on the A10G
+
+**Prediction, not a result.** No A10G was available when these campaigns ran, so
+the parallel policy has never been measured on slow storage.
+
+Parallel chunking wins only by raising read concurrency. The A10G volumes are
+flat-capped — 0.13 and 0.32 GB/s at 1, 4 and 8 streams alike, per the
+[bandwidth measurement](#both-volumes-are-bandwidth-limited-and-our-loaders-already-saturate-them--2026-09-18)
+— and concurrency buys nothing against a throughput cap.
+
+| Host | Device, 1 stream | Device, 8 streams | Serial SHA-256 | Binding cost |
+| --- | ---: | ---: | ---: | --- |
+| A10G instance NVMe | 0.32 GB/s | 0.32 GB/s | 1.80 GB/s | the device |
+| this H100 host | 0.82 GB/s | 5.46 GB/s | 1.80 GB/s | the reader |
+
+Serial hashing already runs above the A10G's cap, so hashing there is
+device-bound and `parallel-chunked-v1` should save close to nothing. The
+expectation is that its snapshot median stays near the measured 30.31 s and
+still loses to 27.65 s, reversing the ranking found here.
+
+To falsify it, run the `strict-v1` and `parallel-chunked-v1` campaigns on that
+host and compare their payload phases. If the parallel phase is much faster than
+the serial one on a flat-capped volume, this reasoning is wrong.
+
 ### What this does and does not settle
 
 The vLLM hypothesis — that restoring a warmed engine beats starting one cold —
