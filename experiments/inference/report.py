@@ -49,6 +49,11 @@ def summarize(root):
                 row.update(sample_interval_ms=run["key"]["sample_ms"],
                            observed_peak_gpu_bytes=max((s["gpu_used"] for s in valid), default=0),
                            observed_peak_rss_bytes=max((s.get("rss_bytes", 0) for s in valid), default=0))
+                if (path / "io.json").exists():
+                    # Kernel-accounted device reads beside the bytes integrity checks hashed.
+                    io = measure.read(path / "io.json")
+                    row.update(device_read_bytes=sum(d["read_bytes"] for d in io["devices"]),
+                               logical_bytes=sum(io["logical_bytes"].values()))
                 if run["route"] in ("ram", "disk"):
                     row["reuse_claim"] = measure.read(path / "reuse.json")["claim"]
                     released = measure.read(path / "released-resources.json")

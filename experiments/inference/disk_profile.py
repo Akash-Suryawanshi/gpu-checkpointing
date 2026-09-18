@@ -27,7 +27,12 @@ def read_run(run):
     observation = json.loads((run / "observations.json").read_text())[0]
     phase = json.loads((run / "control/phase.json").read_text())
     events = run / "attempts" / phase["attempt_id"] / "events.jsonl"
-    return breakdown(observation, [json.loads(line) for line in events.read_text().splitlines()])
+    result = breakdown(observation, [json.loads(line) for line in events.read_text().splitlines()])
+    if (run / "io.json").exists():
+        io = json.loads((run / "io.json").read_text())
+        result["device_read_bytes"] = sum(d["read_bytes"] for d in io["devices"])
+        result["logical_bytes"] = io["logical_bytes"]
+    return result
 
 
 if __name__ == "__main__":
