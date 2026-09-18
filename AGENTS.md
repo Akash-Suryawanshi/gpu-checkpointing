@@ -171,6 +171,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
 **Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
 
+### 2026-09-18 - A busy worker delays the next request as surely as a blocking controller
+**Finding**: After moving the controller's audit wait to unload, an endpoint follow-up still measured 14.4 s. `experiments/inference/worker.py` fingerprinted every weight straight after response one, reading no request for the duration. The command-line controller hid this by waiting for the audit before timing its second request; an HTTP client cannot. The audit now runs after the request loop ends, before the completion marker.
+**Impact**: Removing a wait from the caller does not help when the callee is busy. Check the server phase spans on both sides, and keep whole-model work outside the window in which a request can arrive.
+
 ### 2026-09-18 - Cache eviction can lose a race, and said nothing about which file
 **Finding**: One loader timing block failed in `experiments/inference/cold_cache.py` with "Selected files are still cached", naming no file, so the cause could not be identified; the record is never written when the check raises. Two neighbouring blocks with identical settings passed. Eviction now retries a bounded number of times and names each file with its resident and total page counts.
 **Impact**: Retrying makes the cold-cache guarantee stricter, not weaker, because the returned records must still show zero resident pages. Keep the failed slot rather than rerunning it.

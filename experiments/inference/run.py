@@ -200,8 +200,6 @@ def trial(args):
             observation = runtime.dispatch(output, request, original, deadline, args.poll_ms / 1000, on_token)
             print(f"request {index}: received first token {observation['first']['token']}", flush=True)
             observations.append({**observation, "start_ns": started})
-            if index == 1:
-                wait("audit-after.json", original)
         control.write(output / "observations.json", observations)
         if runtime.stop_worker(output, run["run_id"], original, process, deadline, args.poll_ms / 1000):
             raise RuntimeError("Worker exited nonzero")

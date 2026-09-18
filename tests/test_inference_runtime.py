@@ -74,8 +74,10 @@ class RuntimeTests(unittest.TestCase):
                 self.assertLess(seen[0][1], observed["completed_ns"] - 15_000_000, "first token precedes completion")
                 self.assertEqual(observed["response"]["tokens"], [1, 2])
                 self.assertEqual(observed["first"]["token"], 1)
-                rt.generate({"input_ids": [3], "max_new_tokens": 16}, deadline)  # waits for the audit first
-                self.assertTrue((rt.active["requests"] / "audit-after.json").exists())
+                second = rt.active["requests"]
+                rt.generate({"input_ids": [3], "max_new_tokens": 16}, deadline)
+                self.assertFalse((second / "audit-after.json").exists(),
+                                 "the audit belongs after the response pair, not between responses")
                 with self.assertRaises(RuntimeError):
                     rt.generate({"input_ids": [9], "max_new_tokens": 16}, deadline)
                 self.assertEqual(rt.status()["state"], "FAILED")
@@ -83,12 +85,15 @@ class RuntimeTests(unittest.TestCase):
                     rt.ensure_ready(deadline)
                 rt.unload(deadline)
                 self.assertEqual(rt.status()["state"], "ABSENT")
-                second = rt.ensure_ready(deadline)
-                self.assertNotEqual(second, activation)
+                again = rt.ensure_ready(deadline)
+                self.assertNotEqual(again, activation)
+                rt.generate({"input_ids": [3], "max_new_tokens": 16}, deadline)
+                served = rt.active["requests"]
                 rt.unload(deadline)
                 self.assertEqual(rt.status()["state"], "ABSENT")
-                self.assertTrue((root / "service/activations" / second / "completed.json").exists())
-            self.assertFalse((root / "service/activations" / second / "trainer.stderr").read_text().strip(),
+                self.assertTrue((served / "audit-after.json").exists(), "a served worker audits before exiting")
+                self.assertTrue((root / "service/activations" / again / "completed.json").exists())
+            self.assertFalse((root / "service/activations" / again / "trainer.stderr").read_text().strip(),
                              "a stopped worker exits cleanly")
 
     def test_benchmark_bookkeeping_and_the_weight_audit_stay_out_of_request_timing(self):
@@ -123,7 +128,28 @@ class RuntimeTests(unittest.TestCase):
                 started = time.monotonic_ns()
                 rt.generate({"input_ids": [4], "max_new_tokens": 16}, deadline)
                 self.assertLess((time.monotonic_ns() - started) / 1e9, 2.0, "second request waited on the audit")
-                control.write(audit, {"audit": "changed"})
-                with self.assertRaises(ValueError):
-                    rt.unload(deadline)  # the audit is still verified, after the pair
+                rt.unload(deadline)
                 self.assertEqual(rt.status()["state"], "ABSENT")
+            # The audit is still enforced once the pair is done: a drifted one fails.
+            drifted = {"dir": root, "requests": root, "index": 1}
+            control.write(root / "prepared-audit.json", {"audit": "prepared"})
+            control.write(root / "audit-after.json", {"audit": "changed"})
+            with self.assertRaisesRegex(ValueError, "Immutable model state changed"):
+                rt._verify_audit(drifted)
+            control.write(root / "audit-after.json", {"audit": "prepared"})
+            rt._verify_audit(drifted)
+
+    def test_the_weight_audit_never_runs_between_two_responses(self):
+        """REGRESSION (http-ebs-03 b1-fresh, 2026-09-18): a warm follow-up measured 14.4 s
+        because the worker fingerprinted every weight after response one, reading no request
+        while it did. Moving the controller's wait was not enough; the worker itself must
+        audit only after the owner stops sending, which is what the plan requires."""
+        import re
+        source = (Path(runtime.__file__).parent / "worker.py").read_text()
+        serve = source[source.index("def serve("):source.index("def main(")]
+        loop = serve[serve.index("while (request :="):]
+        body, _, after = loop.partition('control.write(requests / "audit-after.json"')
+        self.assertTrue(after, "the audit must still be written")
+        self.assertNotIn("audit-after", body, "the audit must not run inside the request loop")
+        # It must also precede the completion marker the owner waits on.
+        self.assertLess(serve.index('"audit-after.json"'), serve.index('"completed.json"'))

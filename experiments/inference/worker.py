@@ -141,8 +141,9 @@ def serve(requests, run_id, model, tokenizer, inputs, poll):
                     control.write(requests / f"first-{index}.json", {**identity, "token": token})
             response = generate(model, tokenizer, prompt, count, on_token=on_token)
         control.write(requests / f"response-{index}.json", {**identity, **response})
-        if index == 1:
-            control.write(requests / "audit-after.json", inspect(model, "diagnostic"))
+    # Fingerprinting every weight takes seconds during which this worker reads no
+    # request. Do it once the owner has stopped sending, never between responses.
+    control.write(requests / "audit-after.json", inspect(model, "diagnostic"))
     control.write(requests / "completed.json", memory())
 
 
