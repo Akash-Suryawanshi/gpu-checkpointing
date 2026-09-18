@@ -18,6 +18,8 @@ import sys
 import time
 import uuid
 
+import hashlib
+
 from prepare import file_hash
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +34,13 @@ TERMINAL = ("released", "failed_restore")
 # activation. "publication-verified-v1" hashes them once at capture and afterwards
 # compares identity only; see docs/inference-activation-contract.md for the trade.
 MODEL_POLICIES = ("strict-v1", "publication-verified-v1")
+# How the snapshot payload is proven unchanged at activation. "strict-v1" recomputes
+# each file's ordinary SHA-256 serially. "publication-only-v1" trusts the digest taken
+# when the image was published and re-checks only structure. "parallel-chunked-v1"
+# still covers every byte with SHA-256, but in parallel chunks, so its digest value
+# differs and carries its own label. See experiments/results.md for the measurements.
+PAYLOAD_POLICIES = ("strict-v1", "publication-only-v1", "parallel-chunked-v1")
+PAYLOAD_CHUNK = 64 * 1024 * 1024
 
 
 def read(path):
@@ -304,25 +313,82 @@ def storage(path):
     return {**mount, "total": usage.total, "free": usage.free}
 
 
-def inventory(snapshot):
+def chunked_hash(path, deadline=None, workers=1):
+    """SHA-256 over every byte, read as parallel 64 MiB chunks, folded in file order.
+
+    Every byte is still covered by SHA-256 and the fold is deterministic, so this
+    detects exactly what a plain digest detects. The value differs from
+    `file_hash`'s, which is why it is a separate policy rather than a faster
+    implementation of the same one. Positioned reads share no file offset, so the
+    chunks are independent and a serial single-stream read stops being the limit.
+    """
+    size = Path(path).stat().st_size
+    spans = [(start, min(PAYLOAD_CHUNK, size - start)) for start in range(0, size, PAYLOAD_CHUNK)]
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        def piece(span):
+            start, length = span
+            if deadline is not None:
+                remaining(deadline)
+            digest = hashlib.sha256()
+            while length:
+                block = os.pread(descriptor, min(length, 8 * 1024 * 1024), start)
+                if not block:
+                    raise ValueError("Short read hashing snapshot payload")
+                digest.update(block)
+                start += len(block)
+                length -= len(block)
+            return digest.digest()
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            digests = list(executor.map(piece, spans))
+    finally:
+        os.close(descriptor)
+    combined = hashlib.sha256(f"chunked-v1:{PAYLOAD_CHUNK}:{size}".encode())
+    for digest in digests:
+        combined.update(digest)
+    return combined.hexdigest()
+
+
+def payload_hash(path, policy="strict-v1", deadline=None, workers=1):
+    if policy not in PAYLOAD_POLICIES:
+        raise ValueError("Unknown snapshot payload policy")
+    if policy == "parallel-chunked-v1":
+        return chunked_hash(path, deadline, workers)
+    return file_hash(path)
+
+
+def payload_paths(snapshot):
     """Only regular payload files are admitted; logs belong in attempts instead."""
     paths = [snapshot / "before.json", *sorted((snapshot / "images").rglob("*")),
              *sorted((snapshot / "external").glob("*"))]  # reusable baseline log copies
-    result = {}
+    files = []
     for path in paths:
         if path.is_symlink() or not (path.is_file() or path.is_dir()):
             raise ValueError("Nonregular snapshot payload")
         if path.is_file():
-            result[str(path.relative_to(snapshot))] = {"bytes": path.stat().st_size, "sha256": file_hash(path)}
-    if not all(name in result for name in ("before.json", "images/inventory.img", "images/pstree.img")):
+            files.append(path)
+    names = {str(path.relative_to(snapshot)) for path in files}
+    if not all(name in names for name in ("before.json", "images/inventory.img", "images/pstree.img")):
         raise ValueError("Incomplete payload inventory")
-    return result
+    return files
 
 
-def publish(snapshot, manifest, run, deadline, emit):
+def payload_sizes(snapshot):
+    """Structure without content: detects an added, removed, or truncated file."""
+    return {str(path.relative_to(snapshot)): path.stat().st_size for path in payload_paths(snapshot)}
+
+
+def inventory(snapshot, policy="strict-v1", deadline=None, workers=1):
+    return {str(path.relative_to(snapshot)):
+            {"bytes": path.stat().st_size, "sha256": payload_hash(path, policy, deadline, workers)}
+            for path in payload_paths(snapshot)}
+
+
+def publish(snapshot, manifest, run, deadline, emit, payload_policy="strict-v1", payload_workers=1):
     """Hash, sync payload, persist manifest/ancestors, then completion and phase."""
     try:
-        manifest["payload"] = inventory(snapshot)
+        manifest["payload_policy"] = payload_policy
+        manifest["payload"] = inventory(snapshot, payload_policy, deadline, payload_workers)
         emit("payload_hash_completed")
         for name in manifest["payload"]:
             remaining(deadline)
@@ -369,7 +435,8 @@ def materialize_external(snapshot, run, manifest):
     sync_directory(run)
 
 
-def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda name: None, workers=1):
+def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda name: None,
+             workers=1, payload_workers=1):
     """Admit one restore. Reusable images additionally require a terminal previous attempt.
 
     The caller holds the operation lock; reusable validation resets per-attempt
@@ -389,9 +456,17 @@ def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda 
     expected_phase = {"status": "published", "capture_id": manifest["capture_id"], "snapshot": str(snapshot)}
     if read(run / "control/phase.json") != expected_phase:
         raise ValueError("Snapshot is ambiguous, consumed, or no longer current")
+    # Fixed when the image was published; an activation cannot weaken it.
+    payload_policy = manifest.get("payload_policy", "strict-v1")
     def payload():
         emit("payload_validation_started")
-        if inventory(snapshot) != manifest["payload"]:
+        if payload_policy == "publication-only-v1":
+            # Contents were verified at publication. This re-checks the structure
+            # only, which costs no reads and still rejects an added, removed or
+            # truncated file; it does not detect an in-place rewrite.
+            if payload_sizes(snapshot) != {name: item["bytes"] for name, item in manifest["payload"].items()}:
+                raise ValueError("Snapshot payload mismatch")
+        elif inventory(snapshot, payload_policy, deadline, payload_workers) != manifest["payload"]:
             raise ValueError("Snapshot payload mismatch")
         remaining(deadline)
         emit("payload_validation_completed")

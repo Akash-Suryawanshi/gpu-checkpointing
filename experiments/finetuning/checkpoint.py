@@ -86,7 +86,8 @@ def capture(args):
                 (snapshot / "external").mkdir()
                 for name in manifest["external_files"]:
                     shutil.copyfile(run / name, snapshot / "external" / name)
-            control.publish(snapshot, manifest, run, deadline, emit)
+            control.publish(snapshot, manifest, run, deadline, emit,
+                            args.payload_policy, args.payload_workers)
             return manifest
         except BaseException:
             if not dumped:
@@ -109,4 +110,6 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--contract", choices=(control.CONTRACT,), help="Publish a repeatedly restorable inference image")
     parser.add_argument("--model-policy", choices=control.MODEL_POLICIES, default="strict-v1")
+    parser.add_argument("--payload-policy", choices=control.PAYLOAD_POLICIES, default="strict-v1")
+    parser.add_argument("--payload-workers", type=int, default=1)
     capture(parser.parse_args())
