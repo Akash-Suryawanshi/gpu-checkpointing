@@ -103,3 +103,39 @@ class ActivationTests(unittest.TestCase):
                     worker.attempt_paths(run, wrong, restoration)
             with self.assertRaises(ValueError):
                 worker.attempt_paths(run, record, None)
+
+    def test_activation_cannot_weaken_the_policy_its_image_was_published_under(self):
+        """Critical: the model integrity policy is fixed at capture. A strict image must not
+        validate under identity-only checks, and weakened dependencies must still name the
+        model files so a replaced or truncated weight file is rejected."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            model = root / "model"
+            model.mkdir()
+            (model / "a.safetensors").write_bytes(b"weights")
+            assets = root / "assets"
+            assets.mkdir()
+            control.write(assets / "manifest.json", {"model_path": str(model), "identity": {"files": ["a.safetensors"]}})
+            control.write(assets / "tokens.json", {})
+            job = {"assets": str(assets), "python": "/usr/bin/python3"}
+            with patch.object(control, "hash_files", return_value={"shared": "digest"}), \
+                 patch.object(control.subprocess, "check_output", return_value="gpu"):
+                strict = control.dependencies(job, root, time.monotonic() + 5)
+                weak = control.dependencies(job, root, time.monotonic() + 5,
+                                            model_policy="publication-verified-v1")
+            self.assertEqual(strict["model_policy"], "strict-v1")
+            self.assertEqual(strict["model_identities"], {})
+            self.assertNotEqual(strict, weak, "a weakened policy must not compare equal to a strict image")
+            identity = weak["model_identities"][str(model / "a.safetensors")]
+            self.assertEqual(identity["bytes"], len(b"weights"))
+            # Replacement changes size and inode, so the weakened check still rejects it.
+            (model / "a.safetensors").write_bytes(b"different weights")
+            with patch.object(control, "hash_files", return_value={"shared": "digest"}), \
+                 patch.object(control.subprocess, "check_output", return_value="gpu"):
+                replaced = control.dependencies(job, root, time.monotonic() + 5,
+                                                model_policy="publication-verified-v1")
+            self.assertNotEqual(replaced["model_identities"], weak["model_identities"])
+            with self.assertRaises(ValueError):
+                control.dependencies(job, root, time.monotonic() + 5, model_policy="trust-me")

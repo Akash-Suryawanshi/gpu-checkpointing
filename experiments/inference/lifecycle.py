@@ -69,10 +69,11 @@ def wait_helper(process, deadline):
         raise RuntimeError("Independent helper failed; see its log")
 
 
-def capture(run, tools, env, process, deadline, contract=None):
+def capture(run, tools, env, process, deadline, contract=None, model_policy="strict-v1"):
     arguments = [sys.executable, HERE.parent / "finetuning/checkpoint.py", "--run-dir", run,
         "--snapshot", run / "snapshot", "--tools", tools, "--at", "1",
-        "--timeout", str(control.remaining(deadline)), *(["--contract", contract] if contract else [])]
+        "--timeout", str(control.remaining(deadline)), "--model-policy", model_policy,
+        *(["--contract", contract] if contract else [])]
     with helper(arguments, run / "capture.log", env, deadline) as command:
         while process.poll() is None:
             control.remaining(deadline)

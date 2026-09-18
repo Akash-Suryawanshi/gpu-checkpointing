@@ -28,6 +28,10 @@ SCHEMA = 1
 # Inference images restore repeatedly; training keeps the single-use contract.
 CONTRACT = "reusable-inference-v1"
 TERMINAL = ("released", "failed_restore")
+# How model files are proven unchanged. "strict-v1" hashes their contents at every
+# activation. "publication-verified-v1" hashes them once at capture and afterwards
+# compares identity only; see docs/inference-activation-contract.md for the trade.
+MODEL_POLICIES = ("strict-v1", "publication-verified-v1")
 
 
 def read(path):
@@ -249,22 +253,39 @@ def hash_files(paths, deadline, workers=1):
         return dict(executor.map(checked, paths))
 
 
-def dependencies(job, tools, deadline, workers=1):
+def file_identity(path):
+    """Size, modification time, and inode of a file whose content is not reread.
+
+    This is weaker than a digest: a copy changes inode and time without changing
+    content, and a careful in-place rewrite can preserve both. It detects
+    replacement and truncation, not deliberate tampering.
+    """
+    info = Path(path).stat()
+    return {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns, "inode": info.st_ino, "device": info.st_dev}
+
+
+def dependencies(job, tools, deadline, workers=1, model_policy="strict-v1"):
     """Fingerprint dependencies without importing torch or creating a CUDA context."""
+    if model_policy not in MODEL_POLICIES:
+        raise ValueError("Unknown model integrity policy")
     assets = Path(job["assets"])
     manifest = read(assets / "manifest.json")
+    model = [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]]
     paths = list((ROOT / "experiments/finetuning").glob("*.py"))
     paths += list((ROOT / "experiments/inference").glob("*.py"))
     paths += [ROOT / "experiments/criu/session.py", assets / "manifest.json", assets / "tokens.json"]
-    paths += [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]]
+    if model_policy == "strict-v1":
+        paths += model
     paths += [Path(tools) / name for name in (
         "criu-4.2.1/criu/criu", "criu-4.2.1/plugins/cuda/cuda_plugin.so",
         "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")]
     paths += runtime_libraries(Path(tools) / "criu-deps/usr/lib/x86_64-linux-gnu")
     hashes = hash_files(paths, deadline, workers)
+    identities = {} if model_policy == "strict-v1" else {str(p): file_identity(p) for p in model}
     gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,uuid,driver_version,memory.total",
                                    "--format=csv,noheader"], text=True, timeout=remaining(deadline)).strip()
-    return {"files": hashes, "python": platform.python_version(), "executable": job["python"],
+    return {"files": hashes, "model_policy": model_policy, "model_identities": identities,
+            "python": platform.python_version(), "executable": job["python"],
             "packages": dict(sorted((d.metadata["Name"].lower(), d.version)
                                      for d in importlib.metadata.distributions())),
             "kernel": platform.release(), "gpu": gpu,
@@ -396,7 +417,10 @@ def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda 
     if request != manifest["request"] or (marker.exists() and not reusable):
         raise ValueError("Stale control markers")
     emit("dependency_validation_started")
-    if dependencies(job, tools, deadline, workers) != manifest["dependencies"]:
+    # The policy is fixed when the image is published; an activation cannot weaken it.
+    # Images published before the field existed were captured under strict semantics.
+    policy = manifest["dependencies"].get("model_policy", "strict-v1")
+    if dependencies(job, tools, deadline, workers, policy) != manifest["dependencies"]:
         raise ValueError("Environment, tools, source, or asset mismatch")
     emit("dependency_validation_completed")
     if reusable:

@@ -50,7 +50,10 @@ def capture(args):
             volume["admission_floor_bytes"] = required
             old = previous.get("snapshot")
             old_volume = control.storage(Path(old)) if old else None
+            # Publication always verifies model content, whatever later activations check.
             deps = control.dependencies(job, args.tools, deadline)
+            if args.model_policy != "strict-v1":
+                deps = control.dependencies(job, args.tools, deadline, model_policy=args.model_policy)
             shutil.copyfile(attempt / "before.json", snapshot / "before.json")
             tools = control.tools_config(args.tools)
             env = session.child_environment(args.tools / "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")
@@ -105,4 +108,5 @@ if __name__ == "__main__":
     parser.add_argument("--at", type=int, default=1, help="Earliest completed update to acknowledge")
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--contract", choices=(control.CONTRACT,), help="Publish a repeatedly restorable inference image")
+    parser.add_argument("--model-policy", choices=control.MODEL_POLICIES, default="strict-v1")
     capture(parser.parse_args())

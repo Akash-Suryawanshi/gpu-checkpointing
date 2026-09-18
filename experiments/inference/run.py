@@ -39,7 +39,8 @@ def trial(args):
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
         manifest = validate_assets(assets)
-        deps = control.dependencies({"assets": str(assets), "python": sys.executable}, tools, deadline)
+        deps = control.dependencies({"assets": str(assets), "python": sys.executable}, tools, deadline,
+                                    model_policy=args.integrity_policy)
         bundle = None
         if args.bundle:
             from stream_weights import metadata
@@ -48,7 +49,8 @@ def trial(args):
             bundle = {"path": str(args.bundle.resolve()), "sha256": control.file_hash(args.bundle / "manifest.json")}
         key = runtime.comparison_key(deps, manifest, env, poll_ms=args.poll_ms, sample_ms=args.sample_ms,
             loader=args.loader, bundle=bundle, validation_order=args.validation_order,
-            validation_workers=args.validation_workers, data_cache=args.data_cache, transport="cli")
+            validation_workers=args.validation_workers, data_cache=args.data_cache, transport="cli",
+            integrity_policy=args.integrity_policy)
         diagnostic = None
         if args.kind == "timing":
             diagnostic = measure.diagnostic_record(args.validated_run, key, args.route)
@@ -134,7 +136,8 @@ def trial(args):
                     parking.park()
                     print("RAM: checkpointed; GPU state retained in host RAM", flush=True)
                 else:
-                    details.update(lifecycle.capture(output, tools, env, process, deadline, args.contract))
+                    details.update(lifecycle.capture(output, tools, env, process, deadline, args.contract,
+                                                     args.integrity_policy))
                     process, original = None, None
                     sampler.pid = None
                     print("disk: published; original process reaped; capture command exited", flush=True)
@@ -270,6 +273,8 @@ if __name__ == "__main__":
     parser.add_argument("--loader", choices=("transformers", "packed", "pipelined", "direct"), default="transformers")
     parser.add_argument("--bundle", type=Path)
     parser.add_argument("--contract", choices=(control.CONTRACT,), help="Publish a staged capture for repeated activation")
+    parser.add_argument("--integrity-policy", choices=control.MODEL_POLICIES, default="strict-v1",
+                        help="publication-verified-v1 checks model identity, not content, at activation")
     args = parser.parse_args()
     if args.contract and args.disk_action != "capture":
         parser.error("A reusable contract applies to a staged disk capture only")

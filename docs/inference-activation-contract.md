@@ -53,6 +53,29 @@ Arrows show control order. `control.validate()` owns admission, `restore.py` wri
 activation states instead of phases for this contract, and `worker.attempt_paths()`
 rejects any request path outside the attempt that released the process.
 
+## Model integrity policy
+
+Activation-time validation hashes the model files. The
+[file audit](../experiments/results.md#what-a-restored-image-actually-reopens--2026-09-18)
+shows a restored image never reopens them, so that pass proves the environment
+matches rather than enabling the restore.
+
+| Policy | At publication | At each activation | Detects |
+| --- | --- | --- | --- |
+| `strict-v1` (default) | content digests | content digests, 15.26 GiB reread | any content change |
+| `publication-verified-v1` | content digests | size, modification time, inode | replacement and truncation, not a careful in-place rewrite |
+
+```text
+strict-v1:                capture: hash -> activate: hash again -> activate: hash again
+publication-verified-v1:  capture: hash -> activate: identity  -> activate: identity
+```
+
+The policy is fixed when the image is published and recorded in its manifest; an
+activation cannot weaken it. It also enters the comparison key, so measurements
+under the two policies never pool. Choosing the weaker policy is a deployment
+decision about whether the model files can change on writable storage; this
+repository keeps `strict-v1` as the default and treats the other as an experiment.
+
 ## Files and acceptance
 
 Changes belong in `experiments/finetuning/{control,checkpoint,restore}.py`,

@@ -26,6 +26,7 @@ def comparison_key(deps, manifest, env, **settings):
     return {"dependencies": deps, "assets": manifest, "bundle": None, "loader": "transformers",
             "validation_order": "payload-first", "validation_workers": 1, "data_cache": "uncontrolled",
             # Version the boundary so HTTP and CLI evidence never pool with historical runs.
+            # integrity_policy also keeps a weakened model check out of strict campaigns.
             "boundary_schema": 2, "integrity_policy": "strict-v1",
             "inspection_policy": "full-diagnostic-post-response-timing-v1",
             "cache_paths": {k: env[k] for k in CACHE_KEYS if k in env}, **settings}
@@ -96,12 +97,13 @@ class Runtime:
     """Serve one model through an owned worker; states: ABSENT, ACTIVATING, READY, FAILED."""
 
     def __init__(self, assets, tools, root, route, *, snapshot_run=None, poll_ms=5.0, sample_ms=100.0,
-                 activation_timeout=1800.0):
+                 activation_timeout=1800.0, model_policy="strict-v1"):
         self.assets, self.tools, self.root = Path(assets).resolve(), Path(tools).resolve(), Path(root).resolve()
         self.route, self.snapshot_run = route, Path(snapshot_run).resolve() if snapshot_run else None
         if (route == "snapshot") != (self.snapshot_run is not None):
             raise ValueError("Snapshot route requires a published run directory")
         self.poll, self.sample_ms, self.activation_timeout = poll_ms / 1000, sample_ms, activation_timeout
+        self.model_policy = model_policy
         self.helper = self.tools / "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint"
         self.env = session.child_environment(self.helper)
         self.worker_script = HERE / "worker.py"
@@ -146,9 +148,10 @@ class Runtime:
     def _key(self, deadline, **settings):
         from prepare_assets import validate_assets
         manifest = validate_assets(self.assets)
-        deps = control.dependencies({"assets": str(self.assets), "python": sys.executable}, self.tools, deadline)
+        deps = control.dependencies({"assets": str(self.assets), "python": sys.executable}, self.tools, deadline,
+                                    model_policy=self.model_policy)
         return manifest, comparison_key(deps, manifest, self.env, poll_ms=self.poll * 1000, sample_ms=self.sample_ms,
-                                        transport="http", **settings)
+                                        transport="http", integrity_policy=self.model_policy, **settings)
 
     def _launch(self, folder, activation_id, deadline, events):
         manifest, key = self._key(deadline)

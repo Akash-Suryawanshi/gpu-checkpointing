@@ -163,9 +163,10 @@ if __name__ == "__main__":
     parser.add_argument("--poll-ms", type=float, default=5)
     parser.add_argument("--sample-ms", type=float, default=100)
     parser.add_argument("--request-timeout", type=float, default=1800)
+    parser.add_argument("--integrity-policy", default="strict-v1")
     args = parser.parse_args()
     runtime = Runtime(args.assets, args.tools, args.root, args.route, snapshot_run=args.snapshot_run,
-                      poll_ms=args.poll_ms, sample_ms=args.sample_ms)
+                      poll_ms=args.poll_ms, sample_ms=args.sample_ms, model_policy=args.integrity_policy)
     server = serve(runtime, args.model_id, args.host, args.port, args.request_timeout)
     print(f"serving {args.route} on http://{args.host}:{args.port}", flush=True)
     try:
