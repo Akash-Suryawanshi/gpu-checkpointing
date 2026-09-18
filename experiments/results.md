@@ -552,12 +552,14 @@ is not comparable.
 A live HTTP service activated the model on demand, either by launching a worker or
 by restoring a published image. Clients opened a new connection per request and
 timed to the first streamed token. [Curated measurements](evidence/2026-09-18/http-ebs-03.json)
-record source `1441343` on the EBS volume with the strict integrity policy.
+record source `1441343`; both volumes used the strict integrity policy.
 
-| Route | Endpoint median | Command-line median | Difference |
-| --- | ---: | ---: | ---: |
-| fresh | 129.49 s | 131.11 s | −1.6 s |
-| snapshot | 401.21 s | 401.23 s | −0.02 s |
+| Volume | Route | Endpoint median | Command-line median | Difference |
+| --- | --- | ---: | ---: | ---: |
+| EBS | fresh | 129.49 s | 131.11 s | −1.62 s |
+| EBS | snapshot | 401.21 s | 401.23 s | −0.02 s |
+| NVMe | fresh | 54.30 s | 57.12 s | −2.82 s |
+| NVMe | snapshot | 164.19 s | 164.10 s | +0.09 s |
 
 ```text
 client --new TCP connection--> API --> launch worker, or restore published image
@@ -565,9 +567,13 @@ client --new TCP connection--> API --> launch worker, or restore published image
   STOP at first token event <--ndjson token--<
 ```
 
-Three pairs each, every correctness check passed, headers arriving in 0.001 s.
-The request path therefore adds nothing to either route, so the command-line
-findings transfer directly to a request-triggered deployment.
+Twelve trials, three pairs per volume, every correctness check passed, headers
+arriving in 0.001 s. The request path therefore adds nothing to either route on
+either volume, so the command-line findings transfer directly to a
+request-triggered deployment. The fresh route reads slightly faster through the
+endpoint because the server fingerprints the model once at startup, before the
+trial evicts caches, rather than inside the measured activation. The
+[NVMe arm](evidence/2026-09-18/http-nvme-03.json) is curated separately.
 
 The snapshot figures come from one published image activated three times in
 sequence, which validates the [activation contract](../docs/inference-activation-contract.md)
