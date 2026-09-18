@@ -877,7 +877,9 @@ Scope: this disproves the hypothesis **on this hardware with stock CRIU**, not i
 general. NVIDIA's Dynamo Snapshot restores a comparable checkpoint in 2.4 s using
 patched CRIU (native AIO, parallel memfd, `O_DIRECT`) on striped NVMe, with the
 key-value cache unmapped and weights restored outside the image. Our 5.47 GiB
-image is already their size; our read rate is roughly ten times slower. The
+image is already their size; our read rate is roughly ten times slower. That
+rate comparison is misleading, and the [H100 arm](#h100-storage-arm-the-disk-stops-binding-and-the-snapshot-loses-by-more--2026-09-18)
+shows why: most of it is our own integrity check, not reading. The
 eager control was built and left unrun at the user's request.
 
 ## H100 storage arm: the disk stops binding and the snapshot loses by more — 2026-09-18
@@ -989,6 +991,25 @@ same check, and it is a different experiment rather than a better reading of thi
 one: `integrity_policy` is part of the comparison key, and per
 [what a restored image reopens](#what-a-restored-image-actually-reopens--2026-09-18) a
 weakened check must carry a different label so results never pool.
+
+### Against the Dynamo figure
+
+The [A10G scope note](#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18)
+compares NVIDIA's 2.4 s Dynamo Snapshot restore with our read rate and calls it
+ten times slower. That compares unlike quantities. Their 2.4 s is a restore path;
+nothing in the cited source says it re-hashes the payload on every activation,
+while our rate includes a check that is most of our time.
+
+| Quantity | Seconds |
+| --- | ---: |
+| Dynamo Snapshot restore, as cited | 2.4 |
+| our intrinsic restore: CRIU pages plus CUDA resume | 4.63 |
+| our full `strict-v1` activation | 21.92 |
+
+Against the comparable middle row we are about twice as slow, not ten times, and
+they hold the advantages the scope note already lists: patched CRIU, striped
+NVMe, an unmapped key-value cache, and weights outside the image. Their
+integrity policy is unknown to us, so the bottom row has no counterpart there.
 
 Scope: this measures one harness under `strict-v1`, not snapshot restore in
 general. The hypothesis still fails here, but for a policy reason rather than a
