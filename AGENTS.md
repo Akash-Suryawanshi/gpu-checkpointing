@@ -171,6 +171,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
 **Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
 
+### 2026-09-18 - A background server in a script ignores SIGINT
+**Finding**: The campaign script could not stop its endpoint server: `/proc/PID/status` showed `SigIgn` covering SIGINT. A non-interactive shell without job control sets background commands to ignore SIGINT and SIGQUIT, and Python keeps an inherited SIG_IGN. `wait` then blocked for fifteen minutes, making the script's own SIGKILL escalation unreachable.
+**Impact**: `experiments/inference/api.py` now installs handlers for SIGINT and SIGTERM itself. Send SIGTERM from scripts, bound every wait, and escalate; check `SigIgn` before concluding a process is hung.
+
 ### 2026-09-18 - A busy worker delays the next request as surely as a blocking controller
 **Finding**: After moving the controller's audit wait to unload, an endpoint follow-up still measured 14.4 s. `experiments/inference/worker.py` fingerprinted every weight straight after response one, reading no request for the duration. The command-line controller hid this by waiting for the audit before timing its second request; an HTTP client cannot. The audit now runs after the request loop ends, before the completion marker.
 **Impact**: Removing a wait from the caller does not help when the callee is busy. Check the server phase spans on both sides, and keep whole-model work outside the window in which a request can arrive.

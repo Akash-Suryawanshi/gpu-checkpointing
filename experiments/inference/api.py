@@ -9,7 +9,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import select
+import signal
 import socket
+import threading
 import time
 import uuid
 
@@ -147,6 +149,20 @@ def validate(body, model_id):
             "request_id": body.get("request_id") or uuid.uuid4().hex}
 
 
+def install_shutdown(server):
+    """Take over the termination signals, whatever disposition we inherited.
+
+    A non-interactive shell sets background jobs to ignore SIGINT, and Python
+    keeps an inherited SIG_IGN. Without this the server cannot be stopped by the
+    campaign script, which then waits on a process that will never exit.
+    """
+    def stop(signum, frame):
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    for number in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, stop)
+    return stop
+
+
 def serve(runtime, model_id, host, port, request_timeout):
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
@@ -172,6 +188,7 @@ if __name__ == "__main__":
     runtime = Runtime(args.assets, args.tools, args.root, args.route, snapshot_run=args.snapshot_run,
                       poll_ms=args.poll_ms, sample_ms=args.sample_ms, model_policy=args.integrity_policy)
     server = serve(runtime, args.model_id, args.host, args.port, args.request_timeout)
+    install_shutdown(server)
     print(f"serving {args.route} on http://{args.host}:{args.port} server_id={server.server_id}", flush=True)
     try:
         server.serve_forever()

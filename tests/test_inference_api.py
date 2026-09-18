@@ -148,3 +148,35 @@ class ReadinessTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+class ShutdownTests(unittest.TestCase):
+    def test_the_server_takes_over_signals_it_may_have_inherited_as_ignored(self):
+        """REGRESSION (http-ebs-03 b1-fresh, 2026-09-18): a non-interactive shell sets
+        background jobs to ignore SIGINT, Python kept the inherited SIG_IGN, and the campaign
+        script's stop signal did nothing while its unbounded wait blocked for fifteen minutes.
+        The server must install its own handler for both termination signals."""
+        import signal
+        previous = {n: signal.getsignal(n) for n in (signal.SIGINT, signal.SIGTERM)}
+        for number in previous:
+            signal.signal(number, signal.SIG_IGN)
+        stopped = []
+        try:
+            server = api.serve(FakeRuntime(), "m", "127.0.0.1", 0, request_timeout=5)
+            server.shutdown = lambda: stopped.append(True)
+            try:
+                api.install_shutdown(server)
+                for number in previous:
+                    handler = signal.getsignal(number)
+                    self.assertNotIn(handler, (signal.SIG_IGN, signal.SIG_DFL),
+                                     f"{number!r} was left at its inherited disposition")
+                    handler(number, None)
+                deadline = time.time() + 2
+                while len(stopped) < 2 and time.time() < deadline:
+                    time.sleep(0.01)
+                self.assertEqual(len(stopped), 2, "each signal must stop the server")
+            finally:
+                server.server_close()
+        finally:
+            for number, handler in previous.items():
+                signal.signal(number, handler)
