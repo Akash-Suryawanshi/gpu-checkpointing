@@ -547,6 +547,34 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## Validation order decides whether CRIU reads the image from cache — 2026-09-18
+
+Hashing the snapshot payload last, immediately before CRIU consumes it, leaves
+the image in the kernel's file cache. The same activation then reads it from
+memory instead of disk. [Curated validation](evidence/2026-09-18/cold-nvme-flags-01-validation.json)
+records source `8769fc8`; every integrity check stayed enabled.
+
+| NVMe campaign | Validation order | Snapshot median | Device reads | CRIU phase |
+| --- | --- | ---: | ---: | ---: |
+| `cold-nvme-01` | payload first | 164.10 s | 48.49 GiB | 58.32 s |
+| `cold-nvme-flags-01` | dependencies first | 119.42 s | 31.89 GiB | 14.02 s |
+
+```text
+payload first:      hash image -> hash model 15.3 GiB -> image evicted -> CRIU rereads from disk
+dependencies first: hash model -> hash image ---------> still cached  -> CRIU reads from memory
+```
+
+The saving is one full image pass, 16.61 GiB. Host memory is 30 GiB and the
+image is 16.61 GiB, so the two minutes spent hashing model files in between are
+enough to evict it. Time before CRIU was unchanged at 104.8 s against 105.3 s.
+
+The flags campaign applied the setting to its restore route only, so it holds two
+comparison keys and `report.py` declines to aggregate it; that refusal is correct.
+Its fresh runs carry the identical key to the strict campaign's, which confirms
+validation order does not touch the fresh path. This arm also raised hash workers
+from one to four, which moved hashing by under two seconds; a separate order-only
+campaign isolates the two settings.
+
 ## What a restored image actually reopens — 2026-09-18
 
 Activation-time validation hashes 15.26 GiB of model files on every restore.

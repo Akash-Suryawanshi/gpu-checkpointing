@@ -1,0 +1,286 @@
+{
+  "aggregates": {
+    "27c876e846fd/disk": {
+      "max": 119.562407069,
+      "median": 119.418134296,
+      "min": 119.298107827,
+      "n": 3
+    },
+    "a8f003d37e19/fresh": {
+      "max": 57.274292922,
+      "median": 57.064522885,
+      "min": 54.259892077,
+      "n": 3
+    }
+  },
+  "campaign": "cold-nvme-flags-01",
+  "gpu": "NVIDIA A10G, GPU-75bd90e1-ab34-9347-a945-c2f8ae6f477d, 570.172.08, 23028 MiB",
+  "kernel": "6.8.0-1036-aws",
+  "key_groups": {
+    "27c876e846fd3eb900806e3c53d99eb15e02af2f52bc6a30b1068ad18880bbb0": {
+      "data_cache": "cold",
+      "integrity_policy": "strict-v1",
+      "runs": [
+        "diagnostics/disk",
+        "timing/b1-disk",
+        "timing/b2-disk",
+        "timing/b3-disk"
+      ],
+      "validation_order": "dependencies-first",
+      "validation_workers": 4
+    },
+    "a8f003d37e19fbfbb919776ba09d7e311f14417a887bb3110508819e7a4bf5c9": {
+      "data_cache": "cold",
+      "integrity_policy": "strict-v1",
+      "runs": [
+        "diagnostics/fresh",
+        "timing/b1-fresh",
+        "timing/b2-fresh",
+        "timing/b3-fresh"
+      ],
+      "validation_order": "payload-first",
+      "validation_workers": 1
+    }
+  },
+  "model": "Qwen/Qwen3-8B",
+  "note": "Routes carry different validation settings, so this campaign has two comparison keys and report.py declines to aggregate it. The fresh key matches the strict NVMe campaign exactly, because validation flags affect only the restore path.",
+  "packages": {
+    "accelerate": "1.15.0",
+    "safetensors": "0.6.2",
+    "torch": "2.8.0",
+    "transformers": "5.0.0"
+  },
+  "python": "3.10.12",
+  "runs": {
+    "diagnostics/disk": {
+      "device_read_bytes": 34237595648,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.069219059,
+        "message_write_seconds": [
+          0.000716265,
+          0.000595442
+        ],
+        "start_to_first_token_seconds": 133.309550134
+      },
+      "key_sha256": "27c876e846fd3eb900806e3c53d99eb15e02af2f52bc6a30b1068ad18880bbb0",
+      "kind": "diagnostic",
+      "logical_bytes": {
+        "model_files": 16397431693,
+        "payload": 17839539775
+      },
+      "phases": {
+        "after_criu_to_token_seconds": 14.55146067,
+        "before_criu_seconds": 104.781801257,
+        "criu_seconds": 13.976288207,
+        "dependency_validation_seconds": 48.702856151,
+        "device_read_bytes": 34237595648,
+        "logical_bytes": {
+          "model_files": 16397431693,
+          "payload": 17839539775
+        },
+        "payload_validation_seconds": 54.777819229
+      },
+      "result_sha256": "ecc1c392607a0d2f42a0bdddf35d9cd3ca1abac0d652df9b2ca8803181b7c051",
+      "route": "disk",
+      "save_seconds": 175.953516744,
+      "status": "passed",
+      "warnings": [
+        "(107.60527) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2449739 with interrupted system call"
+      ]
+    },
+    "diagnostics/fresh": {
+      "device_read_bytes": 16381767680,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.070828043,
+        "message_write_seconds": [
+          0.000569213,
+          0.000630434
+        ],
+        "start_to_first_token_seconds": 57.327159752
+      },
+      "key_sha256": "a8f003d37e19fbfbb919776ba09d7e311f14417a887bb3110508819e7a4bf5c9",
+      "kind": "diagnostic",
+      "logical_bytes": {
+        "model_files": 16397431693
+      },
+      "result_sha256": "9e4f16b8ef381d2182f48b62d5b7cd5c0f86c95b6931a43492ac66015fe9c85a",
+      "route": "fresh",
+      "save_seconds": null,
+      "status": "passed",
+      "warnings": null
+    },
+    "timing/b1-disk": {
+      "device_read_bytes": 34237362176,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.070004881,
+        "message_write_seconds": [
+          0.000721395,
+          0.000597353
+        ],
+        "start_to_first_token_seconds": 119.418134296
+      },
+      "key_sha256": "27c876e846fd3eb900806e3c53d99eb15e02af2f52bc6a30b1068ad18880bbb0",
+      "kind": "timing",
+      "logical_bytes": {
+        "model_files": 16397431693,
+        "payload": 17839472918
+      },
+      "phases": {
+        "after_criu_to_token_seconds": 0.592003201,
+        "before_criu_seconds": 104.801151159,
+        "criu_seconds": 14.024979936,
+        "dependency_validation_seconds": 48.704997489,
+        "device_read_bytes": 34237362176,
+        "logical_bytes": {
+          "model_files": 16397431693,
+          "payload": 17839472918
+        },
+        "payload_validation_seconds": 54.776043694
+      },
+      "result_sha256": "ceb2c158afc8e0786f268ec10269ecbdbd0d62bc84d01c4b0c82a756c5c3996d",
+      "route": "disk",
+      "save_seconds": 165.809806383,
+      "status": "passed",
+      "warnings": [
+        "(107.54425) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2474679 with interrupted system call"
+      ]
+    },
+    "timing/b1-fresh": {
+      "device_read_bytes": 16381767680,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.068719452,
+        "message_write_seconds": [
+          0.000544401,
+          0.000584272
+        ],
+        "start_to_first_token_seconds": 57.274292922
+      },
+      "key_sha256": "a8f003d37e19fbfbb919776ba09d7e311f14417a887bb3110508819e7a4bf5c9",
+      "kind": "timing",
+      "logical_bytes": {
+        "model_files": 16397431693
+      },
+      "result_sha256": "70f6f4c442e4ff75e5c14c642917b9342f4e0839c7b2e4ed367b74684525c4fd",
+      "route": "fresh",
+      "save_seconds": null,
+      "status": "passed",
+      "warnings": null
+    },
+    "timing/b2-disk": {
+      "device_read_bytes": 34237358080,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.091267748,
+        "message_write_seconds": [
+          0.000668895,
+          0.000762887
+        ],
+        "start_to_first_token_seconds": 119.298107827
+      },
+      "key_sha256": "27c876e846fd3eb900806e3c53d99eb15e02af2f52bc6a30b1068ad18880bbb0",
+      "kind": "timing",
+      "logical_bytes": {
+        "model_files": 16397431693,
+        "payload": 17839493516
+      },
+      "phases": {
+        "after_criu_to_token_seconds": 0.507809456,
+        "before_criu_seconds": 104.81233054,
+        "criu_seconds": 13.977967831,
+        "dependency_validation_seconds": 48.669153595,
+        "device_read_bytes": 34237358080,
+        "logical_bytes": {
+          "model_files": 16397431693,
+          "payload": 17839493516
+        },
+        "payload_validation_seconds": 54.813886243
+      },
+      "result_sha256": "3be53675897c495f8acb41e6ea753f2cdf8f0dcbd4862429bae2124262c9a6fc",
+      "route": "disk",
+      "save_seconds": 152.372170895,
+      "status": "passed",
+      "warnings": [
+        "(107.80010) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2493293 with interrupted system call"
+      ]
+    },
+    "timing/b2-fresh": {
+      "device_read_bytes": 16381538304,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.069546565,
+        "message_write_seconds": [
+          0.000570032,
+          0.000667665
+        ],
+        "start_to_first_token_seconds": 57.064522885
+      },
+      "key_sha256": "a8f003d37e19fbfbb919776ba09d7e311f14417a887bb3110508819e7a4bf5c9",
+      "kind": "timing",
+      "logical_bytes": {
+        "model_files": 16397431693
+      },
+      "result_sha256": "1485b57355e25c02b2d60e57ce94482a747b4c2b6851249e2e05a8e0dd118aba",
+      "route": "fresh",
+      "save_seconds": null,
+      "status": "passed",
+      "warnings": null
+    },
+    "timing/b3-disk": {
+      "device_read_bytes": 34237333504,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.063771199,
+        "message_write_seconds": [
+          0.000733325,
+          0.000673805
+        ],
+        "start_to_first_token_seconds": 119.562407069
+      },
+      "key_sha256": "27c876e846fd3eb900806e3c53d99eb15e02af2f52bc6a30b1068ad18880bbb0",
+      "kind": "timing",
+      "logical_bytes": {
+        "model_files": 16397431693,
+        "payload": 17839489304
+      },
+      "phases": {
+        "after_criu_to_token_seconds": 0.636630711,
+        "before_criu_seconds": 104.7986547,
+        "criu_seconds": 14.127121658,
+        "dependency_validation_seconds": 48.699428561,
+        "device_read_bytes": 34237333504,
+        "logical_bytes": {
+          "model_files": 16397431693,
+          "payload": 17839489304
+        },
+        "payload_validation_seconds": 54.781393547
+      },
+      "result_sha256": "5015886c9a3c979fc3d280f7ad0debf7a2305f62cbe0e33ea1ecf03b36a50478",
+      "route": "disk",
+      "save_seconds": 150.772713685,
+      "status": "passed",
+      "warnings": [
+        "(108.05502) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 2519750 with interrupted system call"
+      ]
+    },
+    "timing/b3-fresh": {
+      "device_read_bytes": 16381530112,
+      "durations": {
+        "health_request_to_first_token_seconds": 0.069379567,
+        "message_write_seconds": [
+          0.000605143,
+          0.000587502
+        ],
+        "start_to_first_token_seconds": 54.259892077
+      },
+      "key_sha256": "a8f003d37e19fbfbb919776ba09d7e311f14417a887bb3110508819e7a4bf5c9",
+      "kind": "timing",
+      "logical_bytes": {
+        "model_files": 16397431693
+      },
+      "result_sha256": "7f4ca80dfa915120c0c5355d2b90c7528e94718b4a34c88c4ab5b6f5ca629ce6",
+      "route": "fresh",
+      "save_seconds": null,
+      "status": "passed",
+      "warnings": null
+    }
+  },
+  "source_commit": "8769fc8",
+  "storage": "EC2 instance store NVMe /opt/dlami/nvme (ephemeral)"
+}

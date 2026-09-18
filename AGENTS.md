@@ -163,6 +163,10 @@ merges; do not merge on their behalf.
 **Finding**: `experiments/inference/park.py:43` compares NVIDIA-reported process IDs with `/proc` identities. The validated container launch in `experiments/inference/README.md` uses `--pid=host` and `--cgroupns=host`, so identity checks and ancestor-memory admission use the host views.
 **Impact**: Keep that tested profile when reproducing these results; changing namespace isolation requires fresh probes and diagnostics, not an assumption that container IDs will match GPU monitoring.
 
+### 2026-09-18 - Apply a campaign's settings to every route in it
+**Finding**: The validation-flags arm passed `--validation-order`/`--validation-workers` to its restore route only. Those settings enter the comparison key, so the campaign held two keys and `experiments/inference/report.py:66` refused to aggregate it. The individual runs remain valid and its fresh key matched the control campaign exactly.
+**Impact**: Vary one setting across campaigns, never across routes inside one. When a campaign does hold several keys, curate one record per key group and state the cross-campaign comparison rather than weakening the report's refusal.
+
 ### 2026-09-18 - Snapshot images are bound to their checkout path
 **Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
 **Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
