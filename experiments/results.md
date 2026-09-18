@@ -547,6 +547,31 @@ were not evicted; device counters include any other reader of the volume, which 
 otherwise idle. The historical 11 s fresh result had uncontrolled cache residency and
 is not comparable.
 
+## Both volumes are bandwidth-limited, and our loaders already saturate them — 2026-09-18
+
+Every loading and restore path measured on local flash returned between 0.31 and
+0.34 GB/s regardless of concurrency, which looked low enough to suspect our own
+software. Reading the raw device settles it.
+[Measurements](evidence/2026-09-18/storage-bandwidth.txt): 3 GiB per case,
+cache bypassed, distinct ranges of one weight shard, two passes.
+
+| Volume | 1 stream | 4 streams | 8 streams |
+| --- | ---: | ---: | ---: |
+| EBS gp3 | 0.13 GB/s | 0.13 GB/s | 0.13 GB/s |
+| instance NVMe | 0.32–0.39 GB/s | 0.32 GB/s | 0.32 GB/s |
+
+Concurrency changes nothing on either volume, which is the signature of a
+throughput cap rather than a queue-depth limit. EBS matches its 125 MiB/s exactly.
+
+So our loaders are already running at device speed, and no faster I/O path exists
+to be written here. The ten seconds available from overlapping construction with
+the first reads remain available, because that cost is not I/O.
+
+A first attempt at this probe reported 1.95 GB/s on NVMe from a 0.27 second
+sample, which did not survive a longer read; its highest-concurrency row was
+invalid as well, requesting more data than the file held. Both the retracted
+figures and the method are kept in the evidence file.
+
 ## The endpoint boundary costs nothing measurable — 2026-09-18
 
 A live HTTP service activated the model on demand, either by launching a worker or

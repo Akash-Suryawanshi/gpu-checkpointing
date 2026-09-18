@@ -1,0 +1,19 @@
+# Direct reads of one 3811 MiB weight shard, cache bypassed, 3 GiB moved per case.
+# A first attempt using 512 MiB per stream reported 1.95 GB/s on NVMe; that sample was
+# 0.27 s long and did not survive a longer read. Its 16-stream row was also invalid,
+# requesting 8 GiB from a 3811 MiB file so most streams returned nothing.
+
+--- ebs: /mnt/data/gpu-checkpointing-inference-8b/model/model-00001-of-00005.safetensors (3811 MiB)
+ebs pass1 streams=1 each=3072MiB moved=3072MiB .13 GB/s (23.546189235s)
+ebs pass1 streams=4 each=768MiB moved=3072MiB .13 GB/s (24.528147011s)
+ebs pass1 streams=8 each=384MiB moved=3072MiB .13 GB/s (24.527936794s)
+ebs pass2 streams=1 each=3072MiB moved=3072MiB .13 GB/s (24.527533467s)
+ebs pass2 streams=4 each=768MiB moved=3072MiB .13 GB/s (24.527400096s)
+ebs pass2 streams=8 each=384MiB moved=3072MiB .13 GB/s (24.527890242s)
+--- nvme: /opt/dlami/nvme/gpu-checkpointing-inference-cold/model/model-00001-of-00005.safetensors (3811 MiB)
+nvme pass1 streams=1 each=3072MiB moved=3072MiB .39 GB/s (8.103837032s)
+nvme pass1 streams=4 each=768MiB moved=3072MiB .32 GB/s (9.899244966s)
+nvme pass1 streams=8 each=384MiB moved=3072MiB .32 GB/s (9.899717308s)
+nvme pass2 streams=1 each=3072MiB moved=3072MiB .32 GB/s (9.900080741s)
+nvme pass2 streams=4 each=768MiB moved=3072MiB .32 GB/s (9.899573438s)
+nvme pass2 streams=8 each=384MiB moved=3072MiB .32 GB/s (9.899667596s)
