@@ -199,6 +199,46 @@ Show the capture record and confirm no model worker remains between commands.
 After restore, show matching output and continued operation after the restore
 helper exits. This validates independent commands on the same host, not host-loss recovery.
 
+## Request-triggered endpoint
+
+**Host validation pending.** The endpoint serves the same worker protocol the
+CLI validated; `runtime.py` is shared. Fresh versus snapshot is server
+configuration, and clients send identical requests.
+
+```text
+bench_http.py --POST /generate--> api.py --Runtime--> worker (fresh launch | reusable restore)
+   START before connect            no CUDA state        tokens-N.jsonl tailed per event
+   STOP at first token event  <-- ndjson token events <--+
+```
+
+Publish a reusable image first: a passed disk diagnostic, then a staged timing
+capture with the contract. The image stays in that run directory across activations.
+
+```bash
+"$PY" experiments/inference/run.py trial --route disk --kind diagnostic \
+  --assets "$ASSETS" --output "$CAMPAIGN/diagnostics/disk" --tools "$TOOLS" --timeout 3600
+"$PY" experiments/inference/run.py trial --route disk --kind timing --disk-action capture \
+  --contract reusable-inference-v1 --validated-run "$CAMPAIGN/diagnostics/disk" --block 1 \
+  --assets "$ASSETS" --output "$CAMPAIGN/reusable" --tools "$TOOLS" --timeout 3600
+```
+
+Serve one route per server process, then measure from a separate client. The
+client resets the model, evicts the selected files, times a new connection to
+the first token event, checks the exact reference output, and sends a warm follow-up.
+
+```bash
+"$PY" experiments/inference/api.py --route snapshot --snapshot-run "$CAMPAIGN/reusable" \
+  --assets "$ASSETS" --tools "$TOOLS" --root "$CAMPAIGN/http/server-snapshot" --port 8090
+"$PY" experiments/inference/bench_http.py trial --url http://127.0.0.1:8090 --route snapshot \
+  --assets "$ASSETS" --snapshot-run "$CAMPAIGN/reusable" --block 1 --data-cache cold \
+  --output "$CAMPAIGN/http/b1-snapshot"
+"$PY" experiments/inference/bench_http.py summarize --runs "$CAMPAIGN/http" --output "$CAMPAIGN/http/summary"
+```
+
+For `--route fresh`, omit `--snapshot-run`. `POST /admin/models/{id}/unload`
+resets between trials; `GET /models/{id}` reports state and the last error.
+One request at a time: concurrent requests get `429`, nonzero temperature `400`.
+
 ## Container validation
 
 Requires Docker with NVIDIA Container Toolkit configured on the host. The image

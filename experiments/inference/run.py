@@ -134,7 +134,7 @@ def trial(args):
                     parking.park()
                     print("RAM: checkpointed; GPU state retained in host RAM", flush=True)
                 else:
-                    details.update(lifecycle.capture(output, tools, env, process, deadline))
+                    details.update(lifecycle.capture(output, tools, env, process, deadline, args.contract))
                     process, original = None, None
                     sampler.pid = None
                     print("disk: published; original process reaped; capture command exited", flush=True)
@@ -269,11 +269,14 @@ if __name__ == "__main__":
     parser.add_argument("--data-cache", choices=("uncontrolled", "cold"), default="uncontrolled")
     parser.add_argument("--loader", choices=("transformers", "packed", "pipelined", "direct"), default="transformers")
     parser.add_argument("--bundle", type=Path)
+    parser.add_argument("--contract", choices=(control.CONTRACT,), help="Publish a staged capture for repeated activation")
     args = parser.parse_args()
+    if args.contract and args.disk_action != "capture":
+        parser.error("A reusable contract applies to a staged disk capture only")
     if args.kind == "timing" and (not args.validated_run or not args.block):
         parser.error("Timing requires --validated-run and --block")
-    if args.disk_action != "full" and (args.route != "disk" or args.kind != "diagnostic"):
-        parser.error("Staged actions require disk diagnostics")
+    if args.disk_action != "full" and (args.route != "disk" or (args.kind != "diagnostic" and not args.contract)):
+        parser.error("Staged actions require disk diagnostics unless publishing a reusable timing image")
     if args.discard_image_after_success and (args.route != "disk" or args.kind != "timing"):
         parser.error("Image discard requires accepted disk timing")
     if args.data_cache == "cold" and (args.route not in ("fresh", "disk") or args.disk_action == "capture"):
