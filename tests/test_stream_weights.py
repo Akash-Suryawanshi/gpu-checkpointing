@@ -24,6 +24,13 @@ class StreamTests(unittest.TestCase):
         for content in (data[:-1], b"x" + data[1:]):
             with self.assertRaises(ValueError):
                 stream_weights.verified_read(ShortReads(content), target, digest)
+        with tempfile.TemporaryFile() as stream:
+            stream.write(b"prefix" + data)
+            stream.flush()
+            stream.seek(2)
+            stream_weights.verified_read(stream, target, digest, offset=6)
+            self.assertEqual(target, data)
+            self.assertEqual(stream.tell(), 2, "Concurrent readers must not share a mutable cursor")
 
     def test_tensor_metadata_requires_dense_complete_bf16_layout(self):
         """Non-obvious correctness: sorted JSON names are not the physical tensor order."""

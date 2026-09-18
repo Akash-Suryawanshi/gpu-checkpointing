@@ -1,10 +1,11 @@
 """Bounded ServerlessLLM-inspired bulk loading, not a process snapshot.
 
-One flat BF16 allocation receives verified chunks through two reusable pinned
+One flat BF16 allocation receives verified chunks through four reusable pinned
 buffers. CUDA events prevent overwriting a buffer while its DMA is in flight.
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import math
@@ -30,10 +31,11 @@ def metadata(folder):
     return record
 
 
-def verified_read(stream, target, expected):
+def verified_read(stream, target, expected, offset=None):
     position = 0
     while position < len(target):
-        count = stream.readinto(target[position:])
+        count = (stream.readinto(target[position:]) if offset is None else
+                 os.preadv(stream.fileno(), [target[position:]], offset + position))
         if not count:
             raise ValueError("Truncated weight chunk")
         position += count
@@ -94,20 +96,27 @@ def load(model_path, folder, pipelined=True):
     if set(model.state_dict()) != set(record["tensors"]):
         raise ValueError("Packed tensors do not match model architecture")
     flat = torch.empty(record["bytes"], dtype=torch.uint8, device="cuda:0")
-    buffers = [torch.empty(CHUNK, dtype=torch.uint8, pin_memory=pipelined) for _ in range(2 if pipelined else 1)]
+    buffers = [torch.empty(CHUNK, dtype=torch.uint8, pin_memory=pipelined) for _ in range(4 if pipelined else 1)]
     events = [torch.cuda.Event() for _ in buffers]
-    used = [False] * len(buffers)
     with (folder / "weights.bin").open("rb", buffering=0) as stream:
-        for index, expected in enumerate(record["chunks"]):
-            slot = index % len(buffers)
-            if used[slot]:
+        def fill(index, slot, reuse=False):
+            if reuse:
                 events[slot].synchronize()
             offset = index * CHUNK
             size = min(CHUNK, record["bytes"] - offset)
-            verified_read(stream, memoryview(buffers[slot].numpy())[:size], expected)
-            flat[offset:offset + size].copy_(buffers[slot][:size], non_blocking=pipelined)
-            events[slot].record()
-            used[slot] = True
+            verified_read(stream, memoryview(buffers[slot].numpy())[:size], record["chunks"][index], offset)
+            return offset, size
+        # preadv gives each reader an independent file offset. The bounded ring
+        # overlaps disk reads and hashing with DMA without caching a whole model.
+        with ThreadPoolExecutor(max_workers=len(buffers)) as readers:
+            pending = [readers.submit(fill, i, i) for i in range(min(len(buffers), len(record["chunks"])))]
+            for index in range(len(record["chunks"])):
+                slot = index % len(buffers)
+                offset, size = pending[slot].result()
+                flat[offset:offset + size].copy_(buffers[slot][:size], non_blocking=pipelined)
+                events[slot].record()
+                if index + len(buffers) < len(record["chunks"]):
+                    pending[slot] = readers.submit(fill, index + len(buffers), slot, True)
     torch.cuda.synchronize()
     state = {name: flat[item["offset"]:item["offset"] + item["bytes"]].view(torch.bfloat16).view(item["shape"])
              for name, item in record["tensors"].items()}
