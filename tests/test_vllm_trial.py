@@ -2,6 +2,7 @@
 
 import copy
 import importlib.util
+import os
 from pathlib import Path
 import sys
 import types
@@ -40,6 +41,13 @@ def snapshot_record(route="snapshot", release=10, capture=20):
 REFERENCE = {"tokens": [7, 8], "text": "blue", "first_token": 7}
 
 
+def fake_engine(model=None, gpu_blocks=9355):
+    """A loaded engine's shape: the block count is filled in by startup profiling."""
+    return types.SimpleNamespace(llm_engine=types.SimpleNamespace(
+        model_executor=model, vllm_config=types.SimpleNamespace(
+            cache_config=types.SimpleNamespace(num_gpu_blocks=gpu_blocks, block_size=16))))
+
+
 class EngineSettingsTests(unittest.TestCase):
     def test_the_eager_control_actually_disables_graph_capture(self):
         """Critical: the eager route exists only to remove CUDA-graph capture from
@@ -51,6 +59,7 @@ class EngineSettingsTests(unittest.TestCase):
             def __init__(self, **settings):
                 captured.clear()
                 captured.update(settings)
+                self.llm_engine = fake_engine().llm_engine
 
         fake = types.ModuleType("vllm")
         fake.LLM = FakeLLM
@@ -63,6 +72,35 @@ class EngineSettingsTests(unittest.TestCase):
         # Prefix caching would let the second request reuse the first one's blocks,
         # so the follow-up timing would stop measuring a real forward pass.
         self.assertFalse(captured["enable_prefix_caching"])
+
+    def test_the_engine_is_configured_in_process_by_load_itself(self):
+        """REGRESSION (preparation forked an engine core, 2026-09-18): assets.py
+        called load() with the ambient environment, so vLLM started its engine core
+        as a second process and CUDA refused to re-initialise after the fork. A
+        second process is also not what CRIU dumps, so this cannot be left to the
+        caller's environment."""
+        seen = {}
+
+        class FakeLLM:
+            def __init__(self, **settings):
+                seen.update(os.environ)
+                self.llm_engine = fake_engine().llm_engine
+
+        fake = types.ModuleType("vllm")
+        fake.LLM = FakeLLM
+        with mock.patch.dict(os.environ, {"VLLM_ENABLE_V1_MULTIPROCESSING": "1"}), \
+                mock.patch.dict(sys.modules, {"vllm": fake, "torch": mock.MagicMock()}):
+            engine.load("/model", 0.3, False, 2048)
+        self.assertEqual(seen["VLLM_ENABLE_V1_MULTIPROCESSING"], "0")
+
+
+    def test_the_audit_excludes_values_derived_from_free_gpu_memory(self):
+        """REGRESSION (cold diagnostic, 2026-09-18): inspect() reported vLLM's
+        profiled block count, which comes from free GPU memory at startup: 9355 in
+        preparation against 9100 in the worker. All 267 weight tensors matched, and
+        the run still failed its immutable-state comparison."""
+        model = types.SimpleNamespace(state_dict=lambda: {}, modules=lambda: [])
+        self.assertIsNone(engine.inspect(fake_engine(model), "timing")["kv_cache"])
 
 
 class RecordAdmissionTests(unittest.TestCase):

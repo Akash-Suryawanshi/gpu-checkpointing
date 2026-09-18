@@ -22,9 +22,13 @@ from worker import control, memory, next_request, redirect_output, attempt_paths
 
 # vLLM starts its engine core in a separate process by default. One process is
 # what CRIU dumps and what GPU monitoring attributes, so that split is disabled.
+# USE_LIBUV=0 selects PyTorch's older distributed store: the libuv backend opens an
+# io_uring ring, and CRIU refuses to dump a process holding one, failing with
+# "Unknown shit 600 (anon_inode:[io_uring])" before it reaches any GPU mapping.
 # Usage reporting is off because a measured run makes no network calls.
-ENGINE_ENVIRONMENT = {"VLLM_ENABLE_V1_MULTIPROCESSING": "0", "VLLM_NO_USAGE_STATS": "1",
-                      "VLLM_DO_NOT_TRACK": "1", "VLLM_LOGGING_LEVEL": "WARNING"}
+ENGINE_ENVIRONMENT = {"VLLM_ENABLE_V1_MULTIPROCESSING": "0", "USE_LIBUV": "0",
+                      "VLLM_NO_USAGE_STATS": "1", "VLLM_DO_NOT_TRACK": "1",
+                      "VLLM_LOGGING_LEVEL": "WARNING"}
 
 
 def eager_route(route):
@@ -39,6 +43,11 @@ def version():
 
 def load(model_path, gpu_fraction, enforce_eager, max_model_len, seed=2026):
     """Start one engine and leave it holding the GPU state a snapshot would carry."""
+    # Applied here rather than by each caller: preparation, the worker and any
+    # probe must all get the same engine, and a forked engine core cannot
+    # initialise CUDA once this process has touched it. These values are part of
+    # the measured configuration and are recorded in the comparison key.
+    os.environ.update(ENGINE_ENVIRONMENT)
     import torch
     from vllm import LLM
     torch.manual_seed(seed)
@@ -50,8 +59,10 @@ def load(model_path, gpu_fraction, enforce_eager, max_model_len, seed=2026):
                  max_model_len=max_model_len, enable_prefix_caching=False,
                  disable_log_stats=True, tensor_parallel_size=1)
     torch.cuda.synchronize()
+    cache = cache_config(engine)
     return engine, {"load_call_seconds": time.monotonic() - started,
-                    "enforce_eager": enforce_eager, "gpu_fraction": gpu_fraction}
+                    "enforce_eager": enforce_eager, "gpu_fraction": gpu_fraction,
+                    "gpu_blocks": cache.num_gpu_blocks, "block_size": cache.block_size}
 
 
 def core(engine):
@@ -130,9 +141,10 @@ def inspect(engine, kind):
         raise ValueError("Engine model must be in evaluation mode")
     if any(tensor.device.type != "cuda" for tensor in tensors.values()):
         raise ValueError("Engine model must be entirely on GPU")
-    cache = cache_config(engine)
-    record = {"training": False,
-              "kv_cache": {"gpu_blocks": cache.num_gpu_blocks, "block_size": cache.block_size},
+    # The profiled block count belongs in loading.json, not here. It is derived from
+    # free GPU memory at startup and differs between two processes loading the same
+    # weights, so an audit holding it would report identical models as changed.
+    record = {"training": False, "kv_cache": None,
               "tensors": {name: {"dtype": str(tensor.dtype), "shape": list(tensor.shape),
                                  "device": str(tensor.device)} for name, tensor in tensors.items()}}
     if kind == "diagnostic":
