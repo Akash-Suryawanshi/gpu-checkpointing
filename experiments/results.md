@@ -19,7 +19,7 @@ Per-run detail, provenance and qualifications: [long-form record](results-detail
 
 ---
 
-## 1. Which tool can checkpoint a GPU process — 2026-09-12/14
+## 1. Which tool can checkpoint a GPU process
 
 Four candidates, one survivor.
 
@@ -33,7 +33,7 @@ Four candidates, one survivor.
 Also failed on the way: development started on macOS ARM64, where none of this
 runs; DMTCP needed CUDA 13.0 compiler headers while the system had 12.6.
 
-## 2. LoRA training survives a snapshot — 2026-09-14/17
+## 2. LoRA training survives a snapshot
 
 Qwen2.5-0.5B, LoRA on `q_proj`/`v_proj`, four updates, captured after update 1, 2
 or 3, compared byte-for-byte against an uninterrupted reference.
@@ -55,7 +55,7 @@ the capture time and 550× the bytes. Saving state is cheap; saving a process is
 negative (CRIU gives the restored process a different clock namespace); cleanup
 that skipped an exited child (an empty `/proc` command line splits to `[b'']`).
 
-## 3. Restoring an 8B model is slower than loading it — 2026-09-17/18
+## 3. Restoring an 8B model is slower than loading it
 
 Qwen3-8B, one A10G, time to first token. Four ways to reach a ready model.
 
@@ -96,7 +96,7 @@ of them. The image is simply bigger than the weights.
 **One retracted measurement:** an early probe reported 1.95 GB/s on NVMe from a
 0.27 s sample. A longer read did not reproduce it; both figures are kept.
 
-## 4. vLLM: an engine whose startup is real computation — 2026-09-18
+## 4. vLLM: an engine whose startup is real computation
 
 Everything above loads weights and little else, so a snapshot had nothing to win.
 vLLM compiles kernels and captures CUDA graphs: weights load in 0.17 s while
