@@ -16,7 +16,7 @@ CRIU capture and restore verification. CRIU's CUDA plugin alone owns NVIDIA tran
 Environment setup, one-update restoration, application restart, active dropout,
 repeated restoration, and paired timing all passed on EC2. The September 17
 readability refactor passed fourteen CPU checks and nine fresh GPU cases.
-[Validation record](../experiments/results.md#readability-refactor-validation--2026-09-17).
+[Validation record](../experiments/results-detail.md#readability-refactor-validation--2026-09-17).
 Sharing ownership and interrupted-system-call warnings still qualify compatibility.
 
 ## Global constraints
@@ -134,7 +134,7 @@ Pin the isolated packages, model/tokenizer/data, CRIU plugin, and NVIDIA helper.
 Record live GPU/driver, CUDA/Python versions, host/cgroup RAM limits, and disk
 capacity; run jobs offline. Inspect mappings after Python, PyTorch, CUDA, model,
 and Adam initialization. See [setup](../experiments/finetuning/README.md) and the
-[recorded environment](../experiments/results.md#footprint-environment-and-limits).
+[recorded environment](../experiments/results-detail.md#footprint-environment-and-limits).
 
 **Gate:** real finite adapter updates with measured headroom. Required sharing
 must be demonstrated or fixed before unqualified acceptance; unknown ownership
@@ -222,7 +222,7 @@ acceptance, critical-contract, regression, or non-obvious-correctness purpose.
 
 CRIU was selected because the EC2 CPU, tensor, and LoRA gates passed and its
 terminating dump fits this experiment. Historical DMTCP results do not establish
-an EC2 performance ranking. See [backend evidence](../experiments/results.md#ec2-criu-validation--2026-09-14).
+an EC2 performance ranking. See [backend evidence](../experiments/results-detail.md#ec2-criu-validation--2026-09-14).
 
 Actual spot termination, replacement-host restore, multi-GPU, QLoRA/paged
 optimizers, compression/incremental GPU capture, scheduling, and billing remain

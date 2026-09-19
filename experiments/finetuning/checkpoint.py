@@ -50,7 +50,10 @@ def capture(args):
             volume["admission_floor_bytes"] = required
             old = previous.get("snapshot")
             old_volume = control.storage(Path(old)) if old else None
+            # Publication always verifies model content, whatever later activations check.
             deps = control.dependencies(job, args.tools, deadline)
+            if args.model_policy != "strict-v1":
+                deps = control.dependencies(job, args.tools, deadline, model_policy=args.model_policy)
             shutil.copyfile(attempt / "before.json", snapshot / "before.json")
             tools = control.tools_config(args.tools)
             env = session.child_environment(args.tools / "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")
@@ -72,11 +75,19 @@ def capture(args):
             emit("gpu_observed_after_exit")
             manifest = {"schema": control.SCHEMA, "capture_id": capture_id, "job": job,
                         "run": str(run), "request": request, "update": ready["update"],
-                        "dependencies": deps, "storage": volume, "previous_storage": old_volume,
+                        "dependencies": deps, "pre_staging_memory": memory, "storage": volume, "previous_storage": old_volume,
                         "external_files": {name: control.file_hash(run / name)
                                            for name in ("updates.jsonl", "trainer.stderr")},
                         "dump_log_sha256": control.file_hash(attempt / "dump.log")}
-            control.publish(snapshot, manifest, run, deadline, emit)
+            if args.contract:
+                # Reusable images keep immutable copies of the captured logs so each
+                # activation can rebuild the exact files CRIU expects to reopen.
+                manifest["contract"] = args.contract
+                (snapshot / "external").mkdir()
+                for name in manifest["external_files"]:
+                    shutil.copyfile(run / name, snapshot / "external" / name)
+            control.publish(snapshot, manifest, run, deadline, emit,
+                            args.payload_policy, args.payload_workers)
             return manifest
         except BaseException:
             if not dumped:
@@ -97,4 +108,8 @@ if __name__ == "__main__":
     parser.add_argument("--tools", type=Path, required=True)
     parser.add_argument("--at", type=int, default=1, help="Earliest completed update to acknowledge")
     parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--contract", choices=(control.CONTRACT,), help="Publish a repeatedly restorable inference image")
+    parser.add_argument("--model-policy", choices=control.MODEL_POLICIES, default="strict-v1")
+    parser.add_argument("--payload-policy", choices=control.PAYLOAD_POLICIES, default="strict-v1")
+    parser.add_argument("--payload-workers", type=int, default=1)
     capture(parser.parse_args())

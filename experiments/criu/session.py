@@ -29,7 +29,9 @@ def child_environment(cuda_checkpoint):
     return {"PATH": f"{Path(cuda_checkpoint).parent}:/usr/local/bin:/usr/bin:/bin",
             "HOME": str(Path.home()), "LANG": "C.UTF-8", "PYTHONNOUSERSITE": "1",
             "OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "TOKENIZERS_PARALLELISM": "false",
-            "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1", "CUBLAS_WORKSPACE_CONFIG": ":4096:8"}
+            "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1", "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+            **{key: os.environ[key] for key in ("TMPDIR", "HF_HOME", "XDG_CACHE_HOME",
+               "TORCH_HOME", "CUDA_CACHE_PATH", "TORCHINDUCTOR_CACHE_DIR") if key in os.environ}}
 
 
 def adopt_restored_children():
@@ -205,9 +207,20 @@ def criu(action, run, generation, tools, env, pid=None, *, images=None, attempt=
     # The inner timeout bounds CRIU itself; the outer timeout also covers sudo.
     # --shell-job permits the job's session/group arrangement. --libdir selects
     # the CUDA plugin, while --no-default-config prevents host config overrides.
-    args = ["sudo", "-n", "env", "-i", "PATH=" + env["PATH"],
-            "LD_LIBRARY_PATH=" + tools["libraries"], "timeout", "--kill-after=5", str(max(0.1, timeout - 5)),
+    # CRIU locks an established connection with iptables, which lives in the
+    # superuser path. Only this privileged command gets it; the workload's own
+    # environment stays minimal.
+    args = ["sudo", "-n", "env", "-i", "PATH=" + env["PATH"] + ":/usr/sbin:/sbin",
+            "LD_LIBRARY_PATH=" + tools["libraries"], "timeout",
+            # Inference owns a dedicated helper group and kills it on cancellation.
+            # Keep timeout in that group; training retains its existing default.
+            *(["--foreground"] if os.environ.get("GPU_SNAPSHOT_HELPER_GROUP") == "1" else []),
+            "--kill-after=5", str(max(0.1, timeout - 5)),
             tools["criu"], "--no-default-config", action,
+            # A serving engine keeps PyTorch's distributed store connected to itself
+            # even at world size one. Both ends live in this tree, so CRIU can save
+            # and rebuild the connection; without this it refuses the dump outright.
+            "--tcp-established",
             "--images-dir", str(directory), "--libdir", tools["plugin"], "--shell-job",
             "--log-file", str(logfile), "-v4",
             *(["--work-dir", str(attempt)] if attempt is not None else []), *extra]

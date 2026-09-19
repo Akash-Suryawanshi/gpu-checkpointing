@@ -5,6 +5,7 @@ Records carry identity and permission, never replacement training state. See
 """
 
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import importlib.metadata
 import json
@@ -17,6 +18,8 @@ import sys
 import time
 import uuid
 
+import hashlib
+
 from prepare import file_hash
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +27,20 @@ sys.path.insert(0, str(ROOT / "experiments/criu"))
 import session
 
 SCHEMA = 1
+# Inference images restore repeatedly; training keeps the single-use contract.
+CONTRACT = "reusable-inference-v1"
+TERMINAL = ("released", "failed_restore")
+# How model files are proven unchanged. "strict-v1" hashes their contents at every
+# activation. "publication-verified-v1" hashes them once at capture and afterwards
+# compares identity only; see docs/inference-activation-contract.md for the trade.
+MODEL_POLICIES = ("strict-v1", "publication-verified-v1")
+# How the snapshot payload is proven unchanged at activation. "strict-v1" recomputes
+# each file's ordinary SHA-256 serially. "publication-only-v1" trusts the digest taken
+# when the image was published and re-checks only structure. "parallel-chunked-v1"
+# still covers every byte with SHA-256, but in parallel chunks, so its digest value
+# differs and carries its own label. See experiments/results.md for the measurements.
+PAYLOAD_POLICIES = ("strict-v1", "publication-only-v1", "parallel-chunked-v1")
+PAYLOAD_CHUNK = 64 * 1024 * 1024
 
 
 def read(path):
@@ -93,18 +110,33 @@ def remaining(deadline):
     return value
 
 
-def wait(path, deadline, identity=None):
+def wait(path, deadline, identity=None, poll=0.05):
     while not Path(path).exists():
         remaining(deadline)
         if identity is not None and not session.matches(identity):
             raise RuntimeError("Identified trainer exited while waiting")
-        time.sleep(min(0.05, remaining(deadline)))
+        time.sleep(min(poll, remaining(deadline)))
     remaining(deadline)
     return read(path)
 
 
 def phase(run, status, **values):
     write(Path(run) / "control/phase.json", {"status": status, **values})
+
+
+def activation(run):
+    """Mutable per-attempt state of a reusable image; publication stays in phase.json."""
+    path = Path(run) / "control/activation.json"
+    return read(path) if path.exists() else None
+
+
+def activation_state(run, status, **values):
+    write(Path(run) / "control/activation.json", {"status": status, **values})
+
+
+def current_attempt(run):
+    """The record naming the attempt in progress: activation for reusable images, else phase."""
+    return activation(run) or read(Path(run) / "control/phase.json")
 
 
 def event(attempt, name, **values):
@@ -199,7 +231,7 @@ def boundary(run, job, update, inspect):
                 time.sleep(0.05)
             if read(restored / "continue.json") != restoration:
                 raise ValueError("Wrong continuation identity")
-            return
+            return restoration  # Lets a versioned worker check the attempt it was released into.
         time.sleep(0.05)
 
 
@@ -216,24 +248,54 @@ def runtime_libraries(directory):
     return [path for path in directory.glob("*.so*") if path.is_file()]
 
 
-def dependencies(job, tools, deadline):
+def hash_files(paths, deadline, workers=1):
+    if workers not in (1, 4):
+        raise ValueError("Validation workers must be 1 or 4")
+    def checked(path):
+        remaining(deadline)
+        digest = file_hash(path)
+        remaining(deadline)
+        return str(path.absolute()), digest
+    # Each independent file retains its ordinary SHA-256. At most four
+    # bounded read buffers exist; changing concurrency never changes identity.
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return dict(executor.map(checked, paths))
+
+
+def file_identity(path):
+    """Size, modification time, and inode of a file whose content is not reread.
+
+    This is weaker than a digest: a copy changes inode and time without changing
+    content, and a careful in-place rewrite can preserve both. It detects
+    replacement and truncation, not deliberate tampering.
+    """
+    info = Path(path).stat()
+    return {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns, "inode": info.st_ino, "device": info.st_dev}
+
+
+def dependencies(job, tools, deadline, workers=1, model_policy="strict-v1"):
     """Fingerprint dependencies without importing torch or creating a CUDA context."""
+    if model_policy not in MODEL_POLICIES:
+        raise ValueError("Unknown model integrity policy")
     assets = Path(job["assets"])
     manifest = read(assets / "manifest.json")
+    model = [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]]
     paths = list((ROOT / "experiments/finetuning").glob("*.py"))
+    paths += list((ROOT / "experiments/inference").glob("*.py"))
+    paths += list((ROOT / "experiments/vllm").glob("*.py"))
     paths += [ROOT / "experiments/criu/session.py", assets / "manifest.json", assets / "tokens.json"]
-    paths += [Path(manifest["model_path"]) / name for name in manifest["identity"]["files"]]
+    if model_policy == "strict-v1":
+        paths += model
     paths += [Path(tools) / name for name in (
         "criu-4.2.1/criu/criu", "criu-4.2.1/plugins/cuda/cuda_plugin.so",
         "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")]
     paths += runtime_libraries(Path(tools) / "criu-deps/usr/lib/x86_64-linux-gnu")
-    hashes = {}
-    for path in paths:
-        remaining(deadline)
-        hashes[str(path.absolute())] = file_hash(path)
+    hashes = hash_files(paths, deadline, workers)
+    identities = {} if model_policy == "strict-v1" else {str(p): file_identity(p) for p in model}
     gpu = subprocess.check_output(["nvidia-smi", "--query-gpu=name,uuid,driver_version,memory.total",
                                    "--format=csv,noheader"], text=True, timeout=remaining(deadline)).strip()
-    return {"files": hashes, "python": platform.python_version(), "executable": job["python"],
+    return {"files": hashes, "model_policy": model_policy, "model_identities": identities,
+            "python": platform.python_version(), "executable": job["python"],
             "packages": dict(sorted((d.metadata["Name"].lower(), d.version)
                                      for d in importlib.metadata.distributions())),
             "kernel": platform.release(), "gpu": gpu,
@@ -251,24 +313,82 @@ def storage(path):
     return {**mount, "total": usage.total, "free": usage.free}
 
 
-def inventory(snapshot):
+def chunked_hash(path, deadline=None, workers=1):
+    """SHA-256 over every byte, read as parallel 64 MiB chunks, folded in file order.
+
+    Every byte is still covered by SHA-256 and the fold is deterministic, so this
+    detects exactly what a plain digest detects. The value differs from
+    `file_hash`'s, which is why it is a separate policy rather than a faster
+    implementation of the same one. Positioned reads share no file offset, so the
+    chunks are independent and a serial single-stream read stops being the limit.
+    """
+    size = Path(path).stat().st_size
+    spans = [(start, min(PAYLOAD_CHUNK, size - start)) for start in range(0, size, PAYLOAD_CHUNK)]
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        def piece(span):
+            start, length = span
+            if deadline is not None:
+                remaining(deadline)
+            digest = hashlib.sha256()
+            while length:
+                block = os.pread(descriptor, min(length, 8 * 1024 * 1024), start)
+                if not block:
+                    raise ValueError("Short read hashing snapshot payload")
+                digest.update(block)
+                start += len(block)
+                length -= len(block)
+            return digest.digest()
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            digests = list(executor.map(piece, spans))
+    finally:
+        os.close(descriptor)
+    combined = hashlib.sha256(f"chunked-v1:{PAYLOAD_CHUNK}:{size}".encode())
+    for digest in digests:
+        combined.update(digest)
+    return combined.hexdigest()
+
+
+def payload_hash(path, policy="strict-v1", deadline=None, workers=1):
+    if policy not in PAYLOAD_POLICIES:
+        raise ValueError("Unknown snapshot payload policy")
+    if policy == "parallel-chunked-v1":
+        return chunked_hash(path, deadline, workers)
+    return file_hash(path)
+
+
+def payload_paths(snapshot):
     """Only regular payload files are admitted; logs belong in attempts instead."""
-    paths = [snapshot / "before.json", *sorted((snapshot / "images").rglob("*"))]
-    result = {}
+    paths = [snapshot / "before.json", *sorted((snapshot / "images").rglob("*")),
+             *sorted((snapshot / "external").glob("*"))]  # reusable baseline log copies
+    files = []
     for path in paths:
         if path.is_symlink() or not (path.is_file() or path.is_dir()):
             raise ValueError("Nonregular snapshot payload")
         if path.is_file():
-            result[str(path.relative_to(snapshot))] = {"bytes": path.stat().st_size, "sha256": file_hash(path)}
-    if not all(name in result for name in ("before.json", "images/inventory.img", "images/pstree.img")):
+            files.append(path)
+    names = {str(path.relative_to(snapshot)) for path in files}
+    if not all(name in names for name in ("before.json", "images/inventory.img", "images/pstree.img")):
         raise ValueError("Incomplete payload inventory")
-    return result
+    return files
 
 
-def publish(snapshot, manifest, run, deadline, emit):
+def payload_sizes(snapshot):
+    """Structure without content: detects an added, removed, or truncated file."""
+    return {str(path.relative_to(snapshot)): path.stat().st_size for path in payload_paths(snapshot)}
+
+
+def inventory(snapshot, policy="strict-v1", deadline=None, workers=1):
+    return {str(path.relative_to(snapshot)):
+            {"bytes": path.stat().st_size, "sha256": payload_hash(path, policy, deadline, workers)}
+            for path in payload_paths(snapshot)}
+
+
+def publish(snapshot, manifest, run, deadline, emit, payload_policy="strict-v1", payload_workers=1):
     """Hash, sync payload, persist manifest/ancestors, then completion and phase."""
     try:
-        manifest["payload"] = inventory(snapshot)
+        manifest["payload_policy"] = payload_policy
+        manifest["payload"] = inventory(snapshot, payload_policy, deadline, payload_workers)
         emit("payload_hash_completed")
         for name in manifest["payload"]:
             remaining(deadline)
@@ -300,29 +420,99 @@ def publish(snapshot, manifest, run, deadline, emit):
         raise
 
 
-def validate(snapshot, run, tools, deadline):
+def materialize_external(snapshot, run, manifest):
+    """Rewrite captured logs from immutable baseline copies so CRIU reopens the saved files."""
+    for name, digest in manifest["external_files"].items():
+        source = snapshot / "external" / name
+        if file_hash(source) != digest:
+            raise ValueError("External baseline copy changed")
+        target = run / name
+        shutil.copyfile(source, target)
+        with target.open("rb") as stream:
+            os.fsync(stream.fileno())
+        if file_hash(target) != digest:
+            raise ValueError("Required external log missing or changed")
+    sync_directory(run)
+
+
+def validate(snapshot, run, tools, deadline, order="payload-first", emit=lambda name: None,
+             workers=1, payload_workers=1):
+    """Admit one restore. Reusable images additionally require a terminal previous attempt.
+
+    The caller holds the operation lock; reusable validation resets per-attempt
+    markers and registration, which is only safe under that lock.
+    """
+    if order not in ("payload-first", "dependencies-first"):
+        raise ValueError("Unknown validation order")
     manifest = read(snapshot / "manifest.json")
     if manifest.get("schema") != SCHEMA or manifest["run"] != str(run):
         raise ValueError("Wrong snapshot schema or job path")
+    reusable = manifest.get("contract") == CONTRACT
+    if not reusable and "contract" in manifest:
+        raise ValueError("Unknown snapshot contract")
     complete = read(snapshot / "COMPLETE")
     if complete != {"capture_id": manifest["capture_id"], "manifest_sha256": file_hash(snapshot / "manifest.json")}:
         raise ValueError("Completion digest mismatch")
     expected_phase = {"status": "published", "capture_id": manifest["capture_id"], "snapshot": str(snapshot)}
     if read(run / "control/phase.json") != expected_phase:
         raise ValueError("Snapshot is ambiguous, consumed, or no longer current")
-    if inventory(snapshot) != manifest["payload"]:
-        raise ValueError("Snapshot payload mismatch")
+    # Fixed when the image was published; an activation cannot weaken it.
+    payload_policy = manifest.get("payload_policy", "strict-v1")
+    def payload():
+        emit("payload_validation_started")
+        if payload_policy == "publication-only-v1":
+            # Contents were verified at publication. This re-checks the structure
+            # only, which costs no reads and still rejects an added, removed or
+            # truncated file; it does not detect an in-place rewrite.
+            if payload_sizes(snapshot) != {name: item["bytes"] for name, item in manifest["payload"].items()}:
+                raise ValueError("Snapshot payload mismatch")
+        elif inventory(snapshot, payload_policy, deadline, payload_workers) != manifest["payload"]:
+            raise ValueError("Snapshot payload mismatch")
+        remaining(deadline)
+        emit("payload_validation_completed")
+    if order == "payload-first":
+        payload()
     job = read(run / "job.json")
-    if job != manifest["job"] or job["identity"]["uid"] != os.getuid():
+    saved = manifest["job"]
+    if reusable:
+        # Registration identity is refreshed per attempt; everything else is fixed at capture.
+        if {k: v for k, v in job.items() if k != "identity"} != {k: v for k, v in saved.items() if k != "identity"}:
+            raise ValueError("Job identity mismatch")
+        previous = activation(run)
+        if previous is not None and previous["status"] not in TERMINAL:
+            raise ValueError("Previous activation is not terminal")
+    elif job != saved:
         raise ValueError("Job identity mismatch")
-    if Path(f'/proc/{job["identity"]["pid"]}').exists():
+    if job["identity"]["uid"] != os.getuid():
+        raise ValueError("Job identity mismatch")
+    # CRIU reconstructs the saved PID; an unrelated holder is a conflict, never a target.
+    if Path(f'/proc/{saved["identity"]["pid"]}').exists():
         raise ValueError("Original PID is still present")
     request = read(run / "control/request.json")
-    if request != manifest["request"] or (run / "attempts" / manifest["capture_id"] / "inspect.json").exists():
+    marker = run / "attempts" / manifest["capture_id"] / "inspect.json"
+    if request != manifest["request"] or (marker.exists() and not reusable):
         raise ValueError("Stale control markers")
-    if dependencies(job, tools, deadline) != manifest["dependencies"]:
+    emit("dependency_validation_started")
+    # The policy is fixed when the image is published; an activation cannot weaken it.
+    # Images published before the field existed were captured under strict semantics.
+    policy = manifest["dependencies"].get("model_policy", "strict-v1")
+    if dependencies(job, tools, deadline, workers, policy) != manifest["dependencies"]:
         raise ValueError("Environment, tools, source, or asset mismatch")
-    for name in ("updates.jsonl", "trainer.stderr"):
+    emit("dependency_validation_completed")
+    if reusable:
+        emit("external_materialization_started")
+        materialize_external(snapshot, run, manifest)
+        emit("external_materialization_completed")
+    for name in manifest["external_files"]:
         if not (run / name).is_file() or file_hash(run / name) != manifest["external_files"][name]:
             raise ValueError("Required external log missing or changed")
+    # Dependencies can exceed the page cache: read the image last so CRIU can
+    # reuse verified pages. Both orders retain every original integrity check.
+    if order == "dependencies-first":
+        payload()
+    if reusable:
+        # The previous attempt's marker and host registration are consumed evidence,
+        # retained in that attempt's directory; the new attempt starts from capture.
+        marker.unlink(missing_ok=True)
+        write(run / "job.json", saved)
     return manifest

@@ -135,7 +135,7 @@ restore/unlock commands. The plugin disables CUDA handling during **pre-dump**,
 CRIU's preliminary capture mode; CPU pre-dump support does not imply incremental
 GPU capture.
 
-**CRIUgpu** names the research on GPU-aware CRIU integration. In this POC, the
+**CRIUgpu** names the research on GPU-aware CRIU integration. In this experiment, the
 concrete components are CRIU's CUDA plugin and NVIDIA's `cuda-checkpoint`.
 See the [paper](https://arxiv.org/html/2502.16631v1) and
 [CRIU integration](https://criu.org/GPU_Checkpointing).
@@ -236,7 +236,7 @@ Linux permissions, and external files. NVIDIA's documented GPU remapping require
 the same chip type and sufficient memory; arbitrary GPU migration is not implied.
 Recheck versions after instance resume.
 
-This POC excludes multi-GPU communication, multi-process training, CUDA IPC,
+This experiment excludes multi-GPU communication, multi-process training, CUDA IPC,
 managed memory, GPU sharing/partitioning modes (MPS/MIG), and arbitrary cross-host migration. Potential
 uses include maintenance, temporary GPU handoff, and avoiding repeated
 initialization where restore is cheaper. Sudden host loss still requires an
@@ -256,6 +256,6 @@ guarantee deterministic GPU operations; see [PyTorch reproducibility](https://do
 
 The controller verifies original exit, runs a second GPU job, then restores.
 Detailed inspection stays outside headline timing runs. The
-[results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14)
+[results](../experiments/results-detail.md#four-update-lora-acceptance-and-timing--2026-09-14)
 report same-host continuation and timings with warnings qualified. Replacement
 hosts, real Spot interruptions, and inference cold-start recovery remain untested.

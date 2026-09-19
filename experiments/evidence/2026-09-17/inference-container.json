@@ -1,0 +1,166 @@
+{
+  "status": "passed",
+  "summary": "Pinned Qwen3-8B passed all five diagnostics in the same running container, after namespace, CPU, and GPU restore probes. No container diagnostics were pooled with host timings.",
+  "source_commit": "5aede85",
+  "packaging_commit": "f5de179",
+  "cpu_checks": 47,
+  "image_id": "sha256:6e2eaa4c68c9929cce658fa7394652f7417de34bfd3e307a312aa4e14f901302",
+  "image_bytes": 7125402016,
+  "model": "Qwen/Qwen3-8B",
+  "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "gpu": "NVIDIA A10G",
+  "driver": "570.172.08",
+  "kernel": "6.8.0-1036-aws",
+  "python": "3.10.12",
+  "packages": {
+    "torch": "2.8.0",
+    "transformers": "5.0.0",
+    "safetensors": "0.6.2",
+    "accelerate": "1.15.0"
+  },
+  "permissions": {
+    "Privileged": true,
+    "PidMode": "host",
+    "CgroupnsMode": "host",
+    "NetworkMode": "none",
+    "ShmSize": 1073741824,
+    "Runtime": "nvidia"
+  },
+  "namespace_creation": "passed",
+  "cpu_probe": {
+    "mode": "cpu",
+    "original_reaped": true,
+    "restored_reaped": true,
+    "status": "passed"
+  },
+  "gpu_probe": {
+    "mode": "gpu",
+    "original_reaped": true,
+    "restored_reaped": true,
+    "status": "passed"
+  },
+  "gpu_tensor": {
+    "event": "done",
+    "sha256": "bcfcc724743f7bf094ad3ecaf64d1d5fcc08e80c5801a5c00d368c99bcf8f709",
+    "memory_matches": true,
+    "next_gpu_operation_correct": true,
+    "bytes": 67108864
+  },
+  "prepared_reference_matches_host": true,
+  "forced_eos": {
+    "forced_eos_tokens": [
+      785
+    ],
+    "passed": true
+  },
+  "compatibility_key_sha256": "0a184ee818dc7f2653f154e06acb600001a9af7378d84b98d2dc7861e65107d9",
+  "source_sha256": {
+    "experiments/criu/session.py": "e50c0aace4871c2994a53cf869e1cc4d5687dd74357d985245efd535d9602969",
+    "experiments/finetuning/application_pipeline.py": "e84e222f2859e9e2bfb3f6cf905fb1f2272de3cb794986c7b9cd97944fc32a5a",
+    "experiments/finetuning/checkpoint.py": "703c88784dc2c03fc6622522565fc85cf5a766caf3df1b852ba4de49debf2e55",
+    "experiments/finetuning/control.py": "d49500378a711f52ca9847e5b842ca72eed3c158d4e4ace767b6bf9411353c70",
+    "experiments/finetuning/criu_pipeline.py": "e267f973088365e6eb227c96771e7b8d690655f4ddb8f8036c5810e389295d74",
+    "experiments/finetuning/job_b.py": "9d0e1a7e54a46f3d86ba1b23d79937b49c01956aa4524f577684abc8c1627ac1",
+    "experiments/finetuning/metrics.py": "e62fdd31903775baa23e97b83ef7decdffee3b59fc9c341feee9e609e6f9c634",
+    "experiments/finetuning/pipeline.py": "02a7beeb96894d4c83997748f895e368e67b3f00aecf59652c40cb48c8cfee04",
+    "experiments/finetuning/prepare.py": "e7a3924f0d5fb9d8f6475e2bc3b23497ad644a14727e82846b2087c9f4de4618",
+    "experiments/finetuning/reference_pipeline.py": "3e3217cc51ddf6cf1ee573b82634ca4215073258a3b710710052cd5aaedf5fb4",
+    "experiments/finetuning/report.py": "f15e66591a2c9a61da09fb0901155844c946aeee48fdd26041f2a8d7eca49fca",
+    "experiments/finetuning/restore.py": "147223126c7074dcaac665a0ce0509b391966d382ba154b89a013e5dd2a445bf",
+    "experiments/finetuning/run.py": "a43d2f6ebe8007ea2f793ecf53dd78ab5b36b9d8aa0f883aef113005e7cf0d60",
+    "experiments/finetuning/state.py": "ffd0812eef6f10842d6411a942ec436c28cc4f5cae3097b60e84ff5c4ac37ddd",
+    "experiments/finetuning/train.py": "866b19fdeb41bd6f0b60e33ab55acb4f8ef0ed5288f7757104d69aeb9927ee12",
+    "experiments/inference/lifecycle.py": "fcceeaf34841f7d68ddc038adaf0c3e3e2f3dfa43e5a8d8ec2c929fcb8bb95be",
+    "experiments/inference/measure.py": "9cfb976ba0411a82fdea48bfa0acd7a1a543a14c9dda53a61e305bd1abe6c792",
+    "experiments/inference/park.py": "2daa2f43225e85441eead049b5158795898d70fe0c0e0c61d4d08f819fffce0a",
+    "experiments/inference/prepare_assets.py": "97c9c05446396e3e840a30141d043ea43920786b66ea4e4b5bf2582f4c04e578",
+    "experiments/inference/report.py": "6877b2c536618e7dbc299589f2a7de782f7baf77344a8ee675509ddb0477ae47",
+    "experiments/inference/run.py": "e525942d62be3ce330e9373d975fc59667b03e14ce7f9f3914d54a964189ee44",
+    "experiments/inference/worker.py": "98c35f79461d3d51f3e6a39f5e38fb958a40c15c8bb56b90972e628bb7896e81"
+  },
+  "diagnostics": [
+    {
+      "name": "disk",
+      "route": "disk",
+      "status": "passed",
+      "result_sha256": "849d29258fca98753716746acf3804fcdf0fff9061177e324e5b225c5dd8b033"
+    },
+    {
+      "name": "fresh-1",
+      "route": "fresh",
+      "status": "passed",
+      "result_sha256": "e16995556558a49ad6a95a8d40b36351edd7f1dfa2609af5e78a40ccbbbb4894"
+    },
+    {
+      "name": "fresh-2",
+      "route": "fresh",
+      "status": "passed",
+      "result_sha256": "ae7509df08e774833625832dd5b29f6e2fea82c3fcfb0587ea436203b0528914"
+    },
+    {
+      "name": "ram",
+      "route": "ram",
+      "status": "passed",
+      "result_sha256": "7ccc01045d120f48eabe5167600324d2031050a0747c74c772b528b4e0191382"
+    },
+    {
+      "name": "resident",
+      "route": "resident",
+      "status": "passed",
+      "result_sha256": "9ef06860355ea8b3974d4593ae9b659eb7f126cbd8765254b19fac2a74b06c49"
+    }
+  ],
+  "gpu_processes_after": [],
+  "restore_admission": {
+    "action": "restore",
+    "memory": {
+      "VmRSS": "1455640 kB",
+      "allocated_vram": 16415044608,
+      "reserved_vram": 16418603008,
+      "rss_bytes": 1490575360
+    },
+    "observed": {
+      "available": 22922240000,
+      "cgroup_limits": [],
+      "compute_pids": [],
+      "gpu_free": 23696769024,
+      "gpu_total": 24146608128,
+      "gpu_used": 0
+    },
+    "requirements": {
+      "gpu_free_required": 17492344832,
+      "host_required": 22204145664
+    }
+  },
+  "criu_warnings": [
+    "(00.009977) Warn  (criu/kerndat.c:1642): CRIU was built without libnftables support",
+    "(141.31958) Warn  (compel/arch/x86/src/lib/infect.c:419): Will restore 1881543 with interrupted system call",
+    "(00.022161) Warn  (criu/kerndat.c:1642): CRIU was built without libnftables support"
+  ],
+  "sudo_hostname_warning": {
+    "occurred": true,
+    "commands_succeeded": true,
+    "context": "Network disabled; default container hostname was not resolvable."
+  },
+  "package_records_sha256": {
+    "os-packages.txt": "99dbaef20b5ac26fe62d7014fd8b7ce34f126d2d87ef3a18be1e0822e83e0198",
+    "tool-packages.sha256": "6482ebfb89c5d4d5ff5469d2bc5be6059c38643f58f8cff1c5a39dc9feb25c06"
+  },
+  "job_b_cancellation": {
+    "status": "passed",
+    "mib": 256,
+    "calculation": {
+      "mib": 256,
+      "sum": 268435456,
+      "passed": true
+    },
+    "worker_reaped": true,
+    "compute_pids_after": []
+  },
+  "privileged_helper_cancellation": {
+    "passed": true,
+    "remaining_members": [],
+    "injected": "KeyboardInterrupt with sudo/timeout descendants"
+  },
+  "limits": "Same running privileged container on the same A10G/boot; no container restart, replacement-host, power-loss, or spot-recovery claim. Networking recovery was not tested; CRIU was built without libnftables support. Diagnostic durations are not timing-block measurements."
+}

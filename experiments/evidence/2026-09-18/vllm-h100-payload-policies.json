@@ -1,0 +1,114 @@
+{
+ "strict-v1": {
+  "campaign": "qwen25-05b-h100-01",
+  "payload_workers": 1,
+  "payload_validation_seconds": 14.24,
+  "dependency_validation_seconds": 1.66,
+  "criu_restore_seconds": 4.64,
+  "snapshot_median": 21.92,
+  "cold_median": 15.96,
+  "snapshot_minus_cold": 5.96,
+  "snapshot_runs": [
+   21.92,
+   22.16,
+   21.76
+  ],
+  "cold_runs": [
+   15.96,
+   15.98,
+   15.95
+  ],
+  "per_block_phases": {
+   "1": {
+    "payload_validation_seconds": 14.23,
+    "dependency_validation_seconds": 1.76,
+    "criu_restore_seconds": 4.64
+   },
+   "2": {
+    "payload_validation_seconds": 14.59,
+    "dependency_validation_seconds": 1.66,
+    "criu_restore_seconds": 4.59
+   },
+   "3": {
+    "payload_validation_seconds": 14.24,
+    "dependency_validation_seconds": 1.58,
+    "criu_restore_seconds": 4.64
+   }
+  }
+ },
+ "publication-only-v1": {
+  "campaign": "qwen25-05b-h100-skipval",
+  "payload_workers": 1,
+  "payload_validation_seconds": 0.0,
+  "dependency_validation_seconds": 1.55,
+  "criu_restore_seconds": 11.2,
+  "snapshot_median": 14.01,
+  "cold_median": 15.98,
+  "snapshot_minus_cold": -1.97,
+  "snapshot_runs": [
+   14.0,
+   14.13,
+   14.01
+  ],
+  "cold_runs": [
+   16.02,
+   15.94,
+   15.98
+  ],
+  "per_block_phases": {
+   "1": {
+    "payload_validation_seconds": 0.0,
+    "dependency_validation_seconds": 1.55,
+    "criu_restore_seconds": 11.2
+   },
+   "2": {
+    "payload_validation_seconds": 0.0,
+    "dependency_validation_seconds": 1.52,
+    "criu_restore_seconds": 11.35
+   },
+   "3": {
+    "payload_validation_seconds": 0.0,
+    "dependency_validation_seconds": 1.56,
+    "criu_restore_seconds": 11.19
+   }
+  }
+ },
+ "parallel-chunked-v1": {
+  "campaign": "qwen25-05b-h100-parallel",
+  "payload_workers": 16,
+  "payload_validation_seconds": 1.54,
+  "dependency_validation_seconds": 1.46,
+  "criu_restore_seconds": 4.59,
+  "snapshot_median": 8.99,
+  "cold_median": 15.8,
+  "snapshot_minus_cold": -6.81,
+  "snapshot_runs": [
+   9.06,
+   8.92,
+   8.99
+  ],
+  "cold_runs": [
+   15.78,
+   15.8,
+   15.86
+  ],
+  "per_block_phases": {
+   "1": {
+    "payload_validation_seconds": 1.54,
+    "dependency_validation_seconds": 1.46,
+    "criu_restore_seconds": 4.69
+   },
+   "2": {
+    "payload_validation_seconds": 1.58,
+    "dependency_validation_seconds": 1.43,
+    "criu_restore_seconds": 4.59
+   },
+   "3": {
+    "payload_validation_seconds": 1.54,
+    "dependency_validation_seconds": 1.46,
+    "criu_restore_seconds": 4.59
+   }
+  }
+ },
+ "_note": "Medians over three timing blocks per policy. Each policy is a separate comparison key and the three campaigns do not pool. Host: H100 80GB, driver 580.126.20, vLLM 0.19.1, torch 2.10.0+cu128, gpu_fraction 0.063, 9238 KV blocks, 7.37 GiB image."
+}

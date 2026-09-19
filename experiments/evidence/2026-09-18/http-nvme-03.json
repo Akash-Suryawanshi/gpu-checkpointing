@@ -1,0 +1,90 @@
+{
+  "campaign": "http-nvme-03",
+  "data_cache": "cold",
+  "followup_note": "followup_ttft_seconds in this campaign is NOT a warm-request latency: the worker fingerprinted every weight straight after response one and read no request meanwhile. Fixed at 715d44b, after these images were published. Warm latency is 0.07 s across the command-line campaigns.",
+  "routes": {
+    "fresh": {
+      "max": 55.117377769,
+      "median": 54.304175386,
+      "min": 54.275578856,
+      "n": 3
+    },
+    "snapshot": {
+      "max": 164.292258039,
+      "median": 164.187126596,
+      "min": 164.089748846,
+      "n": 3
+    }
+  },
+  "rows": [
+    {
+      "block": 1,
+      "device_read_bytes": 16381530112,
+      "followup_ttft_seconds": 14.121077682,
+      "headers_seconds": 0.000842038,
+      "route": "fresh",
+      "run": "b1-fresh",
+      "server_id": "a2e51f53b58b480292107ebf5323f463",
+      "status": "passed",
+      "ttft_seconds": 54.275578856
+    },
+    {
+      "block": 1,
+      "device_read_bytes": 52061671424,
+      "followup_ttft_seconds": 13.926002871,
+      "headers_seconds": 0.000833909,
+      "route": "snapshot",
+      "run": "b1-snapshot",
+      "server_id": "d642fc3c63c645b4a0e3700f42d0c568",
+      "status": "passed",
+      "ttft_seconds": 164.292258039
+    },
+    {
+      "block": 2,
+      "device_read_bytes": 16381530112,
+      "followup_ttft_seconds": 14.166091451,
+      "headers_seconds": 0.000823828,
+      "route": "fresh",
+      "run": "b2-fresh",
+      "server_id": "047597a3ec8a46c1a8e7ae5611f672c2",
+      "status": "passed",
+      "ttft_seconds": 54.304175386
+    },
+    {
+      "block": 2,
+      "device_read_bytes": 52061466624,
+      "followup_ttft_seconds": 13.948653217,
+      "headers_seconds": 0.000847188,
+      "route": "snapshot",
+      "run": "b2-snapshot",
+      "server_id": "ec37883d493247ae8958d421b07ba5ce",
+      "status": "passed",
+      "ttft_seconds": 164.187126596
+    },
+    {
+      "block": 3,
+      "device_read_bytes": 16381530112,
+      "followup_ttft_seconds": 14.168095672,
+      "headers_seconds": 0.000771646,
+      "route": "fresh",
+      "run": "b3-fresh",
+      "server_id": "ac75b154db11419ea9e5fc6110a4a064",
+      "status": "passed",
+      "ttft_seconds": 55.117377769
+    },
+    {
+      "block": 3,
+      "device_read_bytes": 52061466624,
+      "followup_ttft_seconds": 14.02104532,
+      "headers_seconds": 0.000828428,
+      "route": "snapshot",
+      "run": "b3-snapshot",
+      "server_id": "bce789ea661b41658ac0e3f5af9c5b43",
+      "status": "passed",
+      "ttft_seconds": 164.089748846
+    }
+  ],
+  "source_commit": "1441343",
+  "storage": "EC2 instance store NVMe /opt/dlami/nvme (ephemeral)",
+  "transport": "http"
+}

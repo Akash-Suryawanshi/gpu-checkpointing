@@ -1,7 +1,7 @@
 # Plan: independent capture and restore
 
 **Implemented and validated on 2026-09-17.** See the
-[measured evidence](../experiments/results.md#independent-lifecycle-validation--2026-09-17).
+[measured evidence](../experiments/results-detail.md#independent-lifecycle-validation--2026-09-17).
 Changes are split into small dependent review branches.
 The user reviews and merges.
 

@@ -1,0 +1,48 @@
+{
+ "host": {
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "driver": "580.126.20",
+  "cuda": "13.0",
+  "kernel": "5.15.0-171-generic",
+  "volume": "/dev/vda1 (virtio, ext4)"
+ },
+ "engine": {
+  "vllm": "0.19.1",
+  "torch": "2.10.0+cu128",
+  "cuda_runtime": "12.8"
+ },
+ "gpu_fraction": 0.063,
+ "gpu_blocks": 9238,
+ "blocks": {
+  "1": {
+   "snapshot_ttft_seconds": 21.92,
+   "payload_validation_seconds": 14.24,
+   "dependency_validation_seconds": 1.76,
+   "criu_restore_seconds": 4.63,
+   "image_bytes": 7915398866,
+   "cold_ttft_seconds": 15.96
+  },
+  "2": {
+   "snapshot_ttft_seconds": 22.16,
+   "payload_validation_seconds": 14.59,
+   "dependency_validation_seconds": 1.67,
+   "criu_restore_seconds": 4.59,
+   "image_bytes": 7915426912,
+   "cold_ttft_seconds": 15.98
+  },
+  "3": {
+   "snapshot_ttft_seconds": 21.76,
+   "payload_validation_seconds": 14.24,
+   "dependency_validation_seconds": 1.58,
+   "criu_restore_seconds": 4.64,
+   "image_bytes": 7915435088,
+   "cold_ttft_seconds": 15.95
+  }
+ },
+ "image_composition_gib": {
+  "pages-9.img": 7.32,
+  "torch_reserved": 5.066,
+  "torch_allocated_live": 2.819,
+  "host_rss": 1.93
+ }
+}

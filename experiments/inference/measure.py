@@ -1,0 +1,190 @@
+"""Admit inference evidence before computing observer-clock durations."""
+
+import hashlib
+import json
+from pathlib import Path
+
+ROUTES = ("fresh", "resident", "ram", "disk")
+VLLM_ROUTES = ("cold", "eager", "snapshot")
+
+
+def read(path):
+    return json.loads(Path(path).read_text())
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def file_hash(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def diagnostic_record(path, key, route, expected_hash=None, validate=None):
+    """Admit the diagnostic a timing run cites; `validate` selects the engine's rules."""
+    path = Path(path)
+    result = path / "result.json"
+    if expected_hash is not None and file_hash(result) != expected_hash:
+        raise ValueError("Diagnostic hash changed")
+    run = read(path / "run.json")
+    if run["kind"] != "diagnostic" or run["route"] != route or run["key"] != key:
+        raise ValueError("Incompatible diagnostic")
+    (validate or (lambda target: validate_run(target, check_diagnostic=False)))(path)
+    return {"path": str(path.resolve()), "sha256": file_hash(result)}
+
+
+def durations(records, run_id, reference):
+    previous, seen = -1, set()
+    for record in records:
+        request, first, response = (record[k] for k in ("request", "first", "response"))
+        identifier = request["request_id"]
+        if not identifier or identifier in seen:
+            raise ValueError("Duplicate request identity")
+        seen.add(identifier)
+        for item in (request, first, response):
+            if item["run_id"] != run_id or item["request_id"] != identifier:
+                raise ValueError("Stale or wrong message identity")
+        start, published, received, completed = (record[k] for k in
+            ("start_ns", "published_ns", "first_ns", "completed_ns"))
+        times = (previous, start, record["request_start_ns"], published, received, completed)
+        if any(type(t) is not int for t in times) or list(times) != sorted(times):
+            raise ValueError("Observer events are out of order")
+        previous = completed
+        if (not response["tokens"] or first["token"] != response["tokens"][0]
+                or first["token"] != reference["first_token"]
+                or response["tokens"] != reference["tokens"] or response["text"] != reference["text"]):
+            raise ValueError("First/full/reference output differs")
+    if len(records) != 2:
+        raise ValueError("Primary and health requests required")
+    return {"start_to_first_token_seconds": (records[0]["first_ns"] - records[0]["start_ns"]) / 1e9,
+            "health_request_to_first_token_seconds": (records[1]["first_ns"] - records[1]["start_ns"]) / 1e9,
+            "message_write_seconds": [(r["published_ns"] - r["request_start_ns"]) / 1e9 for r in records]}
+
+
+def validate_run(path, check_diagnostic=True):
+    path = Path(path)
+    run, result = read(path / "run.json"), read(path / "result.json")
+    if result["status"] != "passed" or result.get("cleanup") != "complete":
+        raise ValueError("Incomplete or failed run")
+    if result["run_sha256"] != file_hash(path / "run.json"):
+        raise ValueError("Run key changed")
+    required = {"reference.json", "tokens.json", "prepared-audit.json", "audit-before.json",
+                "audit-after.json", "observations.json", "memory.json", "resources.jsonl"}
+    if run["route"] in ("ram", "disk"):
+        required.update(("reuse.json", "released-resources.json"))
+    if run["key"].get("data_cache") == "cold":
+        required.add("cold-cache.json")
+        cache = read(path / "cold-cache.json")
+        if not cache or any(row["resident_after"] != 0 for row in cache):
+            raise ValueError("Cold data-cache condition not established")
+    if not required <= result["evidence"].keys():
+        raise ValueError("Required evidence digest missing")
+    for source, saved in (("reference.json", "reference.json"), ("tokens.json", "tokens.json"),
+                          ("audit.json", "prepared-audit.json")):
+        if file_hash(path / saved) != run["key"]["assets"]["artifacts"][source]:
+            raise ValueError("Prepared reference differs from assets key")
+    for name, expected in result["evidence"].items():
+        if file_hash(path / name) != expected:
+            raise ValueError("Evidence changed: " + name)
+    if run["kind"] == "timing" and check_diagnostic:
+        diagnostic = run["diagnostic"]
+        if not isinstance(diagnostic, dict):
+            raise ValueError("Diagnostic required")
+        diagnostic_record(diagnostic["path"], run["key"], run["route"], diagnostic["sha256"])
+    elif run["kind"] != "diagnostic":
+        raise ValueError("Diagnostic required")
+    reference, records = read(path / "reference.json"), read(path / "observations.json")
+    tokens = read(path / "tokens.json")
+    for record in records:
+        if record["request"]["input_ids"] != tokens["benchmark"]["input_ids"]:
+            raise ValueError("Prompt changed")
+        generated = record["response"]["tokens"]
+        eos = tokens["eos_token_id"]
+        eos = eos if isinstance(eos, list) else [eos]
+        if not 1 <= len(generated) <= tokens["max_new_tokens"] <= 16 or any(t in eos for t in generated[:-1]):
+            raise ValueError("Decoder length/EOS contract violated")
+    before, after = read(path / "audit-before.json"), read(path / "audit-after.json")
+    if before != after or after != read(path / "prepared-audit.json"):
+        raise ValueError("Immutable model state changed")
+    if after["training"] or after["kv_cache"] is not None:
+        raise ValueError("Invalid idle state")
+    if run["route"] in ("ram", "disk"):
+        reuse = read(path / "reuse.json")
+        if not reuse["passed"] or not reuse["exited"]:
+            raise ValueError("GPU reuse incomplete")
+    if run["route"] == "disk" and not all(result.get(k) for k in
+            ("original_reaped", "capture_exited", "restore_exited", "image_hashes_match")):
+        raise ValueError("Disk lifecycle incomplete")
+    measured = durations(records, run["run_id"], reference)
+    if result["durations"] != measured:
+        raise ValueError("Stored duration disagrees with raw events")
+    return measured
+
+
+def validate_http(record, reference):
+    """Admit one client-observed HTTP trial: ordered client clock, exact reference output."""
+    primary = record["primary"]
+    times = (primary["start_ns"], primary["headers_ns"], primary["first_ns"], primary["done_ns"])
+    if any(type(t) is not int for t in times) or list(times) != sorted(times):
+        raise ValueError("Client events are out of order")
+    events = primary["events"]
+    tokens = [e for e in events if e["event"] == "token"]
+    if not tokens or events[-1]["event"] != "done" or tokens[0]["received_ns"] != primary["first_ns"]:
+        raise ValueError("First token must be the first client-timed event")
+    done = events[-1]
+    if (done["tokens"] != reference["tokens"] or done["text"] != reference["text"]
+            or tokens[0]["token_id"] != reference["first_token"] or [t["token_id"] for t in tokens] != done["tokens"]):
+        raise ValueError("Streamed, final, and reference outputs differ")
+    if record["status"] != "passed" or record.get("status_after", {}).get("state") != "READY":
+        raise ValueError("Trial did not pass its own checks")
+    if record["data_cache"] == "cold" and any(row["resident_after"] for row in record.get("cold_cache", [])):
+        raise ValueError("Cold data-cache condition not established")
+    return {"ttft_seconds": (primary["first_ns"] - primary["start_ns"]) / 1e9,
+            "followup_ttft_seconds": (record["followup"]["first_ns"] - record["followup"]["start_ns"]) / 1e9}
+
+
+def validate_vllm(record, reference):
+    """Admit one vLLM route record before its durations are believed.
+
+    Ordering, request identity and reference output are checked by `durations`,
+    which the Transformers routes use as well. Added here: the route's own
+    conditions, and, for the captured route, that the key-value cache was
+    released before the image was taken rather than after it.
+    """
+    if record["route"] not in VLLM_ROUTES:
+        raise ValueError("Unknown vLLM route")
+    if record["status"] != "passed" or record.get("cleanup") != "complete":
+        raise ValueError("Incomplete or failed run")
+    if record["data_cache"] == "cold" and (not record.get("cold_cache")
+            or any(row["resident_after"] for row in record["cold_cache"])):
+        raise ValueError("Cold data-cache condition not established")
+    observations = record["observations"]
+    if record["activation"]["start_ns"] != observations[0]["start_ns"]:
+        raise ValueError("Activation start is not the first request's timer")
+    release, capture = record["kv_release_ns"], record["capture_start_ns"]
+    if record["route"] == "snapshot":
+        if type(release) is not int or type(capture) is not int or not release < capture:
+            raise ValueError("Capture must follow the key-value cache release")
+        if not all(record["lifecycle"].get(name) for name in
+                   ("original_reaped", "capture_exited", "restore_exited", "image_hashes_match")):
+            raise ValueError("Snapshot lifecycle incomplete")
+    elif release is not None or capture is not None:
+        raise ValueError("A launched route neither releases its cache nor captures")
+    measured = durations(observations, record["run_id"], reference)
+    return {"ttft_seconds": measured["start_to_first_token_seconds"],
+            "followup_ttft_seconds": measured["health_request_to_first_token_seconds"]}
+
+
+def vllm_run(path):
+    """Admit a stored vLLM run directory and return the durations it may claim."""
+    path = Path(path)
+    result = read(path / "result.json")
+    if result["run_sha256"] != file_hash(path / "run.json"):
+        raise ValueError("Run key changed")
+    for name, expected in result["evidence"].items():
+        if file_hash(path / name) != expected:
+            raise ValueError("Evidence changed: " + name)
+    measured = validate_vllm(result, read(path / "reference.json"))
+    if result["durations"] != measured:
+        raise ValueError("Stored duration disagrees with raw events")
+    return measured

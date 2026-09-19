@@ -1,9 +1,20 @@
 # Learning CPU and GPU checkpointing
 
-This POC captures a running LoRA trainer as files, ends the original process,
-and restores it to continue training. The scope is one Linux host, one process,
+These experiments save and restore LoRA training and compare four ways to
+activate a loaded inference model. A disk snapshot can end the original process
+and reconstruct it to continue working. The scope is one Linux host, one process,
 and one NVIDIA GPU. The docs assume basic programming; OS concepts are introduced
 where needed.
+
+## Result
+
+Snapshot restore is workload- and bottleneck-dependent. On Qwen2.5-0.5B with vLLM
+0.19.1 on an H100 80GB, snapshot restore with 16-worker parallel integrity
+verification reduced median TTFT from 15.80 s to 8.99 s across three timing blocks
+(43%). On Qwen3-8B/A10G, the best tested disk-snapshot path remained slower than
+cold loading because image I/O dominated. See
+[experiments/results.md](experiments/results.md) for methodology, raw evidence,
+and limitations.
 
 ## Start with the machine
 
@@ -29,12 +40,15 @@ files or services.
 
 | Read | Purpose |
 | --- | --- |
+| [Experiment results](experiments/results.md) | What each experiment did, found, and failed to do. |
 | [CPU checkpointing](docs/01-cpu-checkpointing.md) | Memory, execution state, Linux resources, and CRIU restoration. |
 | [GPU checkpointing](docs/02-gpu-checkpointing.md) | CUDA staging, CPU/GPU coordination, limitations, and cost. |
 | [Run the experiment](experiments/finetuning/README.md) | Setup, commands, code walkthrough, and reporting. |
-| [Results](experiments/results.md) | Dated evidence, measurements, and qualifications. |
+| [Long-form record](experiments/results-detail.md) | Per-run evidence, measurements, and qualifications. |
 | [Workload contract](docs/implementation-plan.md) | Implemented configuration and acceptance requirements. |
 | [Next lifecycle plan](docs/independent-lifecycle-plan.md) | Proposed independent trainer, capture, and restore commands. |
+| [Inference snapshot plan](docs/inference-snapshot-plan.md) | Inference comparison requirements and validation gates. |
+| [vLLM snapshot plan](docs/vllm-snapshot-plan.md) | Whether a snapshot pays for an engine whose startup is computation. |
 
 The [research note](research/single-gpu-finetuning.md) compares approaches; the
 [teaching plan](docs/readability-plan.md) tracks remaining explanatory work.
@@ -43,11 +57,13 @@ The [research note](research/single-gpu-finetuning.md) compares approaches; the
 
 On EC2 A10G, application restart and CRIU restore matched uninterrupted LoRA
 training, including active dropout and repeated capture. The September 17
-[validation](experiments/results.md#readability-refactor-validation--2026-09-17)
+[validation](experiments/results-detail.md#readability-refactor-validation--2026-09-17)
 passed after the readability refactor. CRIU resumed faster but saved more slowly
 and produced larger snapshots in the recorded
-[comparison](experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14).
+[comparison](experiments/results-detail.md#four-update-lora-acceptance-and-timing--2026-09-14).
 
 These are qualified same-host results: shared-resource warnings remain unresolved.
-Spot recovery, replacement-host restoration, and inference cold starts are untested.
-Historical container results are recorded separately.
+Qwen3-8B also completed the [four-route inference comparison](experiments/results-detail.md#inference-activation-and-gpu-reuse--2026-09-17)
+on A10G; the [inference runbook](experiments/inference/README.md) gives the commands.
+Spot recovery and replacement-host restoration remain untested. Local model-file
+cache conditions were uncontrolled; these are not guaranteed cold-storage reads.

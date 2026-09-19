@@ -26,7 +26,7 @@ class RestoreTests(unittest.TestCase):
         import os
         import time
         from unittest.mock import patch
-        cases = ("completion", "digest", "schema", "payload", "phase", "identity", "stale", "environment", "external")
+        cases = ("valid", "completion", "digest", "schema", "payload", "phase", "identity", "stale", "environment", "external")
         for case in cases:
             with self.subTest(case=case), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
@@ -70,6 +70,14 @@ class RestoreTests(unittest.TestCase):
                 observed = {"fingerprint": "changed" if case == "environment" else "expected"}
                 with patch.object(control, "dependencies", return_value=observed), \
                      patch.object(control.session, "criu") as criu:
-                    with self.assertRaises((ValueError, FileNotFoundError, KeyError)):
-                        control.validate(snapshot, run, root, time.monotonic() + 5)
+                    for order in ("payload-first", "dependencies-first"):
+                        events = []
+                        if case == "valid":
+                            control.validate(snapshot, run, root, time.monotonic() + 5, order, events.append)
+                            expected = ["payload_validation_started", "payload_validation_completed",
+                                        "dependency_validation_started", "dependency_validation_completed"]
+                            self.assertEqual(events, expected if order == "payload-first" else expected[2:] + expected[:2])
+                        else:
+                            with self.assertRaises((ValueError, FileNotFoundError, KeyError)):
+                                control.validate(snapshot, run, root, time.monotonic() + 5, order, events.append)
                     criu.assert_not_called()

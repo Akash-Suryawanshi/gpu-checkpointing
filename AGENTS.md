@@ -1,7 +1,6 @@
 # Learning GPU snapshotting
 
-A bounded POC for understanding GPU snapshots and their trade-offs; no production
-platform is being built.
+Experiments for learning GPU snapshots and their trade-offs.
 
 ## Learning audience
 
@@ -32,6 +31,30 @@ merges; do not merge on their behalf.
 
 ## Knowledge Updates
 
+### 2026-09-18 - A serving engine is refused by CRIU for its sockets, not its kernels
+**Finding**: Capturing a warmed vLLM worker failed twice before any GPU mapping was examined. `criu/proc_parse.c:502` rejects the io_uring ring that PyTorch's libuv distributed store opens even at world size one (`USE_LIBUV=0` removes it), then `criu/sk-inet.c:200` rejects the store's connection to itself without `--tcp-established`, whose iptables lock needs `/usr/sbin` in the privileged command's PATH. The CUDA plugin itself checkpointed the devices in about three seconds.
+**Impact**: Probe a new workload's sockets and anonymous inodes before concluding anything about GPU support; `handle_device_vma plugin failed` was the predicted blocker and never appeared. These are PyTorch behaviours, so they apply to any torch job with a process group, not only to vLLM.
+
+### 2026-09-18 - vLLM past 0.19.1 needs a newer driver than this host has
+**Finding**: Every vLLM from 0.20 on pins `torch>=2.11`, whose wheels depend on `nvidia-*-cu13`; CUDA 13 requires driver 580 or newer, and this host runs 570.172.08. vLLM 0.19.1 pins torch 2.10.0 with `nvidia-cuda-runtime-cu12==12.8.90` and loads here. Its engine core is a second process unless `VLLM_ENABLE_V1_MULTIPROCESSING=0`, and only then does `llm_engine.model_executor` exist; cache geometry is at `llm_engine.vllm_config.cache_config`, not on the engine.
+**Impact**: Read wheel metadata before spending an install on a version check. One process is what CRIU dumps and what `experiments/inference/park.py` attributes to a GPU identity, so the multiprocessing split is not optional here.
+
+### 2026-09-18 - A new experiment directory must not hold a `prepare.py`
+**Finding**: `experiments/finetuning/control.py:21` does `from prepare import file_hash`, and a script's own directory precedes everything on `sys.path`. A `prepare.py` beside a new controller would be imported by every reused module instead of the intended one. `experiments/vllm/*.py` therefore prepend the finetuning and inference directories ahead of their own, and preparation is named `assets.py`.
+**Impact**: Check for an existing module name before adding a file to a new experiment directory; the collision is silent and reaches code that never imported the new file.
+
+### 2026-09-18 - Pinned buffers need explicit alignment for direct I/O
+**Finding**: Early `direct` diagnostics failed the alignment guard; the packed 8B file ends with a 2048-byte partial page. `experiments/inference/stream_weights.py:20` explicitly aligns buffer views, and the loader requests a full aligned buffer at EOF while hashing only the returned model bytes.
+**Impact**: Pinned memory alone does not establish `O_DIRECT` alignment. Distinguish aligned request sizes from a permitted short EOF return; preserve failed diagnostics instead of silently using buffered I/O.
+
+### 2026-09-18 - Disk validation precedes the CRIU restore event
+**Finding**: `experiments/finetuning/restore.py:27` validates before emitting `restore_requested`. In the third 8B timing, controller observations place 137.60 seconds before that event, 139.45 inside the CRIU command, and 0.57 after return; the 4,351,144 restored pages are 16.60 GiB, not 17.8 GiB.
+**Impact**: Join host-clock controller and helper events before attributing latency. Do not interpret the difference between total latency and CRIU duration as post-restore delay.
+
+### 2026-09-18 - The 8B snapshot already has an aggregated page image
+**Finding**: The retained 8B manifests put over 99.9% of payload bytes in `images/pages-8.img`. CRIU logs record repeated 2,147,479,552-byte `preadv` returns taking about 16.36 seconds, approximately 125.2 MiB/s.
+**Impact**: Prioritize storage bandwidth and repeated full-file passes over small-file aggregation. An NVMe device name alone does not identify local storage: the original data mount is EBS; the host also has separately mounted instance storage.
+
 ### 2026-09-17 - CRIU buffer flushing is not snapshot durability
 **Finding**: Pinned `criu/bfd.c:114` checks earlier buffer errors; `bflush():235` calls `write_all()`, not `fsync()`. `pipeline.py:115` separately invokes `sync -f`.
 **Impact**: Persist payload, directory entries, and completion in order; see [publication contract](docs/independent-lifecycle-details.md). Local persistence does not establish survival of volume deletion.
@@ -58,7 +81,7 @@ merges; do not merge on their behalf.
 
 ### 2026-09-14 - CRIU and preliminary LoRA restoration pass on the EC2 host
 **Finding**: EC2 A10G/570.172.08 restored CPU, GPU-tensor, and initialized LoRA processes with pinned CRIU `9539417f`. GPU access required approved host execution.
-**Impact**: Use the [EC2 evidence](experiments/results.md#ec2-criu-validation--2026-09-14), not historical container blockers. Retain sharing/syscall-warning qualifications; same-host success is not spot recovery.
+**Impact**: Use the [EC2 evidence](experiments/results-detail.md#ec2-criu-validation--2026-09-14), not historical container blockers. Retain sharing/syscall-warning qualifications; same-host success is not spot recovery.
 
 ### 2026-09-14 - Native DMTCP can reacquire the GPU after writing a checkpoint
 **Finding**: Pinned DMTCP finalizes images before resume; its [CUDA hook](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp#L333-L378) restores GPU state on both original resume and image restart.
@@ -122,8 +145,68 @@ merges; do not merge on their behalf.
 
 ### 2026-09-17 - Restored trainers cannot publish host-clock PID start ticks
 **Finding**: The first independent two-generation trial read start ticks `78305919` inside the restored trainer and `78308751` in its host worker for the same PID. `experiments/finetuning/restore.py:43` now refreshes registration from the host worker; `control.py:144` adopts that record instead of replacing it with the trainer's time-namespace view.
-**Impact**: Process identity comparisons and subsequent acknowledgements must use one observer clock domain; converting event timestamps alone is insufficient.
+**Impact**: Process identity comparisons and acknowledgements must use one observer clock domain. Failure cleanup must also read the refreshed `job.json` when restore exits after release but before writing its final result.
 
 ### 2026-09-17 - Pause expiry must be serialized with dump arming
 **Finding**: A deadline test showed `experiments/finetuning/control.py:144` could resume an acknowledged trainer while its capture worker still held the operation lock. Expiry now rechecks the unarmed phase under that lock; workers also wait with their deadline when initial registration briefly owns it.
 **Impact**: An expired request alone is not permission to resume once a worker may be preparing a dump. Worker death releases the lock, but a persisted dumping phase still forbids automatic continuation.
+
+### 2026-09-17 - Check the installed loader before claiming parallel-loading gains
+**Finding**: Installed Transformers 5.0.0 `core_model_loading.py:1116–1121` uses a thread pool by default; `HF_DEACTIVATE_ASYNC_LOAD` disables it. Its versioned environment-variable documentation instead describes `HF_ENABLE_PARALLEL_LOADING`.
+**Impact**: Benchmark the real default and verify the execution host's implementation; a serial control is not evidence of improvement over the default.
+
+### 2026-09-17 - Inference and training scripts share short module names
+**Finding**: Both experiment directories contain `run.py` and `report.py`; the combined runbook import path can select the wrong module. `tests/test_finetuning_metrics.py:14` and `tests/test_inference_report.py:12` load their target scripts by absolute file location.
+**Impact**: Keep combined-suite imports explicit where script names overlap; changing path order alone can silently test the other controller.
+
+### 2026-09-17 - Cancel the whole inference helper group before reaping its leader
+**Finding**: `experiments/inference/lifecycle.py:22` uses `waitid(..., WNOWAIT)` to keep the helper PID reserved while stopping its process group. `experiments/criu/session.py` keeps GNU timeout in that group for inference; its default group creation would let privileged descendants escape group cleanup.
+**Impact**: A controller interruption must stop capture/restore commands before cleaning up model workers. Preserve the separate restored-worker identity checks, and report an unresolved helper or partial restore as failed cleanup.
+
+### 2026-09-17 - Killing a direct command does not prove its exit was collected
+**Finding**: An injected SIGTERM during `experiments/criu/session.py:181` reached Python's `KeyboardInterrupt` cleanup, but the child still had a `/proc` entry when the call returned. `experiments/inference/lifecycle.py:22` explicitly stops and reaps owned helper groups.
+**Impact**: Use that owner for inference job B as well as capture/restore; GPU reuse requires completed cleanup, not merely sending a kill signal.
+
+### 2026-09-17 - The isolated CRIU build still needs host build prerequisites
+**Finding**: Pinned `criu/Makefile.packages:30` links UUID and Netlink. `experiments/criu/build.sh` omits UUID development files, and its private `usr/lib` search misses Ubuntu's extracted `lib/libnl-3` layout; the old host supplied both globally.
+**Impact**: The clean container explicitly installs `uuid-dev`/`libnl-3-dev` for building and their runtime libraries. Keep compiler logs; the generic package-check message lists unrelated test dependencies too.
+
+### 2026-09-17 - Container GPU identity checks need a consistent process view
+**Finding**: `experiments/inference/park.py:43` compares NVIDIA-reported process IDs with `/proc` identities. The validated container launch in `experiments/inference/README.md` uses `--pid=host` and `--cgroupns=host`, so identity checks and ancestor-memory admission use the host views.
+**Impact**: Keep that tested profile when reproducing these results; changing namespace isolation requires fresh probes and diagnostics, not an assumption that container IDs will match GPU monitoring.
+
+### 2026-09-18 - Apply a campaign's settings to every route in it
+**Finding**: The validation-flags arm passed `--validation-order`/`--validation-workers` to its restore route only. Those settings enter the comparison key, so the campaign held two keys and `experiments/inference/report.py:66` refused to aggregate it. The individual runs remain valid and its fresh key matched the control campaign exactly.
+**Impact**: Vary one setting across campaigns, never across routes inside one. When a campaign does hold several keys, curate one record per key group and state the cross-campaign comparison rather than weakening the report's refusal.
+
+### 2026-09-18 - Snapshot images are bound to their checkout path
+**Finding**: `experiments/finetuning/control.py:241` keys dependency hashes by absolute path, so the same commit in a second git worktree produces a different dependency record. An image captured in one worktree fails validation from another even with identical file contents, and any source edit invalidates every unreleased image.
+**Impact**: Run a campaign to completion from one fixed checkout, and capture and restore an image from that same path. Treat images as unusable after a source change; discard only their `snapshot/images` payload and keep manifests, logs, and results.
+
+### 2026-09-18 - A background server in a script ignores SIGINT
+**Finding**: The campaign script could not stop its endpoint server: `/proc/PID/status` showed `SigIgn` covering SIGINT. A non-interactive shell without job control sets background commands to ignore SIGINT and SIGQUIT, and Python keeps an inherited SIG_IGN. `wait` then blocked for fifteen minutes, making the script's own SIGKILL escalation unreachable.
+**Impact**: `experiments/inference/api.py` now installs handlers for SIGINT and SIGTERM itself. Send SIGTERM from scripts, bound every wait, and escalate; check `SigIgn` before concluding a process is hung.
+
+### 2026-09-18 - A busy worker delays the next request as surely as a blocking controller
+**Finding**: After moving the controller's audit wait to unload, an endpoint follow-up still measured 14.4 s. `experiments/inference/worker.py` fingerprinted every weight straight after response one, reading no request for the duration. The command-line controller hid this by waiting for the audit before timing its second request; an HTTP client cannot. The audit now runs after the request loop ends, before the completion marker.
+**Impact**: Removing a wait from the caller does not help when the callee is busy. Check the server phase spans on both sides, and keep whole-model work outside the window in which a request can arrive.
+
+### 2026-09-18 - Cache eviction can lose a race, and said nothing about which file
+**Finding**: One loader timing block failed in `experiments/inference/cold_cache.py` with "Selected files are still cached", naming no file, so the cause could not be identified; the record is never written when the check raises. Two neighbouring blocks with identical settings passed. Eviction now retries a bounded number of times and names each file with its resident and total page counts.
+**Impact**: Retrying makes the cold-cache guarantee stricter, not weaker, because the returned records must still show zero resident pages. Keep the failed slot rather than rerunning it.
+
+### 2026-09-18 - Compiled models cannot be captured, and smaller models snapshot worse
+**Finding**: `--compile-mode default` makes CRIU fail in `criu/proc_parse.c:118` with `handle_device_vma plugin failed`, before any image is written: generated kernels are device mappings the pinned plugin does not handle. The compiled model's greedy output also diverged from the uncompiled reference at token twelve. On Qwen2.5-0.5B a snapshot took 17.95 s against a fresh 11.12 s, a worse ratio than the 8B model's.
+**Impact**: Do not expect a smaller model to favour restoration; fixed process state is a larger share of a small image. Test a capture-compatibility hypothesis on the small model first, and give any compiled campaign its own prepared reference.
+
+### 2026-09-18 - Keep benchmark bookkeeping and audits out of the request path
+**Finding**: The first endpoint trial measured 145.7 s for a fresh activation and 14.1 s for a warm follow-up. `Runtime.ensure_ready()` fingerprinted all 15.26 GiB of model files inside the first request, which also warmed the cache the trial had just evicted, and `generate()` waited for the worker's full weight audit before the second. Server phase records isolated both: `received->ready` 145.7 s, then `ready->first_token` 14.1 s with the model already resident.
+**Impact**: Build the comparison key when the server starts, and verify the audit at unload after the response pair, as the plan requires. Start a server before evicting caches, and read the server phase spans before trusting a client number.
+
+### 2026-09-18 - A listener on the port is not a ready endpoint
+**Finding**: The first endpoint campaign chose port 8090, already held by an unrelated local service that answered `/healthz` with plain `ok`. `api.py` died on bind, the campaign script's `curl -sf` readiness check passed, and the trial failed inside `json.loads`. `/healthz` now returns a per-process `server_id`, model, and route; `bench_http.ready()` requires them.
+**Impact**: Check port ownership before a campaign, and make readiness probes identify the intended server rather than confirm that something is listening. Report a non-JSON reply with its body, not a decoder error.
+
+### 2026-09-18 - Published inference images are currently single-use
+**Finding**: `experiments/finetuning/control.py:330` requires the exact published phase; `restore.py:48` changes registration, while validation also rejects old inspection markers and changed captured logs. `experiments/criu/session.py:204` restores the saved PID, and `worker.py:87` retains its captured run path.
+**Impact**: Repeated activation uses `control/activation.json` per attempt plus baseline log copies under `snapshot/external/`, never a phase reset; `control.validate()` resets the consumed marker and registration under the lock. Training keeps the single-use contract; see the [activation contract](docs/inference-activation-contract.md).

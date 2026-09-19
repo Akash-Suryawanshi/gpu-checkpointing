@@ -1,6 +1,6 @@
 # Plan: concise explanations without assumed OS knowledge
 
-<a id="plan-make-the-poc-readable-without-an-os-course"></a>
+<a id="plan-make-the-experiment-readable-without-an-os-course"></a>
 
 Write for a CS student who knows basic Python. Define an unfamiliar concept once
 where it is needed, then link back. Keep technical identifiers precise; shorten
@@ -64,7 +64,7 @@ when it clarifies a state transition.
 - **Implemented:** dedicated pipelines, inline explanations, and the runbook's
   function/marker walkthrough.
 - **Validated:** September 17 CPU/GPU checks; see the
-  [record](../experiments/results.md#readability-refactor-validation--2026-09-17).
+  [record](../experiments/results-detail.md#readability-refactor-validation--2026-09-17).
 - **Remaining:** deeper worked examples of shared memory, ownership, storage,
   memory accounting, and clock conversion; review each against the code and
   its diagrams. An editorial shortening pass does not complete these lessons.

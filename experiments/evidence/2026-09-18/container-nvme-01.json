@@ -1,0 +1,116 @@
+{
+  "campaign": "container-nvme-01",
+  "diagnostics": {
+    "disk": {
+      "data_cache": "cold",
+      "durations": {
+        "health_request_to_first_token_seconds": 0.069547503,
+        "message_write_seconds": [
+          0.000683335,
+          0.000712266
+        ],
+        "start_to_first_token_seconds": 178.573034228
+      },
+      "status": "passed"
+    },
+    "disk-warm": {
+      "data_cache": "uncontrolled",
+      "durations": {
+        "health_request_to_first_token_seconds": 0.064633661,
+        "message_write_seconds": [
+          0.000657675,
+          0.000755556
+        ],
+        "start_to_first_token_seconds": 128.116002357
+      },
+      "status": "passed"
+    },
+    "fresh": {
+      "data_cache": "cold",
+      "durations": {
+        "health_request_to_first_token_seconds": 0.064165982,
+        "message_write_seconds": [
+          0.000631104,
+          0.000676194
+        ],
+        "start_to_first_token_seconds": 54.718262085
+      },
+      "status": "passed"
+    }
+  },
+  "image_id": "sha256:644878a5985b6598329574345d77bfce6c02139471971fb1cc08de0a12890485",
+  "note": "Privileged container with the host process-ID and cgroup namespaces, network disabled, model and results bind-mounted. Host and container results are never pooled. The sudo hostname-resolution warnings come from the disabled network and are retained in the logs.",
+  "routes": {
+    "fresh": {
+      "max": 55.432646626,
+      "median": 54.950962831,
+      "min": 54.550339549,
+      "trials": 3
+    },
+    "snapshot": {
+      "max": 164.973871536,
+      "median": 164.430974447,
+      "min": 164.139496094,
+      "trials": 3
+    }
+  },
+  "rows": [
+    {
+      "block": 1,
+      "device_read_bytes": 16442961920,
+      "followup_ttft_seconds": 0.070588523,
+      "route": "fresh",
+      "run": "b1-fresh",
+      "status": "passed",
+      "ttft_seconds": 54.950962831
+    },
+    {
+      "block": 1,
+      "device_read_bytes": 52317913088,
+      "followup_ttft_seconds": 0.075117634,
+      "route": "snapshot",
+      "run": "b1-snapshot",
+      "status": "passed",
+      "ttft_seconds": 164.973871536
+    },
+    {
+      "block": 2,
+      "device_read_bytes": 16553263104,
+      "followup_ttft_seconds": 0.069815687,
+      "route": "fresh",
+      "run": "b2-fresh",
+      "status": "passed",
+      "ttft_seconds": 55.432646626
+    },
+    {
+      "block": 2,
+      "device_read_bytes": 52083568640,
+      "followup_ttft_seconds": 0.069841334,
+      "route": "snapshot",
+      "run": "b2-snapshot",
+      "status": "passed",
+      "ttft_seconds": 164.430974447
+    },
+    {
+      "block": 3,
+      "device_read_bytes": 16381534208,
+      "followup_ttft_seconds": 0.070150779,
+      "route": "fresh",
+      "run": "b3-fresh",
+      "status": "passed",
+      "ttft_seconds": 54.550339549
+    },
+    {
+      "block": 3,
+      "device_read_bytes": 52060213248,
+      "followup_ttft_seconds": 0.070609193,
+      "route": "snapshot",
+      "run": "b3-snapshot",
+      "status": "passed",
+      "ttft_seconds": 164.139496094
+    }
+  ],
+  "source_commit": "ff694fa",
+  "storage": "EC2 instance store NVMe (ephemeral), bind-mounted into the container",
+  "transport": "http"
+}

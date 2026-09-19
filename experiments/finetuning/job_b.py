@@ -1,14 +1,20 @@
-"""Prove that a separate job can use the GPU while the trainer is absent."""
+"""Prove a separate process can allocate, touch, and compute on the released GPU."""
 
+import argparse
+import json
 import torch
 
 
 if __name__ == "__main__":
-    # 1,048,576 float32 values occupy 4 MiB of device memory. This is a small
-    # availability check, not a claim that every larger workload will fit.
-    x = torch.ones(1024 * 1024, device="cuda")
-    # sum() computes on the GPU; item() waits for and copies the scalar to the
-    # CPU. Checking it proves useful work completed after the allocation.
-    s = x.sum().item()
-    assert s == 1048576
-    print(s)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mib", type=int, default=4)
+    args = parser.parse_args()
+    if args.mib <= 0:
+        parser.error("--mib must be positive")
+    # Touch every byte. Integer reduction avoids float32 summation rounding for
+    # the larger probe; slicing into chunks avoids an equally large int64 copy.
+    x = torch.ones(args.mib * 1024 * 1024, dtype=torch.uint8, device="cuda")
+    total = sum(int(chunk.sum().item()) for chunk in x.split(4 * 1024 * 1024))
+    if total != x.numel():
+        raise RuntimeError("Job B calculation mismatch")
+    print(json.dumps({"mib": args.mib, "sum": total, "passed": True}))

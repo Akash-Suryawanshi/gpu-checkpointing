@@ -1,0 +1,90 @@
+{
+  "campaign": "http-ebs-03",
+  "data_cache": "cold",
+  "followup_note": "followup_ttft_seconds in this campaign is NOT a warm-request latency: the worker fingerprinted every weight straight after response one and read no request meanwhile. Fixed at 715d44b, after these images were published. Warm latency is 0.07 s across the command-line campaigns.",
+  "routes": {
+    "fresh": {
+      "max": 129.525587206,
+      "median": 129.489774813,
+      "min": 129.437676256,
+      "n": 3
+    },
+    "snapshot": {
+      "max": 401.253357838,
+      "median": 401.206919197,
+      "min": 401.163173801,
+      "n": 3
+    }
+  },
+  "rows": [
+    {
+      "block": 1,
+      "device_read_bytes": 16381534208,
+      "followup_ttft_seconds": 14.159958405,
+      "headers_seconds": 0.000850619,
+      "route": "fresh",
+      "run": "b1-fresh",
+      "server_id": "1ec9064a4fb5428283decc011d2a522c",
+      "status": "passed",
+      "ttft_seconds": 129.437676256
+    },
+    {
+      "block": 1,
+      "device_read_bytes": 52061462528,
+      "followup_ttft_seconds": 14.191323504,
+      "headers_seconds": 0.000898439,
+      "route": "snapshot",
+      "run": "b1-snapshot",
+      "server_id": "fd1b4e3c673f4fd092309024bd41c673",
+      "status": "passed",
+      "ttft_seconds": 401.253357838
+    },
+    {
+      "block": 2,
+      "device_read_bytes": 16381530112,
+      "followup_ttft_seconds": 14.233003467,
+      "headers_seconds": 0.000831718,
+      "route": "fresh",
+      "run": "b2-fresh",
+      "server_id": "f00a9ed525a64091bb4652ee94e5cf9a",
+      "status": "passed",
+      "ttft_seconds": 129.525587206
+    },
+    {
+      "block": 2,
+      "device_read_bytes": 52061257728,
+      "followup_ttft_seconds": 14.236753685,
+      "headers_seconds": 0.0008476,
+      "route": "snapshot",
+      "run": "b2-snapshot",
+      "server_id": "f11f932583404777926287c249771470",
+      "status": "passed",
+      "ttft_seconds": 401.206919197
+    },
+    {
+      "block": 3,
+      "device_read_bytes": 16381530112,
+      "followup_ttft_seconds": 14.151351146,
+      "headers_seconds": 0.000779967,
+      "route": "fresh",
+      "run": "b3-fresh",
+      "server_id": "63da54bb168e415592d1823fe78cb335",
+      "status": "passed",
+      "ttft_seconds": 129.489774813
+    },
+    {
+      "block": 3,
+      "device_read_bytes": 52061257728,
+      "followup_ttft_seconds": 14.262911122,
+      "headers_seconds": 0.000801687,
+      "route": "snapshot",
+      "run": "b3-snapshot",
+      "server_id": "6c3e7690a9ef478bab659d4c70e32f35",
+      "status": "passed",
+      "ttft_seconds": 401.163173801
+    }
+  ],
+  "source_commit": "1441343",
+  "storage": "EBS gp3 /mnt/data, 125 MiB/s provisioned",
+  "transport": "http"
+}

@@ -8,7 +8,11 @@ import tempfile
 from unittest.mock import patch
 
 import metrics
-import run as experiment
+# The combined runbook PYTHONPATH also contains inference/run.py.
+import importlib.util
+spec = importlib.util.spec_from_file_location("finetuning_run", Path(__file__).resolve().parents[1] / "experiments/finetuning/run.py")
+experiment = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(experiment)
 
 
 class TimingTests(unittest.TestCase):

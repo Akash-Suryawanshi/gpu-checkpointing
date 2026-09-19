@@ -24,17 +24,32 @@ def restore(args):
     deadline = time.monotonic() + args.timeout
     run = Path(control.read(snapshot / "manifest.json")["run"])
     with control.lock(run, deadline):
-        manifest = control.validate(snapshot, run, args.tools, deadline)
-        capture_id = manifest["capture_id"]
         attempt_id, attempt = control.attempt(run)
+        control.event(attempt, "validation_started")
+        manifest = control.validate(snapshot, run, args.tools, deadline,
+            order=args.validation_order, emit=lambda name: control.event(attempt, name),
+            workers=args.validation_workers, payload_workers=args.payload_workers)
+        control.event(attempt, "validation_completed")
+        capture_id = manifest["capture_id"]
         restoration = {"capture_id": capture_id, "attempt_id": attempt_id}
+        reusable = manifest.get("contract") == control.CONTRACT
+        requests = f"attempts/{attempt_id}/requests"
+        if reusable:
+            (attempt / "requests").mkdir()
+
+        def phase(status):
+            # Reusable images never move the publication phase; each attempt owns activation.json.
+            if reusable:
+                control.activation_state(run, status, **restoration, snapshot=str(snapshot), requests=requests)
+            else:
+                control.phase(run, status, **restoration, snapshot=str(snapshot))
         emit = lambda name, **values: control.event(attempt, name, **restoration, generation=manifest["update"], **values)
         env = session.child_environment(args.tools / "cuda-checkpoint/bin/x86_64_Linux/cuda-checkpoint")
         expected = None
         released = False
         session.adopt_restored_children()
         try:
-            control.phase(run, "restoring", **restoration, snapshot=str(snapshot))
+            phase("restoring")  # Written before CRIU: the versioned worker reads it after continuation.
             emit("restore_requested")
             pid = session.criu("restore", run, attempt_id, control.tools_config(args.tools), env,
                                images=snapshot / "images", attempt=attempt, timeout=control.remaining(deadline))
@@ -48,10 +63,10 @@ def restore(args):
             # Persist the terminal phase before release. A failure never creates
             # continue; only this identified attempt is eligible for cleanup.
             compare(control.read(snapshot / "before.json"), control.read(attempt / "after.json"))
-            control.phase(run, "verified", **restoration, snapshot=str(snapshot))
+            phase("verified")
             release(snapshot, attempt, restoration, attempt / "continue.json")
             released = True
-            control.phase(run, "restored", **restoration, snapshot=str(snapshot))
+            phase("restored")
             emit("continuation_permitted", pid=pid)
             control.write(attempt / "result.json", {"identity": expected, **restoration})
             return expected
@@ -70,7 +85,7 @@ def restore(args):
                 if expected is not None:
                     session.kill_identified(expected)
                     session.reap(expected["pid"])
-                control.phase(run, "failed_restore", **restoration, snapshot=str(snapshot))
+                phase("failed_restore")
             raise
 
 
@@ -79,4 +94,7 @@ if __name__ == "__main__":
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--tools", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--validation-order", choices=("payload-first", "dependencies-first"), default="payload-first")
+    parser.add_argument("--validation-workers", type=int, choices=(1, 4), default=1)
+    parser.add_argument("--payload-workers", type=int, default=1)
     restore(parser.parse_args())
