@@ -6,6 +6,16 @@ and reconstruct it to continue working. The scope is one Linux host, one process
 and one NVIDIA GPU. The docs assume basic programming; OS concepts are introduced
 where needed.
 
+## Result
+
+Snapshot restore is workload- and bottleneck-dependent. On Qwen2.5-0.5B with vLLM
+0.19.1 on an H100 80GB, snapshot restore with 16-worker parallel integrity
+verification reduced median TTFT from 15.80 s to 8.99 s across three timing blocks
+(43%). On Qwen3-8B/A10G, the best tested disk-snapshot path remained slower than
+cold loading because image I/O dominated. See
+[experiments/results.md](experiments/results.md) for methodology, raw evidence,
+and limitations.
+
 ## Start with the machine
 
 The **CPU** runs Python and submits numerical work to the **GPU**. CPU-side objects

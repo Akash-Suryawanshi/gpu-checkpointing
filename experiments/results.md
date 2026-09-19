@@ -2,11 +2,11 @@
 
 **Question:** is restoring a checkpointed GPU process faster than starting it fresh?
 
-**Answer:** it works, and it is slower — until both the workload and the reader are
-right. Training survives capture exactly. Inference restoration lost on every
-model and volume we tried, for one reason: an image is larger than the weights,
-so it only wins when reading is fast. It finally won on an H100 once we stopped
-reading the image single-threaded: **8.99 s against a 15.80 s cold start**.
+**Answer:** it depends on the workload and on what the restore path is waiting for.
+Training survives capture exactly. Snapshot restore lost while image I/O or serial
+validation dominated; on H100, parallel integrity verification reduced the restore
+path enough to beat cold vLLM startup — **8.99 s against a 15.80 s cold start**
+(Qwen2.5-0.5B, vLLM 0.19.1, H100 80GB).
 
 Per-run detail, provenance and qualifications: [long-form record](results-detail.md).
 
@@ -97,6 +97,8 @@ of them. The image is simply bigger than the weights.
 0.27 s sample. A longer read did not reproduce it; both figures are kept.
 
 ## 4. vLLM: an engine whose startup is real computation
+
+Qwen2.5-0.5B, vLLM 0.19.1, on the A10G and then an H100 80GB.
 
 Everything above loads weights and little else, so a snapshot had nothing to win.
 vLLM compiles kernels and captures CUDA graphs: weights load in 0.17 s while
