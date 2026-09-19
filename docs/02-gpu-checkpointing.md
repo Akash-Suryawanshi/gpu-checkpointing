@@ -256,6 +256,6 @@ guarantee deterministic GPU operations; see [PyTorch reproducibility](https://do
 
 The controller verifies original exit, runs a second GPU job, then restores.
 Detailed inspection stays outside headline timing runs. The
-[results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14)
+[results](../experiments/results-detail.md#four-update-lora-acceptance-and-timing--2026-09-14)
 report same-host continuation and timings with warnings qualified. Replacement
 hosts, real Spot interruptions, and inference cold-start recovery remain untested.

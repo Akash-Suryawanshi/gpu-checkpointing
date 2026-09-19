@@ -7,7 +7,7 @@ complete the pipeline with a smaller model if 8B exceeds GPU or host-memory limi
 The local implementation passed with Qwen3-8B on A10G: five diagnostics, twelve
 scheduled timings, and separate disk capture/restore commands. This document keeps
 the acceptance contract. A pinned container also passed CPU/GPU restore probes
-and five 8B diagnostics on the same host; [results](../experiments/results.md#inference-activation-and-gpu-reuse--2026-09-17)
+and five 8B diagnostics on the same host; [results](../experiments/results-detail.md#inference-activation-and-gpu-reuse--2026-09-17)
 own measurements and the [runbook](../experiments/inference/README.md) owns commands.
 
 ```text
@@ -43,7 +43,7 @@ honor the end-of-sequence token and save the exact rendered prompt and token IDs
 
 Fallback: prepare the existing Qwen2.5-0.5B files at revision
 `060db6499f32faf8b98477b0a26969ef7d8b9987` for inference with the same checks.
-Its [training evidence](../experiments/results.md#independent-lifecycle-validation--2026-09-17)
+Its [training evidence](../experiments/results-detail.md#independent-lifecycle-validation--2026-09-17)
 is not inference validation; keep its assets, diagnostics, timings, and report separate.
 
 Fresh has no warmup. Resident, RAM, and disk each start an independent worker,

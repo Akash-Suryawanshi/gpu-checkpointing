@@ -56,7 +56,7 @@ rejects any request path outside the attempt that released the process.
 ## Model integrity policy
 
 Activation-time validation hashes the model files. The
-[file audit](../experiments/results.md#what-a-restored-image-actually-reopens--2026-09-18)
+[file audit](../experiments/results-detail.md#what-a-restored-image-actually-reopens--2026-09-18)
 shows a restored image never reopens them, so that pass proves the environment
 matches rather than enabling the restore.
 

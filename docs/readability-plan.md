@@ -64,7 +64,7 @@ when it clarifies a state transition.
 - **Implemented:** dedicated pipelines, inline explanations, and the runbook's
   function/marker walkthrough.
 - **Validated:** September 17 CPU/GPU checks; see the
-  [record](../experiments/results.md#readability-refactor-validation--2026-09-17).
+  [record](../experiments/results-detail.md#readability-refactor-validation--2026-09-17).
 - **Remaining:** deeper worked examples of shared memory, ownership, storage,
   memory accounting, and clock conversion; review each against the code and
   its diagrams. An editorial shortening pass does not complete these lessons.

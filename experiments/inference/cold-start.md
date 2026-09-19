@@ -4,10 +4,10 @@ The [measurement plan](../../docs/inference-cold-start-plan.md) defines fair
 comparisons; the [research note](../../research/inference-cold-start.md) connects
 the implementation to existing methods.
 
-The [original comparison](../results.md#inference-activation-and-gpu-reuse--2026-09-17)
+The [original comparison](../results-detail.md#inference-activation-and-gpu-reuse--2026-09-17)
 left file-cache residency uncontrolled. These experiments explicitly evict the
 selected weight and image files before starting the activation timer; the
-[cold EBS baseline](../results.md#cold-cache-activation-on-ebs--2026-09-18) records the result.
+[cold EBS baseline](../results-detail.md#cold-cache-activation-on-ebs--2026-09-18) records the result.
 
 ```text
 disk weights -> 4 readers + SHA-256 -> 4 pinned buffers -> GPU tensor views
@@ -89,7 +89,7 @@ snapshot activation, worst case 48.49 GiB:
 ```
 
 The model pass is removable because the restored process never reopens those
-files; see the [file audit](../results.md#what-a-restored-image-actually-reopens--2026-09-18).
+files; see the [file audit](../results-detail.md#what-a-restored-image-actually-reopens--2026-09-18).
 The second image pass is a cache effect: the host has 30 GiB of memory, so a long
 hashing pass between the first read and CRIU evicts the image. Removing either
 one keeps the image cached, and removing the model pass makes the ordering moot.
@@ -126,7 +126,7 @@ restore          read 16.61 GiB    57.5 s      nothing to hide behind
 Widths are seconds on the same volume. The installed loader fills tensors as
 chunks arrive, so construction costs nothing extra. Our packed loader builds
 first and then reads, which is exactly why it is slower despite a faster data
-path; see the [loader comparison](../results.md#packed-loaders-win-the-data-path-and-lose-it-again-to-serialization--2026-09-18).
+path; see the [loader comparison](../results-detail.md#packed-loaders-win-the-data-path-and-lose-it-again-to-serialization--2026-09-18).
 
 So a snapshot of this workload saves work that was already free, and charges
 1.35 GiB of extra reading for it. Published cold-start wins come from engines
