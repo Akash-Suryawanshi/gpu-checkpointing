@@ -27,7 +27,8 @@ def restore(args):
         attempt_id, attempt = control.attempt(run)
         control.event(attempt, "validation_started")
         manifest = control.validate(snapshot, run, args.tools, deadline,
-            order=args.validation_order, emit=lambda name: control.event(attempt, name), workers=args.validation_workers)
+            order=args.validation_order, emit=lambda name: control.event(attempt, name),
+            workers=args.validation_workers, payload_workers=args.payload_workers)
         control.event(attempt, "validation_completed")
         capture_id = manifest["capture_id"]
         restoration = {"capture_id": capture_id, "attempt_id": attempt_id}
@@ -95,4 +96,5 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=float, default=300)
     parser.add_argument("--validation-order", choices=("payload-first", "dependencies-first"), default="payload-first")
     parser.add_argument("--validation-workers", type=int, choices=(1, 4), default=1)
+    parser.add_argument("--payload-workers", type=int, default=1)
     restore(parser.parse_args())

@@ -81,7 +81,7 @@ merges; do not merge on their behalf.
 
 ### 2026-09-14 - CRIU and preliminary LoRA restoration pass on the EC2 host
 **Finding**: EC2 A10G/570.172.08 restored CPU, GPU-tensor, and initialized LoRA processes with pinned CRIU `9539417f`. GPU access required approved host execution.
-**Impact**: Use the [EC2 evidence](experiments/results.md#ec2-criu-validation--2026-09-14), not historical container blockers. Retain sharing/syscall-warning qualifications; same-host success is not spot recovery.
+**Impact**: Use the [EC2 evidence](experiments/results-detail.md#ec2-criu-validation--2026-09-14), not historical container blockers. Retain sharing/syscall-warning qualifications; same-host success is not spot recovery.
 
 ### 2026-09-14 - Native DMTCP can reacquire the GPU after writing a checkpoint
 **Finding**: Pinned DMTCP finalizes images before resume; its [CUDA hook](https://github.com/dmtcp/dmtcp/blob/b175bb5ccadd2f02d11cf052f586d2d9ac62ad53/plugin/cuda/cuda-ckpt.cpp#L333-L378) restores GPU state on both original resume and image restart.

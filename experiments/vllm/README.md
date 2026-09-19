@@ -1,6 +1,10 @@
 # Running the vLLM snapshot comparison
 
-**Complete on Qwen2.5-0.5B: cold 27.65 s, snapshot 30.31 s.** The
+**Complete on Qwen2.5-0.5B: cold 27.65 s, snapshot 30.31 s.** Repeated on an
+H100 host with 16x faster storage, where the gap first widens to 5.96 s
+([storage arm](../results-detail.md#h100-storage-arm-the-disk-stops-binding-and-our-own-reader-takes-over--2026-09-18))
+and then reverses to a 6.81 s win once the payload hash runs in parallel
+([payload policies](../results-detail.md#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)). The
 [plan](../../docs/vllm-snapshot-plan.md) owns the requirements and the stop
 conditions; this file owns the commands. Capture, restore, eviction and
 ownership are reused from the [inference runbook](../inference/README.md).
@@ -99,13 +103,15 @@ PYTHONPATH=experiments/inference:experiments/finetuning:experiments/criu:experim
 
 ## Running on other hardware
 
-The result here is storage-bound, so another host can reverse it. Re-derive
-these before trusting any comparison on a new machine.
+The result here is storage-bound, so another host can reverse it. Faster storage
+alone did not: the binding cost became our own serial payload hash instead.
+Changing that policy did. Re-derive these before trusting any comparison on a
+new machine, and measure the rate the activation achieves, not the device's.
 
 | Re-derive | Why | How |
 | --- | --- | --- |
 | vLLM version | wheels past 0.19.1 pin a CUDA 13 torch needing driver 580+ | read the wheel's `Requires-Dist` for `nvidia-*-cu12` against `cu13` |
-| volume bandwidth | it decides the answer | read the raw device, as in the [bandwidth measurement](../results.md#both-volumes-are-bandwidth-limited-and-our-loaders-already-saturate-them--2026-09-18) |
+| volume bandwidth | it decides the answer | read the raw device, as in the [bandwidth measurement](../results-detail.md#both-volumes-are-bandwidth-limited-and-our-loaders-already-saturate-them--2026-09-18) |
 | `--gpu-fraction` | the preallocated key-value cache is image bytes | keep it low, or unmap the cache before capture |
 | compiled-kernel cache | `warm` refuses an empty cache | one throwaway activation first |
 | CRIU tools | built per host | rebuild under `runs/tools` |
@@ -117,6 +123,10 @@ image_bytes / bandwidth  +  restore overhead   <   cold TTFT
   6.42 GiB / 0.21 GiB/s  +  ~0 s               <   27.65 s      -> 30.6 s, lost
   6.42 GiB / 2.00 GiB/s  +  ~3 s               <   27.65 s      -> 6.2 s, won
 ```
+
+Bandwidth here means the rate the activation actually achieves, not the device's.
+The H100 arm reads at 0.52 GiB/s from a 5.0 GiB/s device, because validation
+hashes the payload serially in 4 MiB reads.
 
 Run a fresh campaign directory and fresh assets: assets record the engine
 configuration, and images are bound to the checkout path that produced them.

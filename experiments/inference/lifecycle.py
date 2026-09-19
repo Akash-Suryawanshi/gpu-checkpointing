@@ -69,10 +69,12 @@ def wait_helper(process, deadline):
         raise RuntimeError("Independent helper failed; see its log")
 
 
-def capture(run, tools, env, process, deadline, contract=None, model_policy="strict-v1"):
+def capture(run, tools, env, process, deadline, contract=None, model_policy="strict-v1",
+            payload_policy="strict-v1", payload_workers=1):
     arguments = [sys.executable, HERE.parent / "finetuning/checkpoint.py", "--run-dir", run,
         "--snapshot", run / "snapshot", "--tools", tools, "--at", "1",
         "--timeout", str(control.remaining(deadline)), "--model-policy", model_policy,
+        "--payload-policy", payload_policy, "--payload-workers", str(payload_workers),
         *(["--contract", contract] if contract else [])]
     with helper(arguments, run / "capture.log", env, deadline) as command:
         while process.poll() is None:
@@ -90,9 +92,10 @@ def capture(run, tools, env, process, deadline, contract=None, model_policy="str
 def restore(run, tools, env, deadline):
     order = control.read(run / "run.json")["key"].get("validation_order", "payload-first")
     workers = control.read(run / "run.json")["key"].get("validation_workers", 1)
+    payload_workers = control.read(run / "run.json")["key"].get("payload_workers", 1)
     arguments = [sys.executable, HERE.parent / "finetuning/restore.py", "--snapshot", run / "snapshot",
                  "--tools", tools, "--timeout", str(control.remaining(deadline)), "--validation-order", order,
-                 "--validation-workers", str(workers)]
+                 "--validation-workers", str(workers), "--payload-workers", str(payload_workers)]
     with helper(arguments, run / "restore.log", env, deadline) as command:
         wait_helper(command, deadline)
     phase = control.current_attempt(run)

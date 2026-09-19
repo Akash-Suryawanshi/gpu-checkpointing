@@ -79,7 +79,7 @@ The tested EC2 A10G route uses CRIU's CUDA plugin as the sole owner of GPU
 lock/checkpoint/restore/unlock. Same-host CPU, tensor, and isolated LoRA restoration
 passed. Interrupted-system-call warnings and unresolved sharing ownership remain
 qualified; preserved mapping addresses/flags do not prove driver-side sharing.
-[Environment and evidence](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14),
+[Environment and evidence](../experiments/results-detail.md#four-update-lora-acceptance-and-timing--2026-09-14),
 [plugin restore hook](https://github.com/checkpoint-restore/criu/blob/criu-dev/plugins/cuda/cuda_plugin.c#L493-L505).
 
 ### Historical DMTCP route on the L4 container
@@ -264,7 +264,7 @@ with an independent job B. [Acceptance gates](../docs/implementation-plan.md#4-e
 
 Ordinary LoRA continuation, application restart, active dropout, and repeated
 CRIU restoration passed on EC2 A10G/driver 570.172.08. Sharing qualifications
-remain. See [dated results](../experiments/results.md#four-update-lora-acceptance-and-timing--2026-09-14)
+remain. See [dated results](../experiments/results-detail.md#four-update-lora-acceptance-and-timing--2026-09-14)
 for image sizes, timings, and memory; earlier L4 results are separate evidence.
 
 ### Add one source of complexity at a time

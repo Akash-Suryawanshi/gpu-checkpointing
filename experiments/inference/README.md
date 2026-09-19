@@ -2,7 +2,7 @@
 
 **Local validation passed with pinned Qwen3-8B on A10G.** All four routes, three
 timing blocks, and separate capture/restore commands passed; see the
-[measured results](../results.md#inference-activation-and-gpu-reuse--2026-09-17).
+[measured results](../results-detail.md#inference-activation-and-gpu-reuse--2026-09-17).
 The [plan](../../docs/inference-snapshot-plan.md) retains the acceptance contract.
 The [cold-start experiments](cold-start.md) add verified cold file caches,
 CRIU phase profiling, and ServerlessLLM-inspired packed/pipelined weight loaders.

@@ -46,7 +46,7 @@ compile-and-capture time.
 
 **Disproved**, and the byte accounting explains it: snapshot 30.31 s against
 cold 27.65 s, reading 6.42 GiB against 0.92 GiB. See the
-[evidence](../experiments/results.md#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18).
+[evidence](../experiments/results-detail.md#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18).
 
 **Blocked if** capture refuses vLLM. It did not, and not for the predicted
 reason: `handle_device_vma plugin failed` never appeared, and the CUDA plugin

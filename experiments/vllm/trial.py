@@ -49,7 +49,7 @@ def comparison_key(deps, manifest, env, **settings):
             "engine_version": manifest["engine"]["version"],
             "gpu_fraction": manifest["engine"]["gpu_fraction"],
             "max_model_len": manifest["engine"]["max_model_len"],
-            "boundary_schema": 2, "integrity_policy": "strict-v1",
+            "boundary_schema": 2,
             "inspection_policy": "full-diagnostic-post-response-timing-v1",
             "engine_environment": engine.ENGINE_ENVIRONMENT,
             "cache_paths": {k: env[k] for k in (*CACHE_KEYS, "VLLM_CACHE_ROOT") if k in env},
@@ -95,7 +95,8 @@ def trial(args):
             raise ValueError("Assets were not prepared with vLLM")
         deps = control.dependencies({"assets": str(assets), "python": sys.executable}, tools, deadline)
         key = comparison_key(deps, manifest, env, poll_ms=args.poll_ms, sample_ms=args.sample_ms,
-                             data_cache=args.data_cache, compile_cache=args.compile_cache)
+                             data_cache=args.data_cache, compile_cache=args.compile_cache,
+                             integrity_policy=args.payload_policy, payload_workers=args.payload_workers)
         diagnostic = None
         if args.kind == "timing":
             diagnostic = measure.diagnostic_record(args.validated_run, key, args.route,
@@ -149,7 +150,9 @@ def trial(args):
             admit(output, "capture", memory, deadline, original)
             details["kv_release_ns"] = control.read(output / "kv-release.json")["released_ns"]
             details["capture_start_ns"] = time.monotonic_ns()
-            details.update(lifecycle.capture(output, tools, env, process, deadline))
+            details.update(lifecycle.capture(output, tools, env, process, deadline,
+                                             payload_policy=args.payload_policy,
+                                             payload_workers=args.payload_workers))
             process, original, sampler.pid = None, None, None
             details["save_seconds"] = (time.monotonic_ns() - details["capture_start_ns"]) / 1e9
             print("snapshot: published; original reaped; capture command exited", flush=True)
@@ -198,7 +201,8 @@ def trial(args):
             raise ValueError("Immutable model state changed")
         if args.route == "snapshot":
             snapshot = control.read(output / "snapshot/manifest.json")
-            if control.inventory(output / "snapshot") != snapshot["payload"]:
+            if control.inventory(output / "snapshot", snapshot.get("payload_policy", "strict-v1"),
+                                 deadline, args.payload_workers) != snapshot["payload"]:
                 raise ValueError("Restore changed immutable image payload")
             details.update(image_hashes_match=True, warnings=session.warnings(output),
                            image_bytes=sum(item["bytes"] for item in snapshot["payload"].values()))
@@ -268,6 +272,8 @@ if __name__ == "__main__":
     parser.add_argument("--poll-ms", type=float, default=5)
     parser.add_argument("--sample-ms", type=float, default=100)
     parser.add_argument("--data-cache", choices=("uncontrolled", "cold"), default="uncontrolled")
+    parser.add_argument("--payload-policy", choices=control.PAYLOAD_POLICIES, default="strict-v1")
+    parser.add_argument("--payload-workers", type=int, default=1)
     parser.add_argument("--compile-cache", choices=("warm", "cold"), default="warm",
                         help="warm keeps vLLM's compiled kernels on disk, as a production restart would")
     args = parser.parse_args()

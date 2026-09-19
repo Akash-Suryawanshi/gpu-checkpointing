@@ -2,7 +2,7 @@
 
 Use the EC2 host's GPU access and `sudo`; the restricted tool sandbox has no GPU.
 Use fresh private output directories on persistent storage with sufficient space;
-keep large images outside the checkout when its volume is nearly full. [Measured results](../results.md#independent-lifecycle-validation--2026-09-17).
+keep large images outside the checkout when its volume is nearly full. [Measured results](../results-detail.md#independent-lifecycle-validation--2026-09-17).
 
 The trainer updates the model; independent capture and restore workers manage
 its snapshots. These separate **processes** have their own memory. Read the
@@ -182,7 +182,7 @@ CRIU can restore a different clock offset for the trainer. [metrics.py](metrics.
 converts its update timestamp using the exact restore-log offset before comparing
 it with the controller; negative latencies are rejected. Raw timestamps and
 offsets remain available. See the measured
-[clock correction](../results.md#clock-correction-and-provenance).
+[clock correction](../results-detail.md#clock-correction-and-provenance).
 
 Curate matching trials without publishing memory images or raw logs:
 
