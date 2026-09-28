@@ -105,3 +105,37 @@ evicts the model files as the cold-start work does. `--compile-cache` says
 whether vLLM's compiled kernels are already on disk: `warm` matches a production
 restart and is refused when the cache is empty, `cold` makes each launch compile
 its own.
+
+## Next increment: startup bottleneck measurement
+
+The next campaign optimizes startup rather than requiring a snapshot win.
+Diagnostic-only [startup spans](../experiments/vllm/README.md#startup-phase-diagnostics)
+are the first increment; the H100 campaign requires verified execution access.
+The recorder passed a Qwen2.5-0.5B diagnostic and an untraced timing run on A10G
+with vLLM 0.19.1; both preserved reference tokens and model fingerprints and
+completed cleanup. All 83 CPU tests passed. This validates instrumentation,
+not a cold-start speedup; no new 8B H100 measurements have been made.
+
+```text
+0.5B recorder validation -> 8B H100 baseline -> at most two interventions
+                                                   |
+                          interrupted batch work <- ten alternating timing pairs
+```
+
+The success target is at least 25% lower median activation-to-first-token time,
+identical greedy outputs and precision, and no more than 5% lower throughput on
+the same steady-state workload. Diagnostic spans are not headline timings.
+Keep cache conditions, model revision, engine settings, and software stack fixed;
+report all attempts, preparation cost, retained storage, and extra host memory.
+
+Use one H100 for at most six allocated GPU-hours including setup, with a total
+incremental infrastructure ceiling of $25. The pilot gets at most two GPU-hours;
+abandon an incompatible route after 30 minutes. Stop at the first budget limit,
+incorrect output, or unresolved cleanup failure. No shared-host driver changes.
+
+After a verified improvement, compare completed requests under identical forced
+worker restarts, retaining unfinished work and retry costs. Label the schedule
+synthetic: it does not measure provider capacity availability, provisioning time,
+or revenue. A failed optimization remains an accepted negative finding, not
+permission to change the workload. Commit this work on `dev`; the user controls
+any later integration into `main`.

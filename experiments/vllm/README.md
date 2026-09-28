@@ -130,3 +130,26 @@ hashes the payload serially in 4 MiB reads.
 
 Run a fresh campaign directory and fresh assets: assets record the engine
 configuration, and images are bound to the checkout path that produced them.
+
+## Startup phase diagnostics
+
+Diagnostic workers now emit `startup-phases.jsonl`; timing workers install no
+tracing hooks. Each span records start/end monotonic timestamps, process ID,
+duration, and failure status. An interrupted start remains visible without an end.
+
+```text
+Python imports -> tracing imports -> engine initialization -> final CUDA sync
+                                    | device initialization
+                                    | model loading
+                                    | profiling / available-memory calculation
+                                    | KV-cache initialization
+                                    + compilation / warmup / graph capture
+```
+
+Worker spans are nested inside engine initialization: do not sum parent and child
+durations. These are CPU-observed method boundaries, not separate disk, PCIe, or
+GPU-kernel timings. No synchronization is added inside worker methods.
+
+Use this diagnostic to select an intervention, then compare untraced runs.
+The recorder targets the in-process V1 worker and fails if a required method is
+missing; a different vLLM version needs a fresh compatibility check.

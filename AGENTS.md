@@ -28,6 +28,8 @@ untracked; never copy personal context into public docs.
 
 Commit each milestone on a feature branch, never `main`. The user reviews and
 merges; do not merge on their behalf.
+Exception requested by the user: commit the current cold-start work directly
+on `dev`. Do not merge it into `main` without the user's explicit instruction.
 
 ## Knowledge Updates
 
