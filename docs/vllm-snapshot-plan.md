@@ -1,8 +1,10 @@
 # Plan: vLLM snapshot versus cold start
 
-**Complete; hypothesis disproved on this hardware.** Tested one claim: for an engine whose startup
-compiles kernels and captures CUDA graphs, restoring a saved process beats
-starting cold. Our own stack could not show this, because its startup work is free.
+**Complete for the 0.5B comparison; the later 8B optimization remains unrun.**
+The first A10G result disproved the hypothesis on slow storage. H100 campaigns
+then proved it when parallel verification stopped the snapshot reader from being
+the bottleneck. A fresh Jarvis Labs replication measured 10.90 s snapshot TTFT
+against 19.61 s cold, with identical output in all three blocks.
 
 This plan owns the vLLM comparison. The
 [cold-start plan](inference-cold-start-plan.md) owns the Transformers routes and
@@ -44,9 +46,14 @@ negative result extends to production engines, which is also worth knowing.
 with identical output tokens, and the gap is close to the measured
 compile-and-capture time.
 
-**Disproved**, and the byte accounting explains it: snapshot 30.31 s against
-cold 27.65 s, reading 6.42 GiB against 0.92 GiB. See the
+**Disproved on the A10G**, and the byte accounting explains it: snapshot 30.31 s
+against cold 27.65 s, reading 6.42 GiB against 0.92 GiB. See the
 [evidence](../experiments/results-detail.md#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18).
+
+**Proved on two H100 campaigns** after parallel payload verification removed the
+serial-reader bottleneck. The fresh Jarvis Labs replication recorded 10.90 s
+against 19.61 s and is documented in the
+[dated evidence](../experiments/results-detail.md#jarvis-labs-h100-replication--2026-09-29).
 
 **Blocked if** capture refuses vLLM. It did not, and not for the predicted
 reason: `handle_device_vma plugin failed` never appeared, and the CUDA plugin
@@ -108,13 +115,14 @@ its own.
 
 ## Next increment: startup bottleneck measurement
 
-The next campaign optimizes startup rather than requiring a snapshot win.
+The next campaign optimizes startup rather than requiring another 0.5B snapshot win.
 Diagnostic-only [startup spans](../experiments/vllm/README.md#startup-phase-diagnostics)
-are the first increment; the H100 campaign requires verified execution access.
+are the first increment. Verified H100 execution access now exists for the 0.5B
+replication, but the 8B baseline has not been run.
 The recorder passed a Qwen2.5-0.5B diagnostic and an untraced timing run on A10G
 with vLLM 0.19.1; both preserved reference tokens and model fingerprints and
 completed cleanup. All 83 CPU tests passed. This validates instrumentation,
-not a cold-start speedup; no new 8B H100 measurements have been made.
+not an 8B cold-start speedup; no new 8B H100 measurements have been made.
 
 ```text
 0.5B recorder validation -> 8B H100 baseline -> at most two interventions

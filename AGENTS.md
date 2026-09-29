@@ -33,6 +33,10 @@ on `dev`. Do not merge it into `main` without the user's explicit instruction.
 
 ## Knowledge Updates
 
+### 2026-09-29 - Do not mix CRIU's extracted protobuf headers with Ubuntu's development package
+**Finding**: On the Jarvis H100, `experiments/criu/build.sh` failed after global protobuf development packages were installed because `/usr/include` and the script's extracted dependency tree supplied conflicting `descriptor.proto` definitions. Rebuilding the same pinned CRIU source entirely against Ubuntu's system development packages succeeded.
+**Impact**: Choose one dependency source for a CRIU build. Do not install global protobuf headers and then invoke the isolated extracted-dependency build without first checking its include-path precedence.
+
 ### 2026-09-18 - A serving engine is refused by CRIU for its sockets, not its kernels
 **Finding**: Capturing a warmed vLLM worker failed twice before any GPU mapping was examined. `criu/proc_parse.c:502` rejects the io_uring ring that PyTorch's libuv distributed store opens even at world size one (`USE_LIBUV=0` removes it), then `criu/sk-inet.c:200` rejects the store's connection to itself without `--tcp-established`, whose iptables lock needs `/usr/sbin` in the privileged command's PATH. The CUDA plugin itself checkpointed the devices in about three seconds.
 **Impact**: Probe a new workload's sockets and anonymous inodes before concluding anything about GPU support; `handle_device_vma plugin failed` was the predicted blocker and never appeared. These are PyTorch behaviours, so they apply to any torch job with a process group, not only to vLLM.

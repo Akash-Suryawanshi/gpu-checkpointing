@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
+  <title id="title">Cold vLLM startup compared with snapshot activation</title>
+  <desc id="desc">The cold route builds a new process from model files. The snapshot route restores a previously warmed CPU and GPU process before serving the same request.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#486581"/></marker>
+    <style>
+      text { font-family: Georgia, 'Times New Roman', serif; fill: #242424; }
+      .heading { font-size: 24px; }
+      .label { font-size: 18px; }
+      .small { font-size: 15px; fill: #52616b; }
+      .box { fill: #faf9f6; stroke: #829ab1; stroke-width: 2; rx: 10; }
+      .saved { fill: #edf6f3; stroke: #3d7a68; stroke-width: 2; rx: 10; }
+      .line { stroke: #486581; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="960" height="430" fill="#faf9f6"/>
+  <text x="40" y="45" class="heading">Two ways to reach the first token</text>
+  <text x="40" y="92" class="label">Cold start</text>
+  <rect x="155" y="65" width="150" height="58" class="box"/><text x="230" y="99" text-anchor="middle" class="label">model files</text>
+  <line x1="305" y1="94" x2="350" y2="94" class="line"/>
+  <rect x="350" y="65" width="175" height="58" class="box"/><text x="437" y="88" text-anchor="middle" class="label">new process</text><text x="437" y="110" text-anchor="middle" class="small">Python + vLLM</text>
+  <line x1="525" y1="94" x2="570" y2="94" class="line"/>
+  <rect x="570" y="65" width="170" height="58" class="box"/><text x="655" y="88" text-anchor="middle" class="label">initialize</text><text x="655" y="110" text-anchor="middle" class="small">load + warm up</text>
+  <line x1="740" y1="94" x2="785" y2="94" class="line"/>
+  <rect x="785" y="65" width="130" height="58" class="box"/><text x="850" y="99" text-anchor="middle" class="label">first token</text>
+  <text x="155" y="153" class="small">The request waits while the serving engine is reconstructed.</text>
+
+  <text x="40" y="225" class="label">Snapshot</text>
+  <rect x="155" y="198" width="150" height="58" class="saved"/><text x="230" y="221" text-anchor="middle" class="label">saved image</text><text x="230" y="243" text-anchor="middle" class="small">already warmed</text>
+  <line x1="305" y1="227" x2="350" y2="227" class="line"/>
+  <rect x="350" y="198" width="175" height="58" class="saved"/><text x="437" y="221" text-anchor="middle" class="label">verify image</text><text x="437" y="243" text-anchor="middle" class="small">16 readers</text>
+  <line x1="525" y1="227" x2="570" y2="227" class="line"/>
+  <rect x="570" y="198" width="170" height="58" class="saved"/><text x="655" y="221" text-anchor="middle" class="label">restore</text><text x="655" y="243" text-anchor="middle" class="small">CRIU + CUDA</text>
+  <line x1="740" y1="227" x2="785" y2="227" class="line"/>
+  <rect x="785" y="198" width="130" height="58" class="saved"/><text x="850" y="232" text-anchor="middle" class="label">first token</text>
+  <text x="155" y="286" class="small">The request pays to read and reconstruct saved state instead of repeating initialization.</text>
+
+  <rect x="155" y="327" width="760" height="65" fill="#eef3f8" stroke="#9fb3c8" rx="10"/>
+  <text x="175" y="354" class="label">The experiment asks:</text>
+  <text x="175" y="380" class="small">Is verify + restore faster than load + initialize, while producing exactly the same tokens?</text>
+</svg>

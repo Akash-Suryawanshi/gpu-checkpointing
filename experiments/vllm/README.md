@@ -1,13 +1,42 @@
 # Running the vLLM snapshot comparison
 
-**Complete on Qwen2.5-0.5B: cold 27.65 s, snapshot 30.31 s.** Repeated on an
-H100 host with 16x faster storage, where the gap first widens to 5.96 s
+**Complete on Qwen2.5-0.5B.** A fresh Jarvis Labs H100 replication measured a
+19.61 s median cold start and a 10.90 s median snapshot activation: **44.4%
+lower TTFT**. Repeated earlier on another H100 host with 16x faster storage,
+where the gap first widened to 5.96 s
 ([storage arm](../results-detail.md#h100-storage-arm-the-disk-stops-binding-and-our-own-reader-takes-over--2026-09-18))
 and then reverses to a 6.81 s win once the payload hash runs in parallel
 ([payload policies](../results-detail.md#two-payload-policies-the-hash-was-also-a-prefetch--2026-09-18)). The
 [plan](../../docs/vllm-snapshot-plan.md) owns the requirements and the stop
 conditions; this file owns the commands. Capture, restore, eviction and
 ownership are reused from the [inference runbook](../inference/README.md).
+
+## What the comparison means
+
+A cold start reconstructs the serving engine from model files. It imports the
+runtime, loads weights into GPU memory, prepares the key-value cache, and performs
+warm-up work before it can return a token.
+
+A snapshot starts from a saved, already-warmed process. CRIU restores CPU memory
+and Linux process state, while its CUDA plugin restores GPU state. The experiment
+asks whether reading that larger image costs less than repeating initialization.
+
+![Cold startup rebuilds vLLM; snapshot activation verifies and restores an already-warmed process.](../../docs/assets/vllm-cold-vs-snapshot.svg)
+
+*Both paths end at the same first token. The work before it is different.*
+
+```text
+cold start
+model files -> Python/vLLM -> weights in GPU -> warm-up -> first token
+                |---------------- 19.61 s median ----------------|
+
+snapshot activation
+saved process image -> CRIU + CUDA plugin -> resumed worker -> first token
+                       |----------- 10.90 s median -----------|
+```
+
+The snapshot saved 8.71 s in this campaign. It did not make token generation
+itself faster; it shortened the work required before the first request could run.
 
 ```text
 assets -> gate 2 probe (0.5B) -> diagnostics (cold, eager, snapshot) -> timing blocks
@@ -16,9 +45,11 @@ assets -> gate 2 probe (0.5B) -> diagnostics (cold, eager, snapshot) -> timing b
 
 ## Environment
 
-vLLM needs its own interpreter: from 0.20 on it pins a CUDA 13 build of PyTorch,
-which requires driver 580 or newer. This host has 570.172.08, so the newest
-usable release is **vLLM 0.19.1** with torch 2.10.0 (CUDA 12.8).
+vLLM needs its own interpreter. The original A10G host had driver 570.172.08, so
+the newest usable release there was **vLLM 0.19.1** with torch 2.10.0 (CUDA 12.8):
+vLLM 0.20 and later pin CUDA 13 PyTorch wheels that require driver 580 or newer.
+The Jarvis H100 had driver 580.126.20, but retained vLLM 0.19.1 so the engine
+version stayed comparable with the earlier campaigns.
 
 ```bash
 BASE=/opt/dlami/nvme/gpu-checkpointing-vllm
@@ -93,6 +124,26 @@ for block in 1 2 3; do
   done
 done
 ```
+
+### Jarvis Labs H100 replication — 2026-09-29
+
+The replication used an H100 80GB, driver 580.126.20, vLLM 0.19.1, torch
+2.10.0+cu128, a cold data cache, and a warm compile cache. The snapshot route
+used `parallel-chunked-v1` with 16 verification workers.
+
+| Block | Cold TTFT | Snapshot TTFT | Snapshot advantage |
+| --- | ---: | ---: | ---: |
+| 1 | 19.959 s | 11.237 s | 8.722 s |
+| 2 | 19.606 s | 10.895 s | 8.710 s |
+| 3 | 19.533 s | 10.809 s | 8.724 s |
+| **Median** | **19.606 s** | **10.895 s** | **8.710 s (44.4%)** |
+
+![Median cold startup was 19.606 seconds; median snapshot activation was 10.895 seconds.](../../docs/assets/jarvis-h100-vllm-timing.svg)
+
+All six runs returned the same 16 token IDs. In every snapshot run the original
+worker was reaped, capture and restore exited, image hashes matched, and cleanup
+completed. The [detailed record](../results-detail.md#jarvis-labs-h100-replication--2026-09-29)
+explains the evidence and limits.
 
 ## Tests
 
