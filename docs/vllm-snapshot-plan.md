@@ -1,8 +1,10 @@
 # Plan: vLLM snapshot versus cold start
 
-**Complete; hypothesis disproved on this hardware.** Tested one claim: for an engine whose startup
-compiles kernels and captures CUDA graphs, restoring a saved process beats
-starting cold. Our own stack could not show this, because its startup work is free.
+**Complete for the 0.5B comparison; the later 8B optimization remains unrun.**
+The first A10G result disproved the hypothesis on slow storage. H100 campaigns
+then proved it when parallel verification stopped the snapshot reader from being
+the bottleneck. A fresh Jarvis Labs replication measured 10.90 s snapshot TTFT
+against 19.61 s cold, with identical output in all three blocks.
 
 This plan owns the vLLM comparison. The
 [cold-start plan](inference-cold-start-plan.md) owns the Transformers routes and
@@ -44,9 +46,14 @@ negative result extends to production engines, which is also worth knowing.
 with identical output tokens, and the gap is close to the measured
 compile-and-capture time.
 
-**Disproved**, and the byte accounting explains it: snapshot 30.31 s against
-cold 27.65 s, reading 6.42 GiB against 0.92 GiB. See the
+**Disproved on the A10G**, and the byte accounting explains it: snapshot 30.31 s
+against cold 27.65 s, reading 6.42 GiB against 0.92 GiB. See the
 [evidence](../experiments/results-detail.md#vllm-a-real-compile-cost-and-a-snapshot-that-still-loses--2026-09-18).
+
+**Proved on two H100 campaigns** after parallel payload verification removed the
+serial-reader bottleneck. The fresh Jarvis Labs replication recorded 10.90 s
+against 19.61 s and is documented in the
+[dated evidence](../experiments/results-detail.md#jarvis-labs-h100-replication--2026-09-29).
 
 **Blocked if** capture refuses vLLM. It did not, and not for the predicted
 reason: `handle_device_vma plugin failed` never appeared, and the CUDA plugin
@@ -105,3 +112,38 @@ evicts the model files as the cold-start work does. `--compile-cache` says
 whether vLLM's compiled kernels are already on disk: `warm` matches a production
 restart and is refused when the cache is empty, `cold` makes each launch compile
 its own.
+
+## Next increment: startup bottleneck measurement
+
+The next campaign optimizes startup rather than requiring another 0.5B snapshot win.
+Diagnostic-only [startup spans](../experiments/vllm/README.md#startup-phase-diagnostics)
+are the first increment. Verified H100 execution access now exists for the 0.5B
+replication, but the 8B baseline has not been run.
+The recorder passed a Qwen2.5-0.5B diagnostic and an untraced timing run on A10G
+with vLLM 0.19.1; both preserved reference tokens and model fingerprints and
+completed cleanup. All 83 CPU tests passed. This validates instrumentation,
+not an 8B cold-start speedup; no new 8B H100 measurements have been made.
+
+```text
+0.5B recorder validation -> 8B H100 baseline -> at most two interventions
+                                                   |
+                          interrupted batch work <- ten alternating timing pairs
+```
+
+The success target is at least 25% lower median activation-to-first-token time,
+identical greedy outputs and precision, and no more than 5% lower throughput on
+the same steady-state workload. Diagnostic spans are not headline timings.
+Keep cache conditions, model revision, engine settings, and software stack fixed;
+report all attempts, preparation cost, retained storage, and extra host memory.
+
+Use one H100 for at most six allocated GPU-hours including setup, with a total
+incremental infrastructure ceiling of $25. The pilot gets at most two GPU-hours;
+abandon an incompatible route after 30 minutes. Stop at the first budget limit,
+incorrect output, or unresolved cleanup failure. No shared-host driver changes.
+
+After a verified improvement, compare completed requests under identical forced
+worker restarts, retaining unfinished work and retry costs. Label the schedule
+synthetic: it does not measure provider capacity availability, provisioning time,
+or revenue. A failed optimization remains an accepted negative finding, not
+permission to change the workload. Commit this work on `dev`; the user controls
+any later integration into `main`.

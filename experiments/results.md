@@ -4,9 +4,10 @@
 
 **Answer:** it depends on the workload and on what the restore path is waiting for.
 Training survives capture exactly. Snapshot restore lost while image I/O or serial
-validation dominated; on H100, parallel integrity verification reduced the restore
-path enough to beat cold vLLM startup — **8.99 s against a 15.80 s cold start**
-(Qwen2.5-0.5B, vLLM 0.19.1, H100 80GB).
+validation dominated. On a fresh Jarvis Labs H100 replication, parallel integrity
+verification reduced the restore path enough to beat cold vLLM startup — **10.90 s
+against a 19.61 s cold start**, or 44.4% lower TTFT (Qwen2.5-0.5B, vLLM 0.19.1,
+H100 80GB). An earlier H100 campaign measured 8.99 s against 15.80 s.
 
 Per-run detail, provenance and qualifications: [long-form record](results-detail.md).
 
@@ -137,6 +138,24 @@ from memory. Verifying *faster* keeps both; verifying *less* loses one.
 
 Not measured: the same policy on the A10G, where the device is flat-capped and
 concurrency should buy nothing. Stated there as an expectation, not a result.
+
+### Fresh replication on Jarvis Labs
+
+The September 29 campaign repeated the winning policy on a newly provisioned
+H100. Three paired blocks all passed and all six runs produced identical tokens.
+
+![Snapshot activation reduced median time to first token by 8.710 seconds, or 44.4 percent.](../docs/assets/jarvis-h100-vllm-timing.svg)
+
+```text
+median activation time
+cold      |████████████████████| 19.61 s
+snapshot  |███████████         | 10.90 s
+                                     8.71 s saved
+```
+
+This proves repeatability for the 0.5B workload on one additional H100 host. It
+does not prove the planned 8B optimization or replacement-host snapshot portability.
+See the [dated evidence](results-detail.md#jarvis-labs-h100-replication--2026-09-29).
 
 ## What we got wrong
 

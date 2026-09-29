@@ -1,0 +1,51 @@
+{
+  "campaign": "jarvis-h100-demo",
+  "date": "2026-09-29",
+  "question": "Is a warmed vLLM process snapshot faster to activate than a cold vLLM start?",
+  "configuration": {
+    "provider": "Jarvis Labs",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "driver": "580.126.20",
+    "kernel": "5.15.0-171-generic",
+    "model": "Qwen/Qwen2.5-0.5B",
+    "revision": "060db6499f32faf8b98477b0a26969ef7d8b9987",
+    "vllm": "0.19.1",
+    "torch": "2.10.0+cu128",
+    "dtype": "bfloat16",
+    "data_cache": "cold",
+    "compile_cache": "warm",
+    "integrity_policy": "parallel-chunked-v1",
+    "validation_workers": 16
+  },
+  "blocks": [
+    {"block": 1, "cold_ttft_seconds": 19.959092057, "snapshot_ttft_seconds": 11.237359896, "snapshot_image_bytes": 7917717644, "capture_seconds": 14.123177604},
+    {"block": 2, "cold_ttft_seconds": 19.605510940, "snapshot_ttft_seconds": 10.895413578, "snapshot_image_bytes": 7917705065, "capture_seconds": 13.696372207},
+    {"block": 3, "cold_ttft_seconds": 19.533045859, "snapshot_ttft_seconds": 10.809314535, "snapshot_image_bytes": 7917770446, "capture_seconds": 13.635298858}
+  ],
+  "medians": {
+    "cold_ttft_seconds": 19.605510940,
+    "snapshot_ttft_seconds": 10.895413578,
+    "advantage_seconds": 8.710097362,
+    "reduction_percent": 44.4
+  },
+  "correctness": {
+    "all_six_runs_passed": true,
+    "all_outputs_identical": true,
+    "tokens": [785, 12884, 5868, 6303, 1576, 432, 374, 1865, 705, 315, 3015, 37652, 323, 1008, 44512, 429],
+    "snapshot_lifecycle_checks": ["original_reaped", "capture_exited", "restore_exited", "image_hashes_match", "cleanup_complete"]
+  },
+  "archive": {
+    "name": "jarvis-h100-demo-evidence.tar.gz",
+    "sha256": "948a88f36f9b407d29ec5c82de873dabb38cf0c605600217c5a83fb017e33830",
+    "snapshot_page_images_included": false
+  },
+  "provider_cost_inr": 72.66,
+  "limits": [
+    "0.5B model only",
+    "single H100 host",
+    "three blocks per route",
+    "no concurrent traffic or throughput comparison",
+    "no replacement-host restore",
+    "no driver or kernel change"
+  ]
+}

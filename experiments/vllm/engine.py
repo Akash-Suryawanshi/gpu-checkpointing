@@ -7,6 +7,7 @@ tests; see the [plan](../../docs/vllm-snapshot-plan.md).
 """
 
 import argparse
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
@@ -17,8 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 # Ahead of this script's own directory: a bare "prepare"/"control" import must
 # reach the finetuning modules, never the same-named files next to this one.
 sys.path[:0] = [str(ROOT / "finetuning"), str(ROOT / "inference")]
+sys.path.append(str(Path(__file__).resolve().parent))
 
 from worker import control, memory, next_request, redirect_output, attempt_paths  # noqa: E402
+import startup_trace  # noqa: E402
 
 # vLLM starts its engine core in a separate process by default. One process is
 # what CRIU dumps and what GPU monitoring attributes, so that split is disabled.
@@ -41,24 +44,27 @@ def version():
     return vllm.__version__
 
 
-def load(model_path, gpu_fraction, enforce_eager, max_model_len, seed=2026):
+def load(model_path, gpu_fraction, enforce_eager, max_model_len, seed=2026, phase_path=None):
     """Start one engine and leave it holding the GPU state a snapshot would carry."""
     # Applied here rather than by each caller: preparation, the worker and any
     # probe must all get the same engine, and a forked engine core cannot
     # initialise CUDA once this process has touched it. These values are part of
     # the measured configuration and are recorded in the comparison key.
     os.environ.update(ENGINE_ENVIRONMENT)
-    import torch
-    from vllm import LLM
-    torch.manual_seed(seed)
-    started = time.monotonic()
-    # Prefix caching is off so no request leaves key-value blocks behind for the
-    # next one: each timed request recomputes its own prompt, as the reference did.
-    engine = LLM(model=str(model_path), dtype="bfloat16", seed=seed,
-                 gpu_memory_utilization=gpu_fraction, enforce_eager=enforce_eager,
-                 max_model_len=max_model_len, enable_prefix_caching=False,
-                 disable_log_stats=True, tensor_parallel_size=1)
-    torch.cuda.synchronize()
+    with phase_path.open("x") if phase_path is not None else nullcontext() as stream:
+        with startup_trace.span(stream, "python_imports"):
+            import torch
+            from vllm import LLM
+        torch.manual_seed(seed)
+        started = time.monotonic()
+        # Prefix caching is off: the second request must recompute its prompt.
+        with startup_trace.worker_spans(stream), startup_trace.span(stream, "engine_initialization"):
+            engine = LLM(model=str(model_path), dtype="bfloat16", seed=seed,
+                         gpu_memory_utilization=gpu_fraction, enforce_eager=enforce_eager,
+                         max_model_len=max_model_len, enable_prefix_caching=False,
+                         disable_log_stats=True, tensor_parallel_size=1)
+        with startup_trace.span(stream, "final_cuda_sync"):
+            torch.cuda.synchronize()
     cache = cache_config(engine)
     return engine, {"load_call_seconds": time.monotonic() - started,
                     "enforce_eager": enforce_eager, "gpu_fraction": gpu_fraction,
@@ -187,7 +193,8 @@ def main(args):
     # Graph capture follows the route, and is deliberately not a key setting: the
     # three routes must share one comparison key to be aggregated against each other.
     engine, loading = load(manifest["model_path"], settings["gpu_fraction"],
-                           eager_route(args.route), settings["max_model_len"])
+                           eager_route(args.route), settings["max_model_len"],
+                           phase_path=run / "startup-phases.jsonl" if args.kind == "diagnostic" else None)
     control.write(run / "loading.json", loading)
     poll = settings["poll_ms"] / 1000
     if args.route == "snapshot":

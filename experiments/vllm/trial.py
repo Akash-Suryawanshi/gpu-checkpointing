@@ -211,6 +211,8 @@ def trial(args):
         names = ["reference.json", "tokens.json", "prepared-audit.json", "audit-before.json",
                  "audit-after.json", "observations.json", "memory.json", "resources.jsonl",
                  "loading.json", "io.json", "compile-cache.json"]
+        if args.kind == "diagnostic":
+            names.append("startup-phases.jsonl")
         if args.route == "snapshot":
             names.append("kv-release.json")
         if args.data_cache == "cold":

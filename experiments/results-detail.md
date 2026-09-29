@@ -1036,3 +1036,90 @@ at first because our verification was.
 Unchanged: the image is still 7.37 GiB against cold's 0.92 GiB, and a faster GPU
 shrinks the prize. One model, one host, three campaigns that pool neither with
 each other nor with the A10G pair. Training keeps `strict-v1`.
+
+## Jarvis Labs H100 replication — 2026-09-29
+
+This campaign asks a narrow question: does the winning 0.5B H100 result survive
+a fresh machine and a fresh set of timing runs? It does. Snapshot activation had
+a 10.895 s median TTFT against 19.606 s for a cold start, an 8.710 s or 44.4%
+reduction.
+
+![The cold route rebuilds the serving engine, while the snapshot route restores saved CPU and GPU state.](../docs/assets/vllm-cold-vs-snapshot.svg)
+
+```text
+Cold route
+model on disk -> start Python and vLLM -> load and prepare engine -> token
+                |------------------- 19.606 s ------------------|
+
+Snapshot route
+saved warm process -> verify image in parallel -> CRIU/CUDA restore -> token
+                      |-------------- 10.895 s ----------------|
+```
+
+TTFT, or time to first token, starts before activation and ends when the first
+generated token arrives. It includes the work a real request must wait for; the
+warm follow-up request is reported separately and took about 14 ms.
+
+### Fixed configuration
+
+| Item | Value |
+| --- | --- |
+| Provider | Jarvis Labs |
+| GPU | NVIDIA H100 80GB HBM3 |
+| Driver / kernel | 580.126.20 / Linux 5.15.0-171 |
+| Model | `Qwen/Qwen2.5-0.5B`, revision `060db6499f32faf8b98477b0a26969ef7d8b9987` |
+| Engine | vLLM 0.19.1, torch 2.10.0+cu128, bfloat16 |
+| Snapshot tool | CRIU 4.2.1 GitID `9539417f`, CUDA plugin |
+| Cache conditions | cold data cache, warm compile cache |
+| Integrity policy | `parallel-chunked-v1`, 16 workers |
+| Output | greedy, 16 new tokens |
+
+The model file and every snapshot image were confirmed non-resident before each
+timer. “Cold” here therefore describes the data cache, not an empty compiled-
+kernel cache; both routes deliberately used the same warm compile-cache condition.
+
+### Per-block evidence
+
+![Median snapshot activation was 44.4 percent lower than median cold startup.](../docs/assets/jarvis-h100-vllm-timing.svg)
+
+| Block | Cold TTFT | Snapshot TTFT | Difference | Snapshot image | Capture time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 19.959 s | 11.237 s | −8.722 s | 7.918 GB | 14.123 s |
+| 2 | 19.606 s | 10.895 s | −8.710 s | 7.918 GB | 13.696 s |
+| 3 | 19.533 s | 10.809 s | −8.724 s | 7.918 GB | 13.635 s |
+| **Median** | **19.606 s** | **10.895 s** | **−8.710 s** | — | **13.696 s** |
+
+Capture time is shown separately because it is preparation work, not request
+latency. A system that snapshots once and activates many times can amortize it;
+a system that snapshots for every request cannot.
+
+### Correctness and lifecycle checks
+
+All six first responses produced these exact token IDs:
+
+```text
+785, 12884, 5868, 6303, 1576, 432, 374, 1865,
+705, 315, 3015, 37652, 323, 1008, 44512, 429
+```
+
+Each snapshot block also records `original_reaped`, `capture_exited`,
+`restore_exited`, and `image_hashes_match` as true, followed by complete cleanup.
+These checks distinguish “a token appeared” from the stronger claim that the old
+worker released the GPU and the restored worker owned the continuation.
+
+The curated machine-readable record is
+[`evidence/2026-09-29/jarvis-h100-demo-summary.json`](evidence/2026-09-29/jarvis-h100-demo-summary.json).
+The retained off-repository archive has SHA-256
+`948a88f36f9b407d29ec5c82de873dabb38cf0c605600217c5a83fb017e33830`;
+snapshot page images were excluded from that compact archive.
+
+### What this proves—and what it does not
+
+It proves that the 0.5B snapshot advantage reproduced on a newly provisioned
+H100 under the recorded software and cache conditions. It also proves functional
+equivalence for the fixed greedy request used here.
+
+It does not establish an 8B result, tail latency under concurrent traffic,
+throughput parity, restoration after a driver or kernel change, or portability
+to a replacement host. The provider cost reached ₹72.66 before the instance was
+paused; that is an execution-budget observation, not a performance metric.

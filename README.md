@@ -8,11 +8,12 @@ where needed.
 
 ## Result
 
-Snapshot restore is workload- and bottleneck-dependent. On Qwen2.5-0.5B with vLLM
-0.19.1 on an H100 80GB, snapshot restore with 16-worker parallel integrity
-verification reduced median TTFT from 15.80 s to 8.99 s across three timing blocks
-(43%). On Qwen3-8B/A10G, the best tested disk-snapshot path remained slower than
-cold loading because image I/O dominated. See
+Snapshot restore is workload- and bottleneck-dependent. A fresh Jarvis Labs
+replication on Qwen2.5-0.5B with vLLM 0.19.1 and an H100 80GB reduced median
+time to first token (TTFT) from 19.61 s to 10.90 s across three timing blocks
+(44.4%). Every run produced the same 16 tokens. On Qwen3-8B/A10G, the best
+tested disk-snapshot path remained slower than cold loading because image I/O
+dominated. See
 [experiments/results.md](experiments/results.md) for methodology, raw evidence,
 and limitations.
 
